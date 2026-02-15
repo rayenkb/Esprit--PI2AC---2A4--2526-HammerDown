@@ -1,0 +1,15 @@
+build/
+debug/
+release/
+*.o
+*.obj
+*.moc
+*.ui
+*.qrc
+Makefile*
+*.pro.user
+.qmake.stash
+.qtcreator/
+Thumbs.db
+.DS_Store
+*.user
