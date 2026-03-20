@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>HomeFrame</class>
+ <widget class="QFrame" name="HomeFrame">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1311</width>
+    <height>657</height>
+   </rect>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">#HomeFrame {
+ border-image: url(:/assets/home.png) 0 0 0 0 stretch stretch;
+}</string>
+  </property>
+  <property name="frameShape">
+   <enum>QFrame::Shape::StyledPanel</enum>
+  </property>
+  <property name="frameShadow">
+   <enum>QFrame::Shadow::Raised</enum>
+  </property>
+  <layout class="QGridLayout" name="mainGridLayout" rowstretch="130,115,20,115,20,115,142" columnstretch="260,130,231,49,171,200,270">
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   
+   <!-- Row 1: Employee and Customer Management (Height stretch 115) -->
+   <item row="1" column="1" colspan="2">
+    <widget class="QPushButton" name="gs_employes">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>115</height>
+      </size>
+     </property>
+     <property name="cursor">
+      <cursorShape>PointingHandCursor</cursorShape>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background-color: transparent; border: 3px solid #d9534f; border-radius: 15px; }
+QPushButton:hover { background-color: rgba(217, 83, 79, 0.2); border: 3px solid #ff6b6b; }
+QPushButton:pressed { background-color: rgba(217, 83, 79, 0.3); }</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="flat">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item row="1" column="4" colspan="2">
+    <widget class="QPushButton" name="gs_client">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>115</height>
+      </size>
+     </property>
+     <property name="cursor">
+      <cursorShape>PointingHandCursor</cursorShape>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background-color: transparent; border: 3px solid #f0ad4e; border-radius: 15px; }
+QPushButton:hover { background-color: rgba(240, 173, 78, 0.2); border: 3px solid #ffca7a; }
+QPushButton:pressed { background-color: rgba(240, 173, 78, 0.3); }</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="flat">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   
+   <!-- Row 3: Order and Equipment Management (Height stretch 115) -->
+   <item row="3" column="1" colspan="2">
+    <widget class="QPushButton" name="gs_order">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>115</height>
+      </size>
+     </property>
+     <property name="cursor">
+      <cursorShape>PointingHandCursor</cursorShape>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background-color: transparent; border: 3px solid #d9534f; border-radius: 15px; }
+QPushButton:hover { background-color: rgba(217, 83, 79, 0.2); border: 3px solid #ff6b6b; }
+QPushButton:pressed { background-color: rgba(217, 83, 79, 0.3); }</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="flat">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item row="3" column="4" colspan="2">
+    <widget class="QPushButton" name="gs_equipment">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>115</height>
+      </size>
+     </property>
+     <property name="cursor">
+      <cursorShape>PointingHandCursor</cursorShape>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background-color: transparent; border: 3px solid #5cb85c; border-radius: 15px; }
+QPushButton:hover { background-color: rgba(92, 184, 92, 0.2); border: 3px solid #7ed67e; }
+QPushButton:pressed { background-color: rgba(92, 184, 92, 0.3); }</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="flat">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   
+   <!-- Row 5: Supplier Management (Height stretch 115) -->
+   <item row="5" column="2" colspan="3">
+    <widget class="QPushButton" name="gs_fournisseur">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>115</height>
+      </size>
+     </property>
+     <property name="cursor">
+      <cursorShape>PointingHandCursor</cursorShape>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background-color: transparent; border: 3px solid #d9534f; border-radius: 15px; }
+QPushButton:hover { background-color: rgba(217, 83, 79, 0.2); border: 3px solid #ff6b6b; }
+QPushButton:pressed { background-color: rgba(217, 83, 79, 0.3); }</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="flat">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   
+   <!-- Layout Padding Spacers -->
+   <item row="0" column="0" colspan="7">
+    <spacer name="topSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+    </spacer>
+   </item>
+   <item row="6" column="0" colspan="7">
+    <spacer name="bottomSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+    </spacer>
+   </item>
+   <item row="0" column="0" rowspan="7">
+    <spacer name="leftSpacer">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+    </spacer>
+   </item>
+   <item row="0" column="6" rowspan="7">
+    <spacer name="rightSpacer">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+    </spacer>
+   </item>
+   
+  </layout>
+  <widget class="QPushButton" name="btn_settings">
+   <property name="geometry">
+    <rect>
+      <x>20</x>
+     <y>20</y>
+     <width>50</width>
+     <height>50</height>
+    </rect>
+   </property>
+   <property name="cursor">
+    <cursorShape>PointingHandCursor</cursorShape>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">
+     QPushButton {
+         background-color: transparent;
+         border: none;
+         border-radius: 25px;
+         image: url(:/assets/gear.png);
+     }
+     QPushButton:hover {
+         background-color: rgba(255, 255, 255, 0.2);
+     }
+     QPushButton:pressed {
+         background-color: rgba(255, 255, 255, 0.3);
+     }
+    </string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="flat">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_disconnect">
+   <property name="geometry">
+    <rect>
+     <x>80</x>
+     <y>20</y>
+     <width>50</width>
+     <height>50</height>
+    </rect>
+   </property>
+   <property name="cursor">
+    <cursorShape>PointingHandCursor</cursorShape>
+   </property>
+   <property name="toolTip">
+    <string>Disconnect</string>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">
+     QPushButton {
+         background-color: rgba(90, 60, 30, 0.55);
+         border: 2px solid #8B6F47;
+         border-radius: 25px;
+         image: url(:/assets/disconnect.png);
+         padding: 6px;
+     }
+     QPushButton:hover {
+         background-color: rgba(139, 111, 71, 0.75);
+         border: 2px solid #d4a96a;
+     }
+     QPushButton:pressed {
+         background-color: rgba(60, 35, 10, 0.85);
+     }
+    </string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="flat">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="btn_chat">
+   <property name="geometry">
+    <rect>
+     <x>1171</x>
+     <y>20</y>
+     <width>50</width>
+     <height>50</height>
+    </rect>
+   </property>
+   <property name="cursor">
+    <cursorShape>PointingHandCursor</cursorShape>
+   </property>
+   <property name="toolTip">
+    <string>Chat Bot</string>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">
+     QPushButton {
+         background-color: rgba(90, 60, 30, 0.55);
+         border: 2px solid #8B6F47;
+         border-radius: 25px;
+         image: url(:/assets/chat_bot.svg);
+         padding: 8px;
+     }
+     QPushButton:hover {
+         background-color: rgba(139, 111, 71, 0.75);
+         border: 2px solid #d4a96a;
+     }
+     QPushButton:pressed {
+         background-color: rgba(60, 35, 10, 0.85);
+     }
+    </string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="flat">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QFrame" name="profile_frame">
+   <property name="geometry">
+    <rect>
+     <x>900</x>
+     <y>15</y>
+     <width>250</width>
+     <height>60</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">#profile_frame {
+    background: rgba(50, 40, 30, 0.6);
+    border: 1px solid #8B6F47;
+    border-radius: 30px;
+}
+QLabel { background: transparent; border: none; color: white; }</string>
+   </property>
+   <layout class="QHBoxLayout" name="profileLayout">
+    <property name="spacing">
+     <number>10</number>
+    </property>
+    <property name="leftMargin">
+     <number>5</number>
+    </property>
+    <property name="topMargin">
+     <number>5</number>
+    </property>
+    <property name="rightMargin">
+     <number>5</number>
+    </property>
+    <property name="bottomMargin">
+     <number>5</number>
+    </property>
+    <item>
+     <widget class="QLabel" name="lbl_user_avatar">
+      <property name="minimumSize">
+       <size>
+        <width>50</width>
+        <height>50</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>50</width>
+        <height>50</height>
+       </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">border: 1.5px solid #d4a96a; border-radius: 25px; background: rgba(255,255,255,0.1);</string>
+      </property>
+      <property name="text">
+       <string/>
+      </property>
+      <property name="scaledContents">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <layout class="QVBoxLayout" name="userInfoLayout">
+      <property name="spacing">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="lbl_user_name">
+        <property name="font">
+         <font>
+          <pointsize>10</pointsize>
+          <bold>true</bold>
+         </font>
+        </property>
+        <property name="text">
+         <string>First Name</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="lbl_user_role">
+        <property name="font">
+         <font>
+          <pointsize>8</pointsize>
+         </font>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">color: #D4AF37;</string>
+        </property>
+        <property name="text">
+         <string>Job Title</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QPushButton" name="btn_help">
+   <property name="geometry">
+    <rect>
+     <x>1251</x>
+     <y>20</y>
+     <width>50</width>
+     <height>50</height>
+    </rect>
+   </property>
+   <property name="cursor">
+    <cursorShape>PointingHandCursor</cursorShape>
+   </property>
+   <property name="toolTip">
+    <string>Help</string>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">
+     QPushButton {
+         background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f4e4c1, stop:1 #d4a96a);
+         border: 2px solid #8B6F47;
+         border-radius: 25px;
+         color: #2a1e10;
+         font-size: 24px;
+         font-weight: bold;
+     }
+     QPushButton:hover {
+         background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #fff5e6, stop:1 #e8c578);
+         border: 2px solid #a3845a;
+     }
+     QPushButton:pressed {
+         background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #d4a96a, stop:1 #8B6F47);
+         color: #ffffff;
+     }
+    </string>
+   </property>
+   <property name="text">
+    <string>?</string>
+   </property>
+   <property name="flat">
+    <bool>true</bool>
+   </property>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

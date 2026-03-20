@@ -1,0 +1,25 @@
+# Qt Creator user-specific files
+.qtcreator/
+*.pro.user
+*.pro.user.*
+
+# Build directories
+build/
+debug/
+release/
+
+# Qt generated files
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+## Allow .qm files to be committed for translation support
+
+# Compiled object files
+*.o
+*.obj
+
+# Binary files
+*.exe
+*.dll
+*.so
+*.dylib

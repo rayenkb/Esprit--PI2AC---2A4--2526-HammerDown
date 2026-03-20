@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <g fill="none" stroke="#8B6F47" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Outer Box representing the database / system -->
+    <path d="M12 40 v8 a4 4 0 0 0 4 4 h32 a4 4 0 0 0 4 -4 v-8" />
+    
+    <!-- Central downward arrow indicating import -->
+    <path d="M32 12 v30" stroke-width="6"/>
+    <path d="M20 30 l12 12 l12 -12" stroke-width="6"/>
+    
+    <!-- Stack of documents indicating orders -->
+    <path d="M26 6 h12" stroke-width="3"/>
+    <path d="M24 10 h16" stroke-width="3"/>
+  </g>
+</svg>
