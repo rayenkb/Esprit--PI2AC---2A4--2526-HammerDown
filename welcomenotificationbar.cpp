@@ -2,8 +2,8 @@
 #include <QEasingCurve>
 #include <QFrame>
 
-WelcomeNotificationBar::WelcomeNotificationBar(const QString &employeeName, const QString &managementName, QWidget *parent)
-    : QWidget(parent), m_employeeName(employeeName), m_managementName(managementName)
+WelcomeNotificationBar::WelcomeNotificationBar(const QString &employeeName, const QString &employeeRole, const QString &managementName, QWidget *parent)
+    : QWidget(parent), m_employeeName(employeeName), m_employeeRole(employeeRole), m_managementName(managementName)
 {
     // Fix bar dimensions - Larger for PREMIUM impact and visibility
     setFixedHeight(80);
@@ -57,16 +57,20 @@ void WelcomeNotificationBar::setupUi() {
     mainLay->addSpacing(25);
 
     // TEXTS
-    QLabel *welcomeMsg = new QLabel(QString("Welcome to %1").arg(m_managementName), this);
-    welcomeMsg->setStyleSheet("color: #F5E6D3; font-size: 12px; font-weight: bold; background: transparent;");
+    QLabel *welcomeMsg = new QLabel(QString("Welcome, %1").arg(m_employeeName), this);
+    if (!m_employeeRole.isEmpty()) {
+        welcomeMsg->setText(welcomeMsg->text() + QString(" (%1)").arg(m_employeeRole));
+    }
+    welcomeMsg->setStyleSheet("color: #F5E6D3; font-size: 14px; font-weight: bold; background: transparent;");
     mainLay->addWidget(welcomeMsg);
 
+    mainLay->addSpacing(10);
     QLabel *dot = new QLabel(" · ", this);
     dot->setStyleSheet("color: #C17F3E; font-size: 12px; background: transparent;");
     mainLay->addWidget(dot);
 
-    QLabel *personalMsg = new QLabel(QString("Good to see you, %1").arg(m_employeeName), this);
-    personalMsg->setStyleSheet("color: #C17F3E; font-size: 14px; font-weight: normal; background: transparent;");
+    QLabel *personalMsg = new QLabel(QString("Accessing %1 Management").arg(m_managementName), this);
+    personalMsg->setStyleSheet("color: #C17F3E; font-size: 12px; font-weight: normal; background: transparent;");
     mainLay->addWidget(personalMsg);
 
     mainLay->addStretch();

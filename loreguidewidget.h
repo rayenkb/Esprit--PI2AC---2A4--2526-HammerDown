@@ -50,6 +50,7 @@ private:
     QString extractImagePrompt(const QString &text) const;
     void appendBubble(const QString &text, bool isUser);
     void appendImageBubble(const QPixmap &pixmap, const QString &caption);
+    void trimConversationHistory(int maxNonSystemMessages);
     QString buildSystemPrompt() const;
     QString processResponse(const QString &response);
     QString executeSqlCommand(const QString &sql);

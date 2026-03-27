@@ -749,7 +749,7 @@ void ChatBotDialog::callApi(const QString &userMessage)
     }
 
     // Keep the payload small to speed up responses.
-    trimConversationHistory(10);
+    trimConversationHistory(6);
 
     QString currentModel = modelList.value(retryCount, modelList.first());
 
@@ -770,7 +770,9 @@ void ChatBotDialog::callApi(const QString &userMessage)
     QJsonObject body;
     body["model"] = currentModel;
     body["messages"] = conversationHistory;
-    body["max_tokens"] = 300;
+    body["max_tokens"] = 160;
+    body["temperature"] = 0.2;
+    body["top_p"] = 0.8;
 
     QJsonDocument doc(body);
     QNetworkReply *reply = networkManager->post(request, doc.toJson());

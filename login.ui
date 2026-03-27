@@ -19,7 +19,7 @@
 }
 </string>
    </property>
-  <layout class="QGridLayout" name="mainGridLayout" rowstretch="240,50,45,40,110,30,160" columnstretch="470,70,240,191,365">
+  <layout class="QGridLayout" name="mainGridLayout" rowstretch="205,50,43,55,140,30,152" columnstretch="470,70,240,191,365">
    <property name="leftMargin">
     <number>0</number>
    </property>
@@ -73,7 +73,7 @@
    </item>
    
    <!-- Row 3: login_pass (Original Centered Width) -->
-   <item row="3" column="1" colspan="3">
+   <item row="3" column="1" colspan="3" alignment="Qt::AlignTop">
     <widget class="QLineEdit" name="login_pass">
      <property name="font">
       <font>
@@ -81,7 +81,7 @@
       </font>
      </property>
      <property name="styleSheet">
-      <string notr="true">background: transparent; border: none; color: white;</string>
+      <string notr="true">background: transparent; border: none; color: white; margin-top: 5px;</string>
      </property>
      <property name="frame">
       <bool>false</bool>
@@ -92,47 +92,7 @@
     </widget>
    </item>
 
-   <!-- Row 4: Face ID (Left) and Forgot Password Hitbox (Center) -->
-   <item row="4" column="1">
-    <widget class="QPushButton" name="btn_face_login">
-     <property name="minimumSize">
-      <size>
-       <width>44</width>
-       <height>44</height>
-      </size>
-     </property>
-     <property name="cursor">
-      <cursorShape>PointingHandCursor</cursorShape>
-     </property>
-     <property name="toolTip">
-      <string>Login with Face Recognition</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">#btn_face_login {
-    background-color: rgba(139, 111, 71, 0.3);
-    border: 1.5px solid #8B6F47;
-    border-radius: 22px;
-}
-#btn_face_login:hover { background-color: rgba(139, 111, 71, 0.5); border-color: #D4AF37; }</string>
-     </property>
-     <property name="text">
-      <string/>
-     </property>
-     <property name="icon">
-      <iconset>
-       <normaloff>:/assets/chat_bot.svg</normaloff>:/assets/chat_bot.svg</iconset>
-     </property>
-     <property name="iconSize">
-      <size>
-       <width>24</width>
-       <height>24</height>
-      </size>
-     </property>
-     <property name="flat">
-      <bool>true</bool>
-     </property>
-    </widget>
-   </item>
+   <!-- Row 4: Forgot Password Hitbox (Center) -->
    <item row="4" column="2" colspan="2">
     <widget class="QPushButton" name="btn_forgot_password">
      <property name="minimumSize">
@@ -227,6 +187,53 @@ QPushButton:hover { background-color: rgba(255, 255, 255, 0.1); border-radius: 5
       <enum>Qt::Horizontal</enum>
      </property>
     </spacer>
+   </item>
+   
+   <!-- Bottom Right: Face Login -->
+   <item row="6" column="4" alignment="Qt::AlignRight|Qt::AlignBottom">
+    <widget class="QPushButton" name="btn_face_login">
+     <property name="minimumSize">
+      <size>
+       <width>180</width>
+       <height>44</height>
+      </size>
+     </property>
+     <property name="cursor">
+      <cursorShape>PointingHandCursor</cursorShape>
+     </property>
+     <property name="toolTip">
+      <string>Login with Face Recognition</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">#btn_face_login {
+    background-color: rgba(139, 111, 71, 0.3);
+    border: 1.5px solid #8B6F47;
+    border-radius: 22px;
+    color: white;
+    font-weight: bold;
+    font-size: 14px;
+    margin-right: 30px;
+    margin-bottom: 20px;
+}
+#btn_face_login:hover { background-color: rgba(139, 111, 71, 0.5); border-color: #D4AF37; }</string>
+     </property>
+     <property name="text">
+      <string> Face Scan Login</string>
+     </property>
+     <property name="icon">
+      <iconset resource="resources.qrc">
+       <normaloff>:/assets/id.png</normaloff>:/assets/id.png</iconset>
+     </property>
+     <property name="iconSize">
+      <size>
+       <width>24</width>
+       <height>24</height>
+      </size>
+     </property>
+     <property name="flat">
+      <bool>true</bool>
+     </property>
+    </widget>
    </item>
    
   </layout>

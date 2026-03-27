@@ -12,7 +12,7 @@ release/
 moc_*.cpp
 ui_*.h
 qrc_*.cpp
-## Allow .qm files to be committed for translation support
+*.qm
 
 # Compiled object files
 *.o

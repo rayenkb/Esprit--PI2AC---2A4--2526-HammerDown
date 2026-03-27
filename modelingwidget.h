@@ -2,8 +2,6 @@
 #define MODELINGWIDGET_H
 
 #include <QWidget>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
 #include <QOpenGLWidget>
 #include <QOpenGLFunctions>
 #ifdef Q_OS_WIN
@@ -36,9 +34,10 @@
 #include <QSplitter>
 #include <QOpenGLShaderProgram>
 #include <QShortcut>
+#include <QJsonArray>
 
 // ─── Primitive types ───
-enum class PrimitiveType { Cube, Cylinder, Sphere, Plane, Cone, Pyramid };
+enum class PrimitiveType { Cube, Cylinder, Sphere, Plane, Cone, Pyramid, Capsule, Torus };
 
 // ─── A single 3D object in the scene ───
 struct SceneObject {
@@ -140,6 +139,8 @@ private:
     void drawCone(int slices);
     void drawPyramid();
     void drawPlane();
+    void drawCapsule(int slices, int stacks);
+    void drawTorus(int majorSegments, int minorSegments);
 
     QList<SceneObject> *m_objects = nullptr;
     int m_selectedIdx = -1;
@@ -236,8 +237,6 @@ private slots:
     void saveScene();
     void loadScene();
     void onObjectSearchChanged(const QString &text);
-    void onGenerateEnvironment();
-    void onAiReplyFinished(QNetworkReply *reply);
     void onUndo();
     void onRedo();
 
@@ -263,12 +262,6 @@ private:
     GLViewport *m_viewport;
     QList<SceneObject> m_objects;
     int m_nextId = 1;
-
-    // Generate environment panel
-    QWidget *m_generatePanel = nullptr;
-    QLineEdit *m_generateInput = nullptr;
-    QLabel *m_genStatusLabel = nullptr;
-    QNetworkAccessManager *m_genNetworkManager = nullptr;
 
     // Side panel widgets
     QListWidget *m_objectList;

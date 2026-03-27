@@ -124,7 +124,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">color: #333; font-size: 16px; font-weight: bold; background: transparent;
+       <string notr="true">color: white; font-size: 16px; font-weight: bold; background: transparent;
 </string>
       </property>
       <property name="text">
@@ -152,7 +152,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">color: #333; font-size: 16px; font-weight: bold; background: transparent;
+       <string notr="true">color: white; font-size: 16px; font-weight: bold; background: transparent;
 </string>
       </property>
       <property name="text">
@@ -179,7 +179,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">color: #333; font-size: 16px; font-weight: bold; background: transparent;
+       <string notr="true">color: white; font-size: 16px; font-weight: bold; background: transparent;
 </string>
       </property>
       <property name="text">
@@ -206,7 +206,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">color: #333; font-size: 16px; font-weight: bold; background: transparent;
+       <string notr="true">color: white; font-size: 16px; font-weight: bold; background: transparent;
 </string>
       </property>
       <property name="text">
@@ -233,7 +233,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">color: #333; font-size: 16px; font-weight: bold; background: transparent;
+       <string notr="true">color: white; font-size: 16px; font-weight: bold; background: transparent;
 </string>
       </property>
       <property name="text">
@@ -260,7 +260,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">color: #333; font-size: 16px; font-weight: bold; background: transparent;
+       <string notr="true">color: white; font-size: 16px; font-weight: bold; background: transparent;
 </string>
       </property>
       <property name="text">
@@ -287,7 +287,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">color: #333; font-size: 16px; font-weight: bold; background: transparent;
+       <string notr="true">color: white; font-size: 16px; font-weight: bold; background: transparent;
 </string>
       </property>
       <property name="text">
@@ -318,7 +318,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">color: #333; font-size: 16px; font-weight: bold; background: transparent;
+       <string notr="true">color: white; font-size: 16px; font-weight: bold; background: transparent;
 </string>
       </property>
       <property name="text">
@@ -518,7 +518,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">color: #333; font-size: 16px; font-weight: bold; background: transparent;
+       <string notr="true">color: white; font-size: 16px; font-weight: bold; background: transparent;
 </string>
       </property>
       <property name="text">
@@ -1660,7 +1660,7 @@ QComboBox QAbstractItemView { background-color: #332211; color: white; selection
         QPushButton:hover { background-color: #CCC; }</string>
       </property>
       <property name="text">
-       <string>&#8635;</string>
+       <string/>
       </property>
       <property name="icon">
        <iconset resource="resources.qrc">

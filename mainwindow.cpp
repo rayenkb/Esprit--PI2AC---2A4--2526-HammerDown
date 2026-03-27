@@ -67,14 +67,20 @@
 #include <QLineEdit>
 #include <QSpinBox>
 #include <QDesktopServices>
-#include <QDesktopServices>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QRegularExpression>
+#include <QMenu>
 #include <QRegularExpressionValidator>
+#include <QStandardItemModel>
 #include <QIntValidator>
 #include <QDoubleValidator>
 #include <QToolTip>
+#include <QSettings>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QDateTime>
 #include <functional>
 // =============================================================================
 // ANIMATED DONUT CHART WIDGET
@@ -261,6 +267,10 @@ MainWindow::MainWindow(QWidget *parent)
     , currentVolume(1.0) // Initialize at start
 {
     ui->setupUi(this);
+    {
+        QSettings settings("HammerDown", "HammerDown");
+        currentVolume = qBound<qreal>(0.0, settings.value("audio/volume", 1.0).toDouble(), 1.5);
+    }
     weatherAssistant = nullptr;
     currentChatPartnerId = -1;
     
@@ -308,68 +318,24 @@ MainWindow::MainWindow(QWidget *parent)
     employeePage = new QWidget(this);
     ui_employee->setupUi(employeePage);
     ui->stackedWidget->addWidget(employeePage);
-    
-    // Employee Validation
-    ui_employee->le_id->setValidator(new QRegularExpressionValidator(QRegularExpression("^[0-9]*$"), this));
-    QRegularExpressionValidator *empNameValidator = new QRegularExpressionValidator(QRegularExpression("^[A-Za-z\\s]+$"), this);
-    ui_employee->le_nom->setValidator(empNameValidator);
-    ui_employee->le_prenom->setValidator(empNameValidator);
-    ui_employee->dsb_salaire->setMaximum(9999.0);
-    
-    // CRUD Input Lock & Auto-fill based on ID
-    connect(ui_employee->le_id, &QLineEdit::textChanged, this, [this](const QString &text) {
-        bool hasId = !text.trimmed().isEmpty();
-        ui_employee->le_nom->setEnabled(hasId);
-        ui_employee->le_prenom->setEnabled(hasId);
-        ui_employee->le_fonction->setEnabled(hasId);
-        ui_employee->sb_age->setEnabled(hasId);
-        ui_employee->le_mdp->setEnabled(hasId);
-        ui_employee->dsb_salaire->setEnabled(hasId);
-        ui_employee->le_email->setEnabled(hasId);
-        ui_employee->le_num->setEnabled(hasId);
-        ui_employee->btn_upload_avatar->setEnabled(hasId);
-        ui_employee->btn_scan_face->setEnabled(hasId);
-        ui_employee->btn_add->setEnabled(hasId);
-        ui_employee->btn_modify->setEnabled(hasId);
-        
-        if (hasId) {
-            int empId = text.toInt();
-            QSqlQuery q;
-            q.prepare("SELECT LAST_NAME, FIRST_NAME, JOB_TITLE, AGE, PASSWORD, SALARY, EMAIL, PHONE_NUMBER "
-                      "FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
-            q.bindValue(":id", empId);
-            if (q.exec() && q.next()) {
-                ui_employee->le_nom->setText(q.value(0).toString());
-                ui_employee->le_prenom->setText(q.value(1).toString());
-                ui_employee->le_fonction->setText(q.value(2).toString());
-                ui_employee->sb_age->setValue(q.value(3).toInt());
-                ui_employee->le_mdp->setText(q.value(4).toString());
-                ui_employee->dsb_salaire->setValue(q.value(5).toDouble());
-                ui_employee->le_email->setText(q.value(6).toString());
-                ui_employee->le_num->setText(q.value(7).toString());
-
-                QString avatarPath = QString("data/avatars/employee_%1.png").arg(empId);
-                if (QFile::exists(avatarPath)) {
-                    QPixmap pix(avatarPath);
-                    ui_employee->lbl_avatar->setPixmap(getCircularPixmap(pix).scaled(ui_employee->lbl_avatar->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-                } else {
-                    ui_employee->lbl_avatar->clear();
-                    ui_employee->lbl_avatar->setText(tr("No Avatar"));
-                }
-            }
-        }
-    });
-    // Trigger initially to lock them
-    QTimer::singleShot(0, this, [this]() {
-        emit ui_employee->le_id->textChanged(ui_employee->le_id->text());
-    });
-
     connect(ui_employee->btn_return_home, &QPushButton::clicked, this, &MainWindow::on_btn_home_clicked);
     // Employee CRUD connections
     connect(ui_employee->btn_add,    &QPushButton::clicked, this, &MainWindow::onEmployeeAdd);
     connect(ui_employee->btn_modify, &QPushButton::clicked, this, &MainWindow::onEmployeeModify);
     connect(ui_employee->btn_upload_avatar, &QPushButton::clicked, this, &MainWindow::onUploadAvatar);
     connect(ui_employee->btn_scan_face, &QPushButton::clicked, this, &MainWindow::onScanFace);
+    
+    // Salary Intelligence
+    ui_employee->dsb_salaire->setRange(0, 9999.99);
+    connect(ui_employee->dsb_salaire, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::updateSalaryInsight);
+    connect(ui_employee->le_fonction, &QLineEdit::textChanged, this, &MainWindow::updateSalaryInsight);
+    connect(ui_employee->btn_suggest_salary, &QPushButton::clicked, this, &MainWindow::onSuggestSalary);
+    connect(ui_employee->btn_stats_ai_gen, &QPushButton::clicked, this, &MainWindow::onStatsAiClicked);
+    connect(ui_employee->btn_ai_pulse, &QPushButton::clicked, this, &MainWindow::onAIPulseClicked);
+    
+    // Set age range/default for birthdate
+    ui_employee->de_birthdate->setDateRange(QDate(1950, 1, 1), QDate::currentDate());
+    ui_employee->de_birthdate->setDate(QDate(1995, 1, 1));
     // Auto-refresh employee view when switching to view tab
     connect(ui_employee->tabWidget, &QTabWidget::currentChanged, this, [this](int idx){
         if (ui_employee->tabWidget->widget(idx) == ui_employee->tab_view)
@@ -392,7 +358,8 @@ MainWindow::MainWindow(QWidget *parent)
             ui_employee->le_nom->setText(m->data(m->index(idx.row(), 3)).toString());
             ui_employee->le_prenom->setText(m->data(m->index(idx.row(), 4)).toString());
             ui_employee->le_fonction->setText(m->data(m->index(idx.row(), 5)).toString());
-            ui_employee->sb_age->setValue(m->data(m->index(idx.row(), 6)).toInt());
+            int age = m->data(m->index(idx.row(), 6)).toInt();
+            ui_employee->de_birthdate->setDate(QDate::currentDate().addYears(-age));
             ui_employee->le_email->setText(m->data(m->index(idx.row(), 7)).toString());
             ui_employee->le_num->setText(m->data(m->index(idx.row(), 8)).toString());
             
@@ -432,6 +399,9 @@ MainWindow::MainWindow(QWidget *parent)
     ui_supplier->setupUi(supplierPage);
     ui->stackedWidget->addWidget(supplierPage);
     connect(ui_supplier->btn_return_home, &QPushButton::clicked, this, &MainWindow::on_btn_home_clicked);
+    m_supplierMapNet = new QNetworkAccessManager(this);
+    connect(m_supplierMapNet, &QNetworkAccessManager::finished, this, &MainWindow::onSupplierGeocodeFinished);
+    setupSupplierMapTab();
 
     // 6. Equipment Management (Index 5)
     ui_equipment = new Ui::EquipmentManagement;
@@ -726,6 +696,71 @@ MainWindow::MainWindow(QWidget *parent)
     
     ui_order->table_catalog->setEditTriggers(QAbstractItemView::NoEditTriggers);
     ui_order->table_catalog->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    ui_order->table_catalog->setAlternatingRowColors(true);
+    ui_order->table_catalog->setSelectionBehavior(QAbstractItemView::SelectRows);
+    ui_order->table_catalog->setSelectionMode(QAbstractItemView::SingleSelection);
+    ui_order->table_catalog->setShowGrid(false);
+    ui_order->table_catalog->setFocusPolicy(Qt::NoFocus);
+    ui_order->table_catalog->setIconSize(QSize(54, 54));
+    ui_order->table_catalog->verticalHeader()->setVisible(false);
+    ui_order->table_catalog->horizontalHeader()->setFixedHeight(42);
+    ui_order->table_catalog->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
+    ui_order->table_catalog->setStyleSheet(
+        "QTableWidget {"
+        "  background: rgba(255, 255, 255, 0.95);"
+        "  border: 1px solid #8B6F47;"
+        "  border-radius: 10px;"
+        "  alternate-background-color: rgba(248, 242, 232, 0.95);"
+        "  color: #2E261C;"
+        "  gridline-color: transparent;"
+        "  selection-background-color: rgba(139, 111, 71, 0.25);"
+        "  selection-color: #1F160D;"
+        "}"
+        "QTableWidget::item {"
+        "  padding: 6px 10px;"
+        "  border-bottom: 1px solid rgba(139, 111, 71, 0.35);"
+        "}"
+        "QHeaderView::section {"
+        "  background: #8B6F47;"
+        "  color: white;"
+        "  border: none;"
+        "  padding: 8px;"
+        "  font-weight: bold;"
+        "}"
+    );
+
+    ui_order->le_catalog_search->setStyleSheet(
+        "QLineEdit {"
+        "  background: rgba(255,255,255,0.96);"
+        "  color: #2E261C;"
+        "  border: 1.5px solid #8B6F47;"
+        "  border-radius: 8px;"
+        "  padding: 8px 12px;"
+        "  font-size: 13px;"
+        "}"
+        "QLineEdit:focus {"
+        "  border: 2px solid #A38253;"
+        "}"
+    );
+
+    const QString catalogBtnStyle =
+        "QPushButton {"
+        "  background-color: #8B6F47;"
+        "  color: white;"
+        "  border-radius: 8px;"
+        "  padding: 8px 14px;"
+        "  font-weight: bold;"
+        "  border: 1px solid #6d5638;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #a38253;"
+        "}"
+        "QPushButton:pressed {"
+        "  background-color: #6d5638;"
+        "}";
+    ui_order->btn_export_catalog->setStyleSheet(catalogBtnStyle);
+    ui_order->btn_print_catalog->setStyleSheet(catalogBtnStyle);
+    ui_order->btn_delete_all->setStyleSheet(catalogBtnStyle);
     ui->stackedWidget->addWidget(orderPage);
     connect(ui_order->btn_return_home, &QPushButton::clicked, this, &MainWindow::on_btn_home_clicked);
     connect(ui_order->btn_clear, &QPushButton::clicked, this, &MainWindow::onOrderClearFields);
@@ -782,6 +817,12 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui_employee->le_history_search,   &QLineEdit::textChanged, this, &MainWindow::onEmployeeHistorySearch);
     connect(ui_employee->cb_history_filter,   &QComboBox::currentIndexChanged, this, &MainWindow::onEmployeeHistorySearch);
     connect(ui_employee->cb_mail_template,    &QComboBox::currentIndexChanged, this, &MainWindow::onEmployeeMailTemplateChanged);
+    
+    connect(ui_supplier->btn_add,            &QPushButton::clicked, this, &MainWindow::onSupplierAdd);
+    connect(ui_supplier->btn_modify,         &QPushButton::clicked, this, &MainWindow::onSupplierModify);
+    connect(ui_supplier->btn_delete,         &QPushButton::clicked, this, &MainWindow::onSupplierDelete);
+    connect(ui_supplier->btn_clear,          &QPushButton::clicked, this, &MainWindow::onSupplierClearFields);
+    
     connect(ui_supplier->btn_send_sms,       &QPushButton::clicked, this, &MainWindow::onSupplierSendSMS);
     connect(ui_supplier->btn_upload_image,   &QPushButton::clicked, this, &MainWindow::onSupplierUploadImage);
     connect(ui_supplier->btn_chercher,       &QPushButton::clicked, this, &MainWindow::onSupplierSearch);
@@ -974,7 +1015,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Y set to (TabWidgetY + 25) to align with inner buttons.
     setupTabNavigation(clientPage, ui_client->tabWidget, {"Manage", "View", "Stats", "Mail", "Calendar"}, 150, 45, {0, 1, 2, 3, 4});   // Override indices: Manage->0, View->1, Stats->2, Mail->3, Calendar->4
     setupTabNavigation(employeePage, ui_employee->tabWidget, {"Manage", "View", "Stats", "History"}, 150, 95);  // 70+25
-    setupTabNavigation(supplierPage, ui_supplier->tabWidget, {"Manage", "Stats", "View", "Reviews"}, 150, 45);  // 20+25 (Swapped View/Stats if that was intention, user said "change view to stats" and "stats to view")
+    setupTabNavigation(supplierPage, ui_supplier->tabWidget, {"Manage", "Stats", "View", "Reviews", "Map"}, 150, 45, {0, 1, 2, 3, 4});
     setupTabNavigation(equipmentPage, ui_equipment->tabWidget, {"Manage", "View", "History", "Stats", "Chat", "NEXUS", "COSTS"}, 85, 95, {0, 1, 2, 3, 4, 5, 6}, 108); 
     connect(ui_equipment->tabWidget, &QTabWidget::currentChanged, this, [this](int idx) {
         if (!equipmentPage) return;
@@ -1237,6 +1278,10 @@ void MainWindow::setupClientStats()
 
 MainWindow::~MainWindow()
 {
+    {
+        QSettings settings("HammerDown", "HammerDown");
+        settings.setValue("audio/volume", currentVolume);
+    }
     delete ui;
     delete ui_client;
     delete ui_employee;
@@ -1247,22 +1292,27 @@ MainWindow::~MainWindow()
 
 void MainWindow::setAudioVolume(qreal volume)
 {
-    currentVolume = volume;
-    emit audioVolumeChanged(volume);
+    currentVolume = qBound<qreal>(0.0, volume, 1.5);
+    {
+        QSettings settings("HammerDown", "HammerDown");
+        settings.setValue("audio/volume", currentVolume);
+    }
+
+    emit audioVolumeChanged(currentVolume);
     if (loginAudioOutput) {
-        loginAudioOutput->setVolume(volume);
+        loginAudioOutput->setVolume(currentVolume);
     }
     if (homeWindow) {
-        homeWindow->setVolume(volume);
+        homeWindow->setVolume(currentVolume);
     }
     if (homeAudioOutput) {
-        homeAudioOutput->setVolume(volume);
+        homeAudioOutput->setVolume(currentVolume);
     }
     if (tutorialLoopAudioOutput) {
-        tutorialLoopAudioOutput->setVolume(volume);
+        tutorialLoopAudioOutput->setVolume(currentVolume);
     }
     if (chatAudioOutput) {
-        chatAudioOutput->setVolume(volume);
+        chatAudioOutput->setVolume(currentVolume);
     }
 }
 
@@ -1330,6 +1380,7 @@ void MainWindow::fadeIn(QAudioOutput *output)
 // Login -> Home (Page 0 -> Page 1)
 void MainWindow::on_login_clicked()
 {
+    m_homeWelcomeShown = false; // Reset to show welcome notification on fresh login
     updateUserProfileDisplay();
     ui->stackedWidget->setCurrentIndex(1); 
 }
@@ -1405,6 +1456,58 @@ void MainWindow::onOrderClearFields()
         ui_order->le_buyer->clear();
         ui_order->le_qr_order_id->clear();
         ui_order->le_catalog_search->clear();
+    }
+}
+
+void MainWindow::updateSalaryInsight()
+{
+    if (!ui_employee) return;
+    QString role = ui_employee->le_fonction->text().trimmed();
+    double currentSalary = ui_employee->dsb_salaire->value();
+
+    if (role.isEmpty()) {
+        ui_employee->lbl_salary_insight->setText("Market Avg: --");
+        ui_employee->lbl_salary_insight->setStyleSheet("color: #D4AF37; font-size: 11px; font-weight: bold; background: transparent;");
+        return;
+    }
+
+    QSqlQuery q;
+    q.prepare("SELECT AVG(SALARY) FROM EMPLOYEES WHERE JOB_TITLE = :role");
+    q.bindValue(":role", role);
+    
+    if (q.exec() && q.next()) {
+        double avg = q.value(0).toDouble();
+        if (avg > 0) {
+            QString trend = (currentSalary > avg) ? "↑ High" : (currentSalary < avg) ? "↓ Low" : "● Fair";
+            QString color = (currentSalary > avg * 1.5) ? "#FF5252" : (currentSalary > avg) ? "#D4AF37" : "#4CAF50";
+            
+            ui_employee->lbl_salary_insight->setText(QString("Market Avg: $%1 (%2)").arg(avg, 0, 'f', 0).arg(trend));
+            ui_employee->lbl_salary_insight->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: bold; background: transparent;").arg(color));
+        } else {
+            ui_employee->lbl_salary_insight->setText("New Role: Competitive Area");
+            ui_employee->lbl_salary_insight->setStyleSheet("color: #D4AF37; font-size: 11px; font-weight: bold; background: transparent;");
+        }
+    }
+}
+
+void MainWindow::onSuggestSalary()
+{
+    if (!ui_employee) return;
+    QString role = ui_employee->le_fonction->text().trimmed();
+    if (role.isEmpty()) return;
+
+    QSqlQuery q;
+    q.prepare("SELECT AVG(SALARY) FROM EMPLOYEES WHERE JOB_TITLE = :role");
+    q.bindValue(":role", role);
+    
+    if (q.exec() && q.next()) {
+        double avg = q.value(0).toDouble();
+        if (avg > 0) {
+            ui_employee->dsb_salaire->setValue(avg);
+        } else {
+            // Suggest a default based on typical ranges if no data exists
+            ui_employee->dsb_salaire->setValue(2500); 
+        }
     }
 }
 
@@ -1794,23 +1897,35 @@ void MainWindow::onOrderRefreshCatalog()
         ui_order->table_catalog->insertRow(row);
         
         // Order ID
-        ui_order->table_catalog->setItem(row, 0, new QTableWidgetItem(query.value(0).toString()));
+        QTableWidgetItem *orderIdItem = new QTableWidgetItem(query.value(0).toString());
+        orderIdItem->setTextAlignment(Qt::AlignCenter);
+        ui_order->table_catalog->setItem(row, 0, orderIdItem);
         
         // Type
-        ui_order->table_catalog->setItem(row, 1, new QTableWidgetItem(trKey(query.value(1).toString())));
+        QTableWidgetItem *typeItem = new QTableWidgetItem(trKey(query.value(1).toString()));
+        typeItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+        ui_order->table_catalog->setItem(row, 1, typeItem);
         
         // Quantity
-        ui_order->table_catalog->setItem(row, 2, new QTableWidgetItem(query.value(2).toString()));
+        QTableWidgetItem *qtyItem = new QTableWidgetItem(query.value(2).toString());
+        qtyItem->setTextAlignment(Qt::AlignCenter);
+        ui_order->table_catalog->setItem(row, 2, qtyItem);
         
         double unitPrice = query.value(3).toDouble();
         double totalPrice = unitPrice * query.value(2).toInt();
-        ui_order->table_catalog->setItem(row, 3, new QTableWidgetItem(QString::number(unitPrice, 'f', 2)));
+        QTableWidgetItem *unitPriceItem = new QTableWidgetItem(QString::number(unitPrice, 'f', 2));
+        unitPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
+        ui_order->table_catalog->setItem(row, 3, unitPriceItem);
         
         // Total Price
-        ui_order->table_catalog->setItem(row, 4, new QTableWidgetItem(QString::number(totalPrice, 'f', 2)));
+        QTableWidgetItem *totalPriceItem = new QTableWidgetItem(QString::number(totalPrice, 'f', 2));
+        totalPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
+        ui_order->table_catalog->setItem(row, 4, totalPriceItem);
         
         // Buyer ID
-        ui_order->table_catalog->setItem(row, 5, new QTableWidgetItem(query.value(4).toString()));
+        QTableWidgetItem *buyerItem = new QTableWidgetItem(query.value(4).toString());
+        buyerItem->setTextAlignment(Qt::AlignCenter);
+        ui_order->table_catalog->setItem(row, 5, buyerItem);
         
         // QR Code thumbnail
         QString qrText = "Order #" + query.value(0).toString()
@@ -1822,8 +1937,9 @@ void MainWindow::onOrderRefreshCatalog()
         QPixmap qrPix = generateQrPixmap(qrText, 2, 1);
         QTableWidgetItem *qrItem = new QTableWidgetItem();
         qrItem->setData(Qt::DecorationRole, qrPix.scaled(50, 50, Qt::KeepAspectRatio, Qt::FastTransformation));
+        qrItem->setTextAlignment(Qt::AlignCenter);
         ui_order->table_catalog->setItem(row, 6, qrItem);
-        ui_order->table_catalog->setRowHeight(row, 55);
+        ui_order->table_catalog->setRowHeight(row, 62);
         
         row++;
     }
@@ -1864,17 +1980,31 @@ void MainWindow::onOrderSearchCatalog()
     while (query.next()) {
         ui_order->table_catalog->insertRow(row);
         
-        ui_order->table_catalog->setItem(row, 0, new QTableWidgetItem(query.value(0).toString()));
-        ui_order->table_catalog->setItem(row, 1, new QTableWidgetItem(trKey(query.value(1).toString())));
-        ui_order->table_catalog->setItem(row, 2, new QTableWidgetItem(query.value(2).toString()));
+        QTableWidgetItem *orderIdItem = new QTableWidgetItem(query.value(0).toString());
+        orderIdItem->setTextAlignment(Qt::AlignCenter);
+        ui_order->table_catalog->setItem(row, 0, orderIdItem);
+
+        QTableWidgetItem *typeItem = new QTableWidgetItem(trKey(query.value(1).toString()));
+        typeItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+        ui_order->table_catalog->setItem(row, 1, typeItem);
+
+        QTableWidgetItem *qtyItem = new QTableWidgetItem(query.value(2).toString());
+        qtyItem->setTextAlignment(Qt::AlignCenter);
+        ui_order->table_catalog->setItem(row, 2, qtyItem);
         
         double unitPrice = query.value(3).toDouble();
         double totalPrice = unitPrice * query.value(2).toInt();
-        ui_order->table_catalog->setItem(row, 3, new QTableWidgetItem(QString::number(unitPrice, 'f', 2)));
+        QTableWidgetItem *unitPriceItem = new QTableWidgetItem(QString::number(unitPrice, 'f', 2));
+        unitPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
+        ui_order->table_catalog->setItem(row, 3, unitPriceItem);
         
-        ui_order->table_catalog->setItem(row, 4, new QTableWidgetItem(QString::number(totalPrice, 'f', 2)));
+        QTableWidgetItem *totalPriceItem = new QTableWidgetItem(QString::number(totalPrice, 'f', 2));
+        totalPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
+        ui_order->table_catalog->setItem(row, 4, totalPriceItem);
         
-        ui_order->table_catalog->setItem(row, 5, new QTableWidgetItem(query.value(4).toString()));
+        QTableWidgetItem *buyerItem = new QTableWidgetItem(query.value(4).toString());
+        buyerItem->setTextAlignment(Qt::AlignCenter);
+        ui_order->table_catalog->setItem(row, 5, buyerItem);
         
         // QR Code thumbnail
         QString qrText = "Order #" + query.value(0).toString()
@@ -1886,8 +2016,9 @@ void MainWindow::onOrderSearchCatalog()
         QPixmap qrPix = generateQrPixmap(qrText, 2, 1);
         QTableWidgetItem *qrItem = new QTableWidgetItem();
         qrItem->setData(Qt::DecorationRole, qrPix.scaled(50, 50, Qt::KeepAspectRatio, Qt::FastTransformation));
+        qrItem->setTextAlignment(Qt::AlignCenter);
         ui_order->table_catalog->setItem(row, 6, qrItem);
-        ui_order->table_catalog->setRowHeight(row, 55);
+        ui_order->table_catalog->setRowHeight(row, 62);
         
         row++;
     }
@@ -3029,6 +3160,8 @@ void MainWindow::onSupplierClearFields()
         ui_supplier->le_type->clear();
         ui_supplier->sb_cp->setValue(0);
         ui_supplier->txt_sms->clear();
+        if (m_teOpeningHour)  m_teOpeningHour->setTime(QTime(8, 0));
+        if (m_teClosingHour) m_teClosingHour->setTime(QTime(18, 0));
     }
 }
 
@@ -3077,10 +3210,24 @@ void MainWindow::onSupplierAdd()
     QString email = ui_supplier->le_email->text().trimmed();
     QString tel   = ui_supplier->le_tel->text().trimmed();
     QString type  = ui_supplier->le_type->text().trimmed();
+    QString openTime  = m_teOpeningHour  ? m_teOpeningHour->time().toString("HH:mm")  : "";
+    QString closeTime = m_teClosingHour ? m_teClosingHour->time().toString("HH:mm") : "";
     int cp        = ui_supplier->sb_cp->value();
 
-    if (id.isEmpty() || nom.isEmpty()) {
-        QMessageBox::warning(this, "Input Error", "Supplier ID and Company Name are required!");
+    if (id.isEmpty() || nom.isEmpty() || addr.isEmpty() || email.isEmpty() || tel.isEmpty() || type.isEmpty()) {
+        QMessageBox::warning(this, "Input Error", "All fields are required!");
+        return;
+    }
+
+    if (!email.contains('@') || !email.contains('.')) {
+        QMessageBox::warning(this, "Input Error", "Please enter a valid email address (must contain @ and .)");
+        return;
+    }
+
+    bool phoneOk;
+    tel.toLongLong(&phoneOk);
+    if (!phoneOk || tel.length() < 8) {
+        QMessageBox::warning(this, "Input Error", "Phone number must be at least 8 digits and contain only numbers!");
         return;
     }
 
@@ -3109,19 +3256,26 @@ void MainWindow::onSupplierAdd()
 
     QSqlQuery q;
     q.prepare("INSERT INTO SUPPLIERS (SUPPLIER_ID, SUPPLIER_NAME, ADDRESS, EMAIL, PHONE_NUMBER,"
-              " TYPE_NOTIFICATION, POSTAL_CODE, REGISTRATION_DATE, ACCOUNT_STATUS)"
-              " VALUES (:id, :nom, :addr, :email, :tel, :type, :cp, SYSDATE, 'Active')");
-    q.bindValue(":id",    suppId);
-    q.bindValue(":nom",   nom);
-    q.bindValue(":addr",  addr);
-    q.bindValue(":email", email);
-    q.bindValue(":tel",   tel);
-    q.bindValue(":type",  type);
-    q.bindValue(":cp",    cp);
+              " TYPE_NOTIFICATION, POSTAL_CODE, REGISTRATION_DATE, ACCOUNT_STATUS, OPENING_TIME, CLOSING_TIME)"
+              " VALUES (:id, :nom, :addr, :email, :tel, :type, :cp, SYSDATE, 'Active', :openTime, :closeTime)");
+    q.bindValue(":id",        suppId);
+    q.bindValue(":nom",       nom);
+    q.bindValue(":addr",      addr);
+    q.bindValue(":email",     email);
+    q.bindValue(":tel",       tel);
+    q.bindValue(":type",      type);
+    q.bindValue(":cp",        cp);
+    q.bindValue(":openTime",  openTime);
+    q.bindValue(":closeTime", closeTime);
 
     if (q.exec()) {
-        QMessageBox::information(this, "Success",
-            QString("Supplier '%1' (ID: %2) added successfully!").arg(nom).arg(suppId));
+        if (homeWindow && homeWindow->isAnimationMode()) {
+            playSupplierSuccessAnimation(nom);
+        } else {
+            QMessageBox::information(this, "Success",
+                QString("Supplier '%1' (ID: %2) added successfully!").arg(nom).arg(suppId));
+        }
+        checkSupplierVicinity(suppId);
         onSupplierClearFields();
         onSupplierRefreshView();
     } else {
@@ -3140,11 +3294,30 @@ void MainWindow::onSupplierModify()
     QString email = ui_supplier->le_email->text().trimmed();
     QString tel   = ui_supplier->le_tel->text().trimmed();
     QString type  = ui_supplier->le_type->text().trimmed();
+    QString openTime  = m_teOpeningHour  ? m_teOpeningHour->time().toString("HH:mm")  : "";
+    QString closeTime = m_teClosingHour ? m_teClosingHour->time().toString("HH:mm") : "";
     int cp        = ui_supplier->sb_cp->value();
 
     if (id.isEmpty()) {
         QMessageBox::warning(this, "Input Error",
             "Please select a supplier from the View tab first,\nor enter a Supplier ID to modify.");
+        return;
+    }
+
+    if (nom.isEmpty() || addr.isEmpty() || email.isEmpty() || tel.isEmpty() || type.isEmpty()) {
+        QMessageBox::warning(this, "Input Error", "All fields are required to modify the supplier!");
+        return;
+    }
+
+    if (!email.contains('@') || !email.contains('.')) {
+        QMessageBox::warning(this, "Input Error", "Please enter a valid email address (must contain @ and .)");
+        return;
+    }
+
+    bool phoneOk;
+    tel.toLongLong(&phoneOk);
+    if (!phoneOk || tel.length() < 8) {
+        QMessageBox::warning(this, "Input Error", "Phone number must be at least 8 digits and contain only numbers!");
         return;
     }
 
@@ -3162,20 +3335,27 @@ void MainWindow::onSupplierModify()
 
     QSqlQuery q;
     q.prepare("UPDATE SUPPLIERS SET SUPPLIER_NAME=:nom, ADDRESS=:addr, EMAIL=:email, PHONE_NUMBER=:tel,"
-              " TYPE_NOTIFICATION=:type, POSTAL_CODE=:cp"
+              " TYPE_NOTIFICATION=:type, POSTAL_CODE=:cp, OPENING_TIME=:openTime, CLOSING_TIME=:closeTime"
               " WHERE SUPPLIER_ID=:id");
-    q.bindValue(":nom",   nom);
-    q.bindValue(":addr",  addr);
-    q.bindValue(":email", email);
-    q.bindValue(":tel",   tel);
-    q.bindValue(":type",  type);
-    q.bindValue(":cp",    cp);
-    q.bindValue(":id",    suppId);
+    q.bindValue(":nom",       nom);
+    q.bindValue(":addr",      addr);
+    q.bindValue(":email",     email);
+    q.bindValue(":tel",       tel);
+    q.bindValue(":type",      type);
+    q.bindValue(":cp",        cp);
+    q.bindValue(":openTime",  openTime);
+    q.bindValue(":closeTime", closeTime);
+    q.bindValue(":id",        suppId);
 
     if (q.exec()) {
         if (q.numRowsAffected() > 0) {
-            QMessageBox::information(this, "Success",
-                QString("Supplier ID %1 updated successfully!").arg(suppId));
+            if (homeWindow && homeWindow->isAnimationMode()) {
+                playSupplierModifyAnimation(nom);
+            } else {
+                QMessageBox::information(this, "Success",
+                    QString("Supplier ID %1 updated successfully!").arg(suppId));
+            }
+            checkSupplierVicinity(suppId);
             onSupplierClearFields();
             onSupplierRefreshView();
         } else {
@@ -3216,7 +3396,11 @@ void MainWindow::onSupplierDelete()
     q.bindValue(":id", suppId.toInt());
 
     if (q.exec()) {
-        QMessageBox::information(this, "Success", "Supplier deleted successfully.");
+        if (homeWindow && homeWindow->isAnimationMode()) {
+            playSupplierDeleteAnimation(nom);
+        } else {
+            QMessageBox::information(this, "Success", "Supplier deleted successfully.");
+        }
         onSupplierClearFields();
         onSupplierRefreshView();
     } else {
@@ -3248,6 +3432,19 @@ void MainWindow::onSupplierLoad(const QModelIndex &index)
     ui_supplier->le_tel->setText(tel);
     ui_supplier->le_type->setText(type);
     ui_supplier->sb_cp->setValue(cp);
+
+    // Load opening/closing hours from DB directly
+    QSqlQuery hq;
+    hq.prepare("SELECT OPENING_TIME, CLOSING_TIME FROM SUPPLIERS WHERE SUPPLIER_ID = :id");
+    hq.bindValue(":id", suppId.toInt());
+    if (hq.exec() && hq.next()) {
+        QString ot = hq.value(0).toString();
+        QString ct = hq.value(1).toString();
+        if (m_teOpeningHour)
+            m_teOpeningHour->setTime(ot.isEmpty() ? QTime(8, 0) : QTime::fromString(ot, "HH:mm"));
+        if (m_teClosingHour)
+            m_teClosingHour->setTime(ct.isEmpty() ? QTime(18, 0) : QTime::fromString(ct, "HH:mm"));
+    }
 
     // Switch to the Manage Suppliers tab (index 0)
     ui_supplier->tabWidget->setCurrentIndex(0);
@@ -3366,23 +3563,11 @@ void MainWindow::onSupplierUploadImage()
 void MainWindow::onSupplierEnsureReviewsTable()
 {
     QSqlQuery q;
-    // Create the ratings table (ignore ORA-00955 if it already exists)
-    q.exec(
-        "CREATE TABLE SUPPLIER_DELIVERY_RATINGS ("
-        "  RATING_ID      NUMBER PRIMARY KEY,"
-        "  SUPPLIER_ID    NUMBER NOT NULL,"
-        "  EMPLOYEE_ID    NUMBER,"
-        "  EQUIPMENT_ID   NUMBER,"
-        "  RATING         NUMBER(1) NOT NULL,"
-        "  DELIVERY_NOTE  VARCHAR2(300),"
-        "  DELIVERY_DATE  DATE DEFAULT SYSDATE"
-        ")"
-    );
-    // Create the sequence (ignore if exists)
-    q.exec("CREATE SEQUENCE SDR_SEQ START WITH 1 INCREMENT BY 1");
-    // Migrate old column name FOURNISSEUR_ID -> SUPPLIER_ID if table was created before rename
-    q.exec("ALTER TABLE SUPPLIER_DELIVERY_RATINGS RENAME COLUMN FOURNISSEUR_ID TO SUPPLIER_ID");
-    // Silently ignore error if column doesn't exist (ORA-00904) — already renamed or fresh table
+    // We now use SUPPLIERS directly, adding JSON columns and aggregations if missing
+    q.exec("ALTER TABLE SUPPLIERS ADD RATINGS_JSON CLOB");
+    q.exec("ALTER TABLE SUPPLIERS ADD AVERAGE_RATING NUMBER(3,2) DEFAULT 0");
+    q.exec("ALTER TABLE SUPPLIERS ADD NOTIFICATIONS_JSON CLOB");
+    // Ignore ORA-01430 if they already exist
 }
 
 void MainWindow::onSupplierPopulateRatingCombos()
@@ -3430,6 +3615,17 @@ void MainWindow::onSupplierReviewRatingChanged(int value)
     for (int i = 0; i < value; ++i)  stars += QChar(0x2605); // ★
     for (int i = value; i < 5; ++i) stars += QChar(0x2606); // ☆
     ui_supplier->lbl_rating_stars->setText(stars);
+
+    if (homeWindow && homeWindow->isAnimationMode()) {
+        QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(ui_supplier->lbl_rating_stars);
+        ui_supplier->lbl_rating_stars->setGraphicsEffect(eff);
+        QPropertyAnimation *anim = new QPropertyAnimation(eff, "opacity");
+        anim->setDuration(300);
+        anim->setStartValue(0.0);
+        anim->setEndValue(1.0);
+        anim->setEasingCurve(QEasingCurve::OutBack);
+        anim->start(QAbstractAnimation::DeleteWhenStopped);
+    }
 }
 
 void MainWindow::onSupplierReviewLoad()
@@ -3444,50 +3640,65 @@ void MainWindow::onSupplierReviewLoad()
         return;
     }
 
-    // Load history into table_reviews
-    QSqlQueryModel *model = new QSqlQueryModel(this);
-    QSqlQuery histQ;
-    histQ.prepare(
-        "SELECT r.RATING AS \"Rating\", "
-        "       e.LAST_NAME || ' ' || e.FIRST_NAME AS \"Employee\", "
-        "       eq.DESCRIPTION AS \"Equipment\", "
-        "       r.DELIVERY_NOTE AS \"Note\", "
-        "       TO_CHAR(r.DELIVERY_DATE, 'YYYY-MM-DD') AS \"Date\" "
-        " FROM SUPPLIER_DELIVERY_RATINGS r"
-        " LEFT JOIN EMPLOYEES e ON r.EMPLOYEE_ID = e.EMPLOYEE_ID"
-        " LEFT JOIN EQUIPMENT eq ON r.EQUIPMENT_ID = eq.EQUIPMENT_ID"
-        " WHERE r.SUPPLIER_ID = :id"
-        " ORDER BY r.DELIVERY_DATE DESC"
-    );
-    histQ.bindValue(":id", suppId);
-    histQ.exec();
-    model->setQuery(std::move(histQ));
+    // Fetch the JSON array from the SUPPLIERS table
+    QSqlQuery qFetch;
+    qFetch.prepare("SELECT RATINGS_JSON FROM SUPPLIERS WHERE SUPPLIER_ID = :id");
+    qFetch.bindValue(":id", suppId);
+    if (!qFetch.exec() || !qFetch.next()) return;
+
+    QString jsonStr = qFetch.value(0).toString();
+    QJsonArray ratingsArr;
+    if (!jsonStr.isEmpty()) {
+        QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
+        if (doc.isArray()) ratingsArr = doc.array();
+    }
+
+    // Prepare dictionary maps for foreign keys
+    QMap<int, QString> empMap;
+    QSqlQuery qEmp("SELECT EMPLOYEE_ID, LAST_NAME || ' ' || FIRST_NAME FROM EMPLOYEES");
+    if (qEmp.exec()) {
+        while (qEmp.next()) empMap[qEmp.value(0).toInt()] = qEmp.value(1).toString();
+    }
+
+    QMap<int, QString> eqMap;
+    QSqlQuery qEq("SELECT EQUIPMENT_ID, DESCRIPTION FROM EQUIPMENT");
+    if (qEq.exec()) {
+        while (qEq.next()) eqMap[qEq.value(0).toInt()] = qEq.value(1).toString();
+    }
+
+    // Populate the UI Table Reviews
+    QStandardItemModel *model = new QStandardItemModel(ratingsArr.size(), 5, this);
+    model->setHorizontalHeaderLabels({"Rating", "Employee", "Equipment", "Note", "Date"});
+
+    int total = ratingsArr.size();
+    double sum = 0;
+    int c5 = 0, c4 = 0, c3 = 0, c2 = 0, c1 = 0;
+
+    for (int i = 0; i < total; ++i) {
+        // Read backwards to show newest first
+        QJsonObject obj = ratingsArr[total - 1 - i].toObject();
+        int r = obj["rating"].toInt();
+        int eId = obj["employee_id"].toInt();
+        int eqId = obj["equipment_id"].toInt();
+        QString note = obj["note"].toString();
+        QString date = obj["date"].toString().left(10); // get YYYY-MM-DD
+
+        sum += r;
+        if (r == 5) c5++; else if (r == 4) c4++; else if (r == 3) c3++; else if (r == 2) c2++; else if (r == 1) c1++;
+
+        model->setItem(i, 0, new QStandardItem(QString::number(r)));
+        model->setItem(i, 1, new QStandardItem(empMap.value(eId, "")));
+        model->setItem(i, 2, new QStandardItem(eqMap.value(eqId, "")));
+        model->setItem(i, 3, new QStandardItem(note));
+        model->setItem(i, 4, new QStandardItem(date));
+    }
+
     ui_supplier->table_reviews->setModel(model);
     ui_supplier->table_reviews->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     ui_supplier->table_reviews->setEditTriggers(QAbstractItemView::NoEditTriggers);
     ui_supplier->table_reviews->setSelectionBehavior(QAbstractItemView::SelectRows);
 
-    // Compute stats
-    QSqlQuery statsQ;
-    statsQ.prepare(
-        "SELECT COUNT(*), AVG(RATING),"
-        " SUM(CASE WHEN RATING=5 THEN 1 ELSE 0 END),"
-        " SUM(CASE WHEN RATING=4 THEN 1 ELSE 0 END),"
-        " SUM(CASE WHEN RATING=3 THEN 1 ELSE 0 END),"
-        " SUM(CASE WHEN RATING=2 THEN 1 ELSE 0 END),"
-        " SUM(CASE WHEN RATING=1 THEN 1 ELSE 0 END)"
-        " FROM SUPPLIER_DELIVERY_RATINGS WHERE SUPPLIER_ID = :id"
-    );
-    statsQ.bindValue(":id", suppId);
-    if (!statsQ.exec() || !statsQ.next()) return;
-
-    int    total = statsQ.value(0).toInt();
-    double avg   = statsQ.value(1).toDouble();
-    int    c5    = statsQ.value(2).toInt();
-    int    c4    = statsQ.value(3).toInt();
-    int    c3    = statsQ.value(4).toInt();
-    int    c2    = statsQ.value(5).toInt();
-    int    c1    = statsQ.value(6).toInt();
+    double avg = total == 0 ? 0 : (sum / total);
 
     if (total == 0) {
         ui_supplier->lbl_avg_score->setText("–");
@@ -3546,17 +3757,45 @@ void MainWindow::onSupplierReviewSubmit()
     int employeeId = ui_supplier->cb_employee_rating->currentData().toInt();
     int equipmentId = ui_supplier->cb_equipment_rating->currentData().toInt();
 
+    // Fetch existing JSON ratings array
+    QSqlQuery qFetch;
+    qFetch.prepare("SELECT RATINGS_JSON FROM SUPPLIERS WHERE SUPPLIER_ID = :id");
+    qFetch.bindValue(":id", suppId);
+    QJsonArray ratingsArr;
+    if (qFetch.exec() && qFetch.next()) {
+        QString jsonStr = qFetch.value(0).toString();
+        if (!jsonStr.isEmpty()) {
+            QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
+            if (doc.isArray()) ratingsArr = doc.array();
+        }
+    }
+
+    // Append new rating object
+    QJsonObject newRating;
+    newRating["rating"] = rating;
+    newRating["note"] = note;
+    newRating["employee_id"] = employeeId;
+    newRating["equipment_id"] = equipmentId;
+    newRating["date"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    ratingsArr.append(newRating);
+
+    // Calculate new average
+    double total = 0;
+    for (int i = 0; i < ratingsArr.size(); ++i) {
+        total += ratingsArr[i].toObject()["rating"].toDouble();
+    }
+    double avg = ratingsArr.isEmpty() ? 0 : (total / ratingsArr.size());
+
+    // Serialize back to string
+    QJsonDocument newDoc(ratingsArr);
+    QString newJsonStr = QString::fromUtf8(newDoc.toJson(QJsonDocument::Compact));
+
+    // Update SUPPLIERS table
     QSqlQuery q;
-    q.prepare(
-        "INSERT INTO SUPPLIER_DELIVERY_RATINGS"
-        " (RATING_ID, SUPPLIER_ID, EMPLOYEE_ID, EQUIPMENT_ID, RATING, DELIVERY_NOTE, DELIVERY_DATE)"
-        " VALUES (SDR_SEQ.NEXTVAL, :id, :emp_id, :equip_id, :rating, :note, SYSDATE)"
-    );
-    q.bindValue(":id",       suppId);
-    q.bindValue(":emp_id",   employeeId > 0 ? employeeId : QVariant(QMetaType(QMetaType::Int)));
-    q.bindValue(":equip_id", equipmentId > 0 ? equipmentId : QVariant(QMetaType(QMetaType::Int)));
-    q.bindValue(":rating",   rating);
-    q.bindValue(":note",     note.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : note);
+    q.prepare("UPDATE SUPPLIERS SET RATINGS_JSON = :json, AVERAGE_RATING = :avg WHERE SUPPLIER_ID = :id");
+    q.bindValue(":json", newJsonStr);
+    q.bindValue(":avg", avg);
+    q.bindValue(":id", suppId);
 
     if (q.exec()) {
         QString starStr;
@@ -3826,7 +4065,7 @@ void MainWindow::setupSupplierStats()
     QSqlQuery qMetrics;
     
     // Average Quality / Speed surrogate from ratings
-    qMetrics.exec("SELECT AVG(RATING) FROM SUPPLIER_DELIVERY_RATINGS");
+    qMetrics.exec("SELECT AVG(AVERAGE_RATING) FROM SUPPLIERS WHERE AVERAGE_RATING > 0");
     double avgRating = 0;
     if (qMetrics.next()) avgRating = qMetrics.value(0).toDouble();
     
@@ -3887,15 +4126,29 @@ void MainWindow::setupSupplierStats()
     QBarSet *setScore = new QBarSet(trKey("Avg Rating"));
     QStringList categories;
     
-    QSqlQuery qTrend(
-        "SELECT TO_CHAR(DELIVERY_DATE, 'Mon'), AVG(RATING) "
-        "FROM SUPPLIER_DELIVERY_RATINGS "
-        "GROUP BY TO_CHAR(DELIVERY_DATE, 'Mon'), TO_CHAR(DELIVERY_DATE, 'MM') "
-        "ORDER BY TO_CHAR(DELIVERY_DATE, 'MM')"
-    );
-    while (qTrend.next()) {
-        categories << qTrend.value(0).toString();
-        *setScore << qTrend.value(1).toDouble();
+    QMap<int, QList<double>> monthScores;
+    QSqlQuery qGet("SELECT RATINGS_JSON FROM SUPPLIERS WHERE RATINGS_JSON IS NOT NULL");
+    while (qGet.next()) {
+        QString json = qGet.value(0).toString();
+        if (json.isEmpty()) continue;
+        QJsonArray arr = QJsonDocument::fromJson(json.toUtf8()).array();
+        for (int i=0; i<arr.size(); i++) {
+            QJsonObject obj = arr[i].toObject();
+            QDate d = QDate::fromString(obj["date"].toString().left(10), "yyyy-MM-dd");
+            int m = d.month(); // 1-12
+            if (m >= 1 && m <= 12) {
+                monthScores[m].append(obj["rating"].toDouble());
+            }
+        }
+    }
+    
+    QList<int> months = monthScores.keys();
+    std::sort(months.begin(), months.end());
+    for (int m : months) {
+        double sum = 0;
+        for (double val : monthScores[m]) sum += val;
+        categories << QDate(2000, m, 1).toString("Mon");
+        *setScore << (sum / monthScores[m].size());
     }
     setScore->setColor(QColor("#D4AF37"));
 
@@ -3940,10 +4193,10 @@ void MainWindow::setupSupplierStats()
 
     // --- 4. Top Performer Card (Dynamic) ---
     QSqlQuery qTop(
-        "SELECT f.SUPPLIER_NAME, AVG(r.RATING) as RATING_AVG "
-        "FROM SUPPLIERS f "
-        "JOIN SUPPLIER_DELIVERY_RATINGS r ON f.SUPPLIER_ID = r.SUPPLIER_ID "
-        "GROUP BY f.SUPPLIER_NAME ORDER BY RATING_AVG DESC"
+        "SELECT SUPPLIER_NAME, AVERAGE_RATING "
+        "FROM SUPPLIERS "
+        "WHERE AVERAGE_RATING > 0 "
+        "ORDER BY AVERAGE_RATING DESC"
     );
     if (qTop.next()) {
         QString topName = qTop.value(0).toString();
@@ -4187,8 +4440,6 @@ void MainWindow::setupEmployeeModes()
 
 void MainWindow::setupSupplierModes()
 {
-    // Rename tab_gestion to "Manage Suppliers"
-    // (Assuming tab_gestion index 0)
     setTabTextTr(ui_supplier->tabWidget, ui_supplier->tab_gestion, "Manage Suppliers");
 
     QRadioButton *rbAdd = new QRadioButton(trKey("Add Supplier"), ui_supplier->tab_gestion);
@@ -4209,15 +4460,59 @@ void MainWindow::setupSupplierModes()
     rbAdd->show();
     rbMod->show();
 
-    // groupBox_gestion geometry check? It might need moving depending on layout
-    // UI file says y=20. We put radios at y=10. Might overlap.
-    // Move group lower
     ui_supplier->groupBox_gestion->move(20, 70);
 
     ui_supplier->groupBox_gestion->setProperty("trTitleAddKey", "Add New Supplier");
     ui_supplier->groupBox_gestion->setProperty("trTitleModKey", "Manage Existing Supplier");
     ui_supplier->groupBox_gestion->setProperty("trModeAddRadio", "rb_supplier_add_mode");
     ui_supplier->groupBox_gestion->setProperty("trModeModRadio", "rb_supplier_mod_mode");
+
+    // --- Opening / Closing Hours widgets (single row below SMS field) ---
+    QString lblStyle = "color: white; font-size: 13px; font-weight: bold; background: transparent;";
+    QString teStyle  = "background: white; border: 2px solid #8B6F47; border-radius: 8px; padding: 2px 8px; font-size: 13px; color: #333;";
+
+    QLabel *lblOpen = new QLabel("Open:", ui_supplier->groupBox_gestion);
+    lblOpen->setStyleSheet(lblStyle);
+    lblOpen->setGeometry(200, 470, 55, 28);
+    lblOpen->show();
+
+    m_teOpeningHour = new QTimeEdit(ui_supplier->groupBox_gestion);
+    m_teOpeningHour->setDisplayFormat("HH:mm");
+    m_teOpeningHour->setGeometry(260, 468, 90, 28);
+    m_teOpeningHour->setStyleSheet(teStyle);
+    m_teOpeningHour->setTime(QTime(8, 0));
+    m_teOpeningHour->show();
+
+    QLabel *lblClose = new QLabel("Close:", ui_supplier->groupBox_gestion);
+    lblClose->setStyleSheet(lblStyle);
+    lblClose->setGeometry(365, 470, 55, 28);
+    lblClose->show();
+
+    m_teClosingHour = new QTimeEdit(ui_supplier->groupBox_gestion);
+    m_teClosingHour->setDisplayFormat("HH:mm");
+    m_teClosingHour->setGeometry(425, 468, 90, 28);
+    m_teClosingHour->setStyleSheet(teStyle);
+    m_teClosingHour->setTime(QTime(18, 0));
+    m_teClosingHour->show();
+    // --- End hours widgets ---
+
+    // --- Notification Bell button (placed on the tab_gestion, not groupBox) ---
+    m_supplierBellBtn = new QPushButton(ui_supplier->tab_gestion);
+    m_supplierBellBtn->setText(QString(QChar(0xD83D)) + QChar(0xDD14)); // 🔔
+    m_supplierBellBtn->setObjectName("btn_supplier_bell");
+    m_supplierBellBtn->setGeometry(1060, 8, 44, 44);
+    m_supplierBellBtn->setStyleSheet(
+        "QPushButton { background-color: #8B6F47; border-radius: 22px; color: white; font-size: 20px; border: none; }"
+        "QPushButton:hover { background-color: #a3845a; }"
+        "QPushButton:pressed{ background-color: #6b5535; }");
+    m_supplierBellBtn->setCursor(Qt::PointingHandCursor);
+    m_supplierBellBtn->setToolTip("Supplier Notifications");
+    m_supplierBellBtn->show();
+    connect(m_supplierBellBtn, &QPushButton::clicked, this, &MainWindow::onSupplierBellClicked);
+    // Defer notification scan until after all setup is complete
+    QTimer::singleShot(1500, this, &MainWindow::checkAndPostSupplierNotifications);
+    // ---
+
 
     auto updateUI = [=](bool isAdd) {
         if(isAdd) {
@@ -4237,6 +4532,13 @@ void MainWindow::setupSupplierModes()
     connect(rbMod, &QRadioButton::toggled, [=](bool c){ if(c) updateUI(false); });
 
     updateUI(true);
+
+    if (homeWindow && homeWindow->isAnimationMode()) {
+        ButtonAnimator::applyHoverAnimation(ui_supplier->btn_add);
+        ButtonAnimator::applyHoverAnimation(ui_supplier->btn_modify);
+        ButtonAnimator::applyHoverAnimation(ui_supplier->btn_delete);
+        ButtonAnimator::applyHoverAnimation(ui_supplier->btn_send_sms);
+    }
 }
 
 
@@ -4976,13 +5278,17 @@ void MainWindow::switchLanguage(const QString &language)
 void MainWindow::showWelcomeNotification(QWidget *parent, const QString &managementName)
 {
     QString empName = "Team Member";
+    QString empRole = "";
     if (currentEmployeeId > 0) {
         QSqlQuery nq;
-        nq.prepare("SELECT FIRST_NAME || ' ' || LAST_NAME FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
+        nq.prepare("SELECT FIRST_NAME || ' ' || LAST_NAME, JOB_TITLE FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
         nq.bindValue(":id", currentEmployeeId);
-        if (nq.exec() && nq.next()) empName = nq.value(0).toString();
+        if (nq.exec() && nq.next()) {
+            empName = nq.value(0).toString();
+            empRole = nq.value(1).toString();
+        }
     }
-    WelcomeNotificationBar *bar = new WelcomeNotificationBar(empName, managementName, parent);
+    WelcomeNotificationBar *bar = new WelcomeNotificationBar(empName, empRole, managementName, parent);
     bar->startEntrance();
 }
 
@@ -5292,26 +5598,13 @@ void MainWindow::onEmployeeRowSelected(const QModelIndex &index)
     ui_employee->le_nom->setText(model->data(model->index(row, 3)).toString());
     ui_employee->le_prenom->setText(model->data(model->index(row, 4)).toString());
     ui_employee->le_fonction->setText(model->data(model->index(row, 5)).toString());
-    ui_employee->sb_age->setValue(model->data(model->index(row, 6)).toInt());
+    int age = model->data(model->index(row, 6)).toInt();
+    ui_employee->de_birthdate->setDate(QDate::currentDate().addYears(-age));
     ui_employee->le_email->setText(model->data(model->index(row, 7)).toString());
     ui_employee->le_num->setText(model->data(model->index(row, 8)).toString());
 
-    // Load avatar if exists
-    QString empId = model->data(model->index(row, 2)).toString();
-    QString avatarPath = QString("data/avatars/employee_%1.png").arg(empId);
-    if (QFile::exists(avatarPath)) {
-        QPixmap pix(avatarPath);
-        ui_employee->lbl_avatar->setPixmap(getCircularPixmap(pix).scaled(ui_employee->lbl_avatar->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    } else {
-        ui_employee->lbl_avatar->clear();
-        ui_employee->lbl_avatar->setText(tr("No Avatar"));
-    }
-
     // Pre-fill mail tab
     ui_employee->le_mail_to->setText(model->data(model->index(row, 7)).toString());
-
-    // Switch to modify tab for editing
-    ui_employee->tabWidget->setCurrentWidget(ui_employee->tab_add);
 }
 
 // =============================================================================
@@ -5336,6 +5629,20 @@ void MainWindow::onEmployeeRefreshView()
     ui_employee->tableView_employes->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui_employee->tableView_employes->setSelectionMode(QAbstractItemView::SingleSelection);
     ui_employee->tableView_employes->setEditTriggers(QAbstractItemView::NoEditTriggers);
+
+    // Summary Stats Calculation
+    QSqlQuery q;
+    if (q.exec("SELECT COUNT(*), AVG(SALARY), AVG(AGE) FROM EMPLOYEES")) {
+        if (q.next()) {
+            int total = q.value(0).toInt();
+            double avgSalary = q.value(1).toDouble();
+            double avgAge = q.value(2).toDouble();
+
+            ui_employee->lbl_stat_total->setText(QString("Total Personnel: %1").arg(total));
+            ui_employee->lbl_stat_avg_salary->setText(QString("Avg Market Value: $%1").arg(avgSalary, 0, 'f', 0));
+            ui_employee->lbl_stat_avg_age->setText(QString("Avg Team Age: %1").arg(avgAge, 0, 'f', 1));
+        }
+    }
 }
 
 void MainWindow::onEmployeeSearch()
@@ -5367,6 +5674,18 @@ void MainWindow::onEmployeeSearch()
 
 void MainWindow::onEmployeeRefreshHistory()
 {
+    // Populate module filter combo if empty (except first item)
+    if (ui_employee->cb_history_filter->count() <= 1) {
+        QSignalBlocker blocker(ui_employee->cb_history_filter);
+        ui_employee->cb_history_filter->clear();
+        ui_employee->cb_history_filter->addItem("All Modules");
+        ui_employee->cb_history_filter->addItem("Employees");
+        ui_employee->cb_history_filter->addItem("Clients");
+        ui_employee->cb_history_filter->addItem("Equipment");
+        ui_employee->cb_history_filter->addItem("Orders");
+        ui_employee->cb_history_filter->addItem("General");
+    }
+
     QString searchText = ui_employee->le_history_search->text().trimmed().toUpper();
     QString moduleFilter = ui_employee->cb_history_filter->currentText();
     
@@ -5401,18 +5720,6 @@ void MainWindow::onEmployeeRefreshHistory()
         "QTableView::item { padding: 10px; border-bottom: 1px solid #f0f0f0; }"
         "QTableView::item:selected { background-color: rgba(139, 111, 71, 0.1); color: #8B6F47; }"
     );
-
-    // Populate module filter combo if empty (except first item)
-    if (ui_employee->cb_history_filter->count() <= 1) {
-        QSignalBlocker blocker(ui_employee->cb_history_filter);
-        ui_employee->cb_history_filter->clear();
-        ui_employee->cb_history_filter->addItem("All Modules");
-        ui_employee->cb_history_filter->addItem("Employees");
-        ui_employee->cb_history_filter->addItem("Clients");
-        ui_employee->cb_history_filter->addItem("Equipment");
-        ui_employee->cb_history_filter->addItem("Orders");
-        ui_employee->cb_history_filter->addItem("General");
-    }
 
     if (qobject_cast<QPushButton*>(sender()) == ui_employee->btn_refresh_history) {
         QMessageBox::information(this, "Refresh", "Timeline updated!");
@@ -5552,13 +5859,119 @@ void MainWindow::onEmployeeClearFields()
     ui_employee->le_nom->clear();
     ui_employee->le_prenom->clear();
     ui_employee->le_fonction->clear();
-    ui_employee->sb_age->setValue(18);
+    ui_employee->de_birthdate->setDate(QDate(1995, 1, 1));
     ui_employee->le_mdp->clear();
     ui_employee->dsb_salaire->setValue(0.0);
     ui_employee->le_email->clear();
     ui_employee->le_num->clear();
-    ui_employee->lbl_avatar->clear();
-    ui_employee->lbl_avatar->setText(tr("No Avatar"));
+}
+
+void MainWindow::onAIPulseClicked()
+{
+    ui_employee->lbl_ai_pulse_result->setVisible(true);
+    ui_employee->lbl_ai_pulse_result->setText("📡 Scanning Global Database... Please wait.");
+    
+    QSettings settings("HammerDown", "HammerDown");
+    QString apiKey = settings.value("api/gemini_key").toString();
+    if(apiKey.isEmpty()) {
+        ui_employee->lbl_ai_pulse_result->setText("⚠️ Error: Gemini API key not configured in settings. Cannot generate AI Pulse.");
+        return;
+    }
+    
+    QSqlQuery qEmp("SELECT COUNT(*) FROM EMPLOYEES"); qEmp.next(); int cEmp = qEmp.value(0).toInt();
+    QSqlQuery qCli("SELECT COUNT(*) FROM CLIENTS"); qCli.next(); int cCli = qCli.value(0).toInt();
+    QSqlQuery qOrd("SELECT COUNT(*) FROM ORDERS"); qOrd.next(); int cOrd = qOrd.value(0).toInt();
+    QSqlQuery qEq("SELECT COUNT(*) FROM EQUIPMENT"); qEq.next(); int cEq = qEq.value(0).toInt();
+    
+    QString summary = QString("Analyze this company's overall health and workload balance based on these total numbers: "
+                              "%1 Employees, %2 Clients, %3 Active Orders, and %4 Equipment pieces. "
+                              "Are we understaffed, well-balanced, or overstaffed? "
+                              "Provide a highly dynamic, futuristic 2-sentence 'Business Pulse' insight.").arg(cEmp).arg(cCli).arg(cOrd).arg(cEq);
+
+    QJsonObject requestBody;
+    QJsonArray contentsArray;
+    QJsonObject contentObject;
+    QJsonArray partsArray;
+    QJsonObject partObject;
+    partObject["text"] = summary;
+    partsArray.append(partObject);
+    contentObject["parts"] = partsArray;
+    contentsArray.append(contentObject);
+    requestBody["contents"] = contentsArray;
+
+    QUrl url("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey);
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QNetworkReply *reply = chatSummaryNetManager->post(request, QJsonDocument(requestBody).toJson());
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            QJsonArray c = doc.object()["candidates"].toArray();
+            if(!c.isEmpty()){
+                QString text = c[0].toObject()["content"].toObject()["parts"].toArray()[0].toObject()["text"].toString();
+                ui_employee->lbl_ai_pulse_result->setText("⚡ SYSTEM PULSE: \n" + text.trimmed());
+            } else {
+                ui_employee->lbl_ai_pulse_result->setText("⚡ SYSTEM PULSE: Systems are nominal and dynamically balanced.");
+            }
+        } else {
+            ui_employee->lbl_ai_pulse_result->setText("⚠️ AI Error: Could not reach the pulse service.");
+        }
+    });
+}
+
+void MainWindow::onStatsAiClicked()
+{
+    ui_employee->lbl_stats_ai_insight->setText("✨ Analyzing workforce data via AI... Please wait.");
+    
+    QSettings settings("HammerDown", "HammerDown");
+    QString apiKey = settings.value("api/gemini_key").toString();
+    if(apiKey.isEmpty()) {
+        ui_employee->lbl_stats_ai_insight->setText("⚠️ Error: Gemini API key not configured in settings. Cannot generate AI insight.");
+        return;
+    }
+    
+    QSqlQuery q("SELECT COUNT(*), AVG(AGE), AVG(SALARY) FROM EMPLOYEES");
+    q.next();
+    int count = q.value(0).toInt();
+    double avgAge = q.value(1).toDouble();
+    double avgSalary = q.value(2).toDouble();
+    
+    QString summary = QString("Workforce: %1 employees. Avg Age: %2. Avg Salary: $%3. "
+                              "Write a 2-sentence professional insight on this demographic.").arg(count).arg(avgAge, 0, 'f', 1).arg(avgSalary, 0, 'f', 0);
+
+    QJsonObject requestBody;
+    QJsonArray contentsArray;
+    QJsonObject contentObject;
+    QJsonArray partsArray;
+    QJsonObject partObject;
+    partObject["text"] = summary;
+    partsArray.append(partObject);
+    contentObject["parts"] = partsArray;
+    contentsArray.append(contentObject);
+    requestBody["contents"] = contentsArray;
+
+    QUrl url("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey);
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QNetworkReply *reply = chatSummaryNetManager->post(request, QJsonDocument(requestBody).toJson());
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            QJsonArray c = doc.object()["candidates"].toArray();
+            if(!c.isEmpty()){
+                QString text = c[0].toObject()["content"].toObject()["parts"].toArray()[0].toObject()["text"].toString();
+                ui_employee->lbl_stats_ai_insight->setText("✨ AI Insight: " + text.trimmed());
+            } else {
+                ui_employee->lbl_stats_ai_insight->setText("✨ AI Insight: Workforce data is stable and indicates a healthy demographic spread.");
+            }
+        } else {
+            ui_employee->lbl_stats_ai_insight->setText("⚠️ AI Error: Could not reach the service.");
+        }
+    });
 }
 
 void MainWindow::setupEmployeeStats()
@@ -5655,9 +6068,46 @@ void MainWindow::setupEmployeeStats()
     viewBar->setRenderHint(QPainter::Antialiasing);
     viewBar->setStyleSheet("background: transparent; border: 1px solid #8B6F47; border-radius: 12px;");
 
+    // --- CHART 3: Horizontal Bar Chart (Avg Salary by Role) ---
+    QBarSet *salarySet = new QBarSet("Avg Salary ($)");
+    salarySet->setColor(QColor("#4CAF50")); // Green for money
+    
+    QStringList salaryCategories;
+    QSqlQuery q3("SELECT JOB_TITLE, AVG(SALARY) FROM EMPLOYEES GROUP BY JOB_TITLE ORDER BY AVG(SALARY) DESC");
+    while(q3.next()) {
+        salaryCategories << q3.value(0).toString();
+        *salarySet << q3.value(1).toDouble();
+    }
+
+    QHorizontalBarSeries *salarySeries = new QHorizontalBarSeries();
+    salarySeries->append(salarySet);
+    salarySeries->setLabelsVisible(true);
+
+    QChart *chartSalary = new QChart();
+    chartSalary->addSeries(salarySeries);
+    chartSalary->setTitle("Market Salary Benchmarks by Role");
+    chartSalary->setTheme(QChart::ChartThemeDark);
+    chartSalary->setBackgroundBrush(QBrush(QColor(30, 20, 10)));
+    chartSalary->setAnimationOptions(QChart::SeriesAnimations);
+
+    QBarCategoryAxis *axisYRole = new QBarCategoryAxis();
+    axisYRole->append(salaryCategories);
+    chartSalary->addAxis(axisYRole, Qt::AlignLeft);
+    salarySeries->attachAxis(axisYRole);
+
+    QValueAxis *axisXSalary = new QValueAxis();
+    axisXSalary->setLabelFormat("$%d");
+    chartSalary->addAxis(axisXSalary, Qt::AlignBottom);
+    salarySeries->attachAxis(axisXSalary);
+
+    QChartView *viewSalary = new QChartView(chartSalary);
+    viewSalary->setRenderHint(QPainter::Antialiasing);
+    viewSalary->setStyleSheet("background: transparent; border: 1px solid #8B6F47; border-radius: 12px;");
+
     ui_employee->gridLayout_stats->setSpacing(15);
     ui_employee->gridLayout_stats->addWidget(viewPie, 0, 0);
     ui_employee->gridLayout_stats->addWidget(viewBar, 0, 1);
+    ui_employee->gridLayout_stats->addWidget(viewSalary, 1, 0, 1, 2); // Span both columns
 }
 
 void MainWindow::onEmployeeAdd()
@@ -5666,7 +6116,8 @@ void MainWindow::onEmployeeAdd()
     QString nom     = ui_employee->le_nom->text().trimmed();
     QString prenom  = ui_employee->le_prenom->text().trimmed();
     QString fonction= ui_employee->le_fonction->text().trimmed();
-    int     age     = ui_employee->sb_age->value();
+    QDate   birthDate = ui_employee->de_birthdate->date();
+    int     age       = birthDate.daysTo(QDate::currentDate()) / 365;
     QString mdp     = ui_employee->le_mdp->text().trimmed();
     double  salaire = ui_employee->dsb_salaire->value();
     QString email   = ui_employee->le_email->text().trimmed();
@@ -5736,7 +6187,8 @@ void MainWindow::onEmployeeModify()
     QString nom      = ui_employee->le_nom->text().trimmed();
     QString prenom   = ui_employee->le_prenom->text().trimmed();
     QString fonction = ui_employee->le_fonction->text().trimmed();
-    int     age      = ui_employee->sb_age->value();
+    QDate   birthDate = ui_employee->de_birthdate->date();
+    int     age       = birthDate.daysTo(QDate::currentDate()) / 365;
     QString mdp      = ui_employee->le_mdp->text().trimmed();
     double  salaire  = ui_employee->dsb_salaire->value();
     QString email    = ui_employee->le_email->text().trimmed();
@@ -9210,6 +9662,150 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         mapTarget = m_mapFullscreenLabel;
     }
 
+    if (watched == m_supplierMapImageLabel) {
+        if (event->type() == QEvent::Wheel) {
+            QWheelEvent *wheel = static_cast<QWheelEvent *>(event);
+            if (wheel->angleDelta().y() > 0) m_supplierMapZoom = qMin(18, m_supplierMapZoom + 1);
+            else m_supplierMapZoom = qMax(3, m_supplierMapZoom - 1);
+            m_supplierMapImageSize = m_supplierMapImageLabel->size();
+            refreshSupplierMap();
+            return true;
+        }
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton) {
+                m_supplierMapDragging = true;
+                m_supplierMapDragStart = mouse->pos();
+                m_supplierMapDragOffset = QPoint(0, 0);
+                m_supplierMapImageSize = m_supplierMapImageLabel->size();
+                const int tileSize = 256;
+                const int n = 1 << m_supplierMapZoom;
+                double latRad = qDegreesToRadians(m_supplierCenterLat);
+                double xtile = (m_supplierCenterLon + 180.0) / 360.0 * n;
+                double ytile = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / M_PI) / 2.0 * n;
+                m_supplierMapDragCenterX = xtile * tileSize;
+                m_supplierMapDragCenterY = ytile * tileSize;
+                return true;
+            }
+        }
+        if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (m_supplierMapDragging) {
+                QPoint delta = mouse->pos() - m_supplierMapDragStart;
+                m_supplierMapDragOffset = delta;
+                if (m_supplierMapHasPixmap) {
+                    QPixmap shifted(m_supplierMapImageSize);
+                    shifted.fill(QColor(26, 18, 8));
+                    QPainter p(&shifted);
+                    p.drawPixmap(delta, m_supplierMapCurrentPixmap);
+                    m_supplierMapImageLabel->setPixmap(shifted);
+                }
+                return true;
+            } else {
+                bool hovered = false;
+                for (const auto &pin : m_supplierPins) {
+                    if (pin.rect.contains(mouse->pos())) {
+                        QToolTip::showText(mouse->globalPosition().toPoint(),
+                            QString("<b>%1</b><br/>Supplies: %2<br/>Status: %3")
+                                .arg(pin.name).arg(pin.type)
+                                .arg(pin.status == "Active" ? "<font color='green'>Open (Active)</font>" : "<font color='red'>Closed/Inactive</font>"),
+                            m_supplierMapImageLabel);
+                        hovered = true;
+                        break;
+                    }
+                }
+                if (!hovered) QToolTip::hideText();
+            }
+        }
+        if (event->type() == QEvent::MouseButtonRelease) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton && m_supplierMapDragging) {
+                m_supplierMapDragging = false;
+                double centerX = m_supplierMapDragCenterX - m_supplierMapDragOffset.x();
+                double centerY = m_supplierMapDragCenterY - m_supplierMapDragOffset.y();
+                const int n = 1 << m_supplierMapZoom;
+                double lon = (centerX / (n * 256.0)) * 360.0 - 180.0;
+                double latRad = atan(sinh(M_PI * (1.0 - 2.0 * centerY / (n * 256.0))));
+                m_supplierCenterLat = qRadiansToDegrees(latRad);
+                m_supplierCenterLon = lon;
+                refreshSupplierMap();
+                return true;
+            }
+        }
+    }
+
+    if (watched == m_supplierMapImageLabel) {
+        if (event->type() == QEvent::Wheel) {
+            QWheelEvent *wheel = static_cast<QWheelEvent *>(event);
+            if (wheel->angleDelta().y() > 0) m_supplierMapZoom = qMin(18, m_supplierMapZoom + 1);
+            else m_supplierMapZoom = qMax(3, m_supplierMapZoom - 1);
+            m_supplierMapImageSize = m_supplierMapImageLabel->size();
+            refreshSupplierMap();
+            return true;
+        }
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton) {
+                m_supplierMapDragging = true;
+                m_supplierMapDragStart = mouse->pos();
+                m_supplierMapDragOffset = QPoint(0, 0);
+                m_supplierMapImageSize = m_supplierMapImageLabel->size();
+                const int tileSize = 256;
+                const int n = 1 << m_supplierMapZoom;
+                double latRad = qDegreesToRadians(m_supplierCenterLat);
+                double xtile = (m_supplierCenterLon + 180.0) / 360.0 * n;
+                double ytile = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / M_PI) / 2.0 * n;
+                m_supplierMapDragCenterX = xtile * tileSize;
+                m_supplierMapDragCenterY = ytile * tileSize;
+                return true;
+            }
+        }
+        if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (m_supplierMapDragging) {
+                QPoint delta = mouse->pos() - m_supplierMapDragStart;
+                m_supplierMapDragOffset = delta;
+                if (m_supplierMapHasPixmap) {
+                    QPixmap shifted(m_supplierMapImageSize);
+                    shifted.fill(QColor(26, 18, 8));
+                    QPainter p(&shifted);
+                    p.drawPixmap(delta, m_supplierMapCurrentPixmap);
+                    m_supplierMapImageLabel->setPixmap(shifted);
+                }
+                return true;
+            } else {
+                bool hovered = false;
+                for (const auto &pin : m_supplierPins) {
+                    if (pin.rect.contains(mouse->pos())) {
+                        QToolTip::showText(mouse->globalPosition().toPoint(),
+                            QString("<b>%1</b><br/>Supplies: %2<br/>Status: %3")
+                                .arg(pin.name).arg(pin.type)
+                                .arg(pin.status == "Active" ? "<font color='green'>Open (Active)</font>" : "<font color='red'>Closed/Inactive</font>"),
+                            m_supplierMapImageLabel);
+                        hovered = true;
+                        break;
+                    }
+                }
+                if (!hovered) QToolTip::hideText();
+            }
+        }
+        if (event->type() == QEvent::MouseButtonRelease) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton && m_supplierMapDragging) {
+                m_supplierMapDragging = false;
+                double centerX = m_supplierMapDragCenterX - m_supplierMapDragOffset.x();
+                double centerY = m_supplierMapDragCenterY - m_supplierMapDragOffset.y();
+                const int n = 1 << m_supplierMapZoom;
+                double lon = (centerX / (n * 256.0)) * 360.0 - 180.0;
+                double latRad = atan(sinh(M_PI * (1.0 - 2.0 * centerY / (n * 256.0))));
+                m_supplierCenterLat = qRadiansToDegrees(latRad);
+                m_supplierCenterLon = lon;
+                refreshSupplierMap();
+                return true;
+            }
+        }
+    }
+
     if (mapTarget) {
         if (event->type() == QEvent::Wheel) {
             QWheelEvent *wheel = static_cast<QWheelEvent *>(event);
@@ -9284,6 +9880,896 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
     return QMainWindow::eventFilter(watched, event);
 }
+
+// =============================================================================
+// SUPPLIER MAP INTEGRATION
+// =============================================================================
+
+void MainWindow::setupSupplierMapTab()
+{
+    if (!ui_supplier || !ui_supplier->tabWidget) return;
+
+    QWidget *mapTab = new QWidget(ui_supplier->tabWidget);
+    mapTab->setObjectName("tab_supplier_map");
+
+    QVBoxLayout *root = new QVBoxLayout(mapTab);
+    root->setContentsMargins(18, 60, 18, 16);
+    root->setSpacing(10);
+
+    QHBoxLayout *controls = new QHBoxLayout();
+    QLabel *titleLabel = new QLabel("Workshop Vicinity Map", mapTab);
+    titleLabel->setStyleSheet("color: white; font-size: 14px; font-weight: bold;");
+
+    m_supplierMapRefreshBtn = new QPushButton("Refresh Map", mapTab);
+    m_supplierMapRefreshBtn->setCursor(Qt::PointingHandCursor);
+    m_supplierMapRefreshBtn->setStyleSheet(
+        "QPushButton{background:#8B6F47;color:white;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;}"
+        "QPushButton:hover{background:#a3845a;}"
+        "QPushButton:pressed{background:#6b5535;}");
+
+    m_supplierMapZoomInBtn = new QPushButton("Zoom +", mapTab);
+    m_supplierMapZoomInBtn->setCursor(Qt::PointingHandCursor);
+    m_supplierMapZoomInBtn->setStyleSheet(
+        "QPushButton{background:#5c4a2a;color:#f5e6cc;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;}"
+        "QPushButton:hover{background:#7a5f3c;}");
+
+    m_supplierMapZoomOutBtn = new QPushButton("Zoom -", mapTab);
+    m_supplierMapZoomOutBtn->setCursor(Qt::PointingHandCursor);
+    m_supplierMapZoomOutBtn->setStyleSheet(
+        "QPushButton{background:#5c4a2a;color:#f5e6cc;border:none;border-radius:8px;padding:6px 12px;font-weight:bold;}"
+        "QPushButton:hover{background:#7a5f3c;}");
+
+    controls->addWidget(titleLabel);
+    controls->addStretch();
+    controls->addWidget(m_supplierMapRefreshBtn);
+    controls->addWidget(m_supplierMapZoomInBtn);
+    controls->addWidget(m_supplierMapZoomOutBtn);
+
+    m_supplierMapStatusLabel = new QLabel("Loading suppliers...", mapTab);
+    m_supplierMapStatusLabel->setWordWrap(true);
+    m_supplierMapStatusLabel->setStyleSheet("color: #d4a96a; font-size: 12px;");
+
+    m_supplierMapImageLabel = new QLabel(mapTab);
+    m_supplierMapImageLabel->setMinimumSize(800, 500);
+    m_supplierMapImageLabel->setAlignment(Qt::AlignCenter);
+    m_supplierMapImageLabel->setStyleSheet("background: #1a1208; border: 2px solid #8B6F47; border-radius: 10px; color: #8B6F47;");
+    m_supplierMapImageLabel->setText("Map preview will appear here.");
+    m_supplierMapImageLabel->setMouseTracking(true); // Needed for hover
+    m_supplierMapImageLabel->installEventFilter(this);
+
+    root->addLayout(controls);
+    root->addWidget(m_supplierMapStatusLabel);
+    root->addWidget(m_supplierMapImageLabel, 1);
+
+    ui_supplier->tabWidget->addTab(mapTab, "Vicinity Map");
+
+    connect(m_supplierMapRefreshBtn, &QPushButton::clicked, this, &MainWindow::loadSupplierMapPins);
+    connect(m_supplierMapZoomInBtn, &QPushButton::clicked, this, [this]() {
+        m_supplierMapZoom = qMin(18, m_supplierMapZoom + 1);
+        m_supplierMapImageSize = m_supplierMapImageLabel->size();
+        refreshSupplierMap();
+    });
+    connect(m_supplierMapZoomOutBtn, &QPushButton::clicked, this, [this]() {
+        m_supplierMapZoom = qMax(3, m_supplierMapZoom - 1);
+        m_supplierMapImageSize = m_supplierMapImageLabel->size();
+        refreshSupplierMap();
+    });
+
+    connect(ui_supplier->tabWidget, &QTabWidget::currentChanged, this, [this, mapTab](int index) {
+        if (ui_supplier->tabWidget->widget(index) == mapTab) {
+            loadSupplierMapPins();
+        }
+    });
+}
+
+void MainWindow::loadSupplierMapPins()
+{
+    m_supplierMapStatusLabel->setText("Geocoding suppliers...");
+    m_supplierPins.clear();
+    m_supplierGeocodePendingCount = 0;
+
+    QSqlQuery q("SELECT SUPPLIER_ID, SUPPLIER_NAME, TYPE_NOTIFICATION, ACCOUNT_STATUS, ADDRESS FROM SUPPLIERS");
+    while (q.next()) {
+        int id = q.value(0).toInt();
+        QString name = q.value(1).toString();
+        QString type = q.value(2).toString();
+        QString status = q.value(3).toString();
+        QString address = q.value(4).toString().trimmed();
+
+        if (!address.isEmpty()) {
+            m_supplierGeocodePendingCount++;
+            QUrl url("https://nominatim.openstreetmap.org/search");
+            QUrlQuery query;
+            query.addQueryItem("q", address + ", Tunisia");
+            query.addQueryItem("format", "json");
+            query.addQueryItem("limit", "1");
+            url.setQuery(query);
+
+            QNetworkRequest req(url);
+            req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+            QNetworkReply *reply = m_supplierMapNet->get(req);
+            reply->setProperty("mapAction", "geocode_supplier");
+            reply->setProperty("supp_id", id);
+            reply->setProperty("supp_name", name);
+            reply->setProperty("supp_type", type);
+            reply->setProperty("supp_status", status);
+            reply->setProperty("address", address);
+        }
+    }
+
+    if (m_supplierGeocodePendingCount == 0) {
+        m_supplierMapStatusLabel->setText("No suppliers with addresses found.");
+        refreshSupplierMap();
+    }
+}
+
+void MainWindow::onSupplierGeocodeFinished(QNetworkReply *reply)
+{
+    if (!reply) return;
+    QString action = reply->property("mapAction").toString();
+
+    if (action == "geocode_supplier") {
+        m_supplierGeocodePendingCount--;
+
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray data = reply->readAll();
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            QJsonArray arr = doc.array();
+
+            if (!arr.isEmpty()) {
+                QJsonObject obj = arr.first().toObject();
+                double lat = obj.value("lat").toString().toDouble();
+                double lon = obj.value("lon").toString().toDouble();
+                if (lat != 0 && lon != 0) {
+                    SupplierPin pin;
+                    pin.id = reply->property("supp_id").toInt();
+                    pin.name = reply->property("supp_name").toString();
+                    pin.type = reply->property("supp_type").toString();
+                    pin.status = reply->property("supp_status").toString();
+                    pin.lat = lat;
+                    pin.lon = lon;
+                    m_supplierPins.append(pin);
+                }
+            }
+        }
+        
+        if (m_supplierGeocodePendingCount <= 0) {
+            m_supplierMapStatusLabel->setText(QString("Loaded %1 suppliers.").arg(m_supplierPins.size()));
+            m_supplierMapImageSize = m_supplierMapImageLabel->size();
+            refreshSupplierMap();
+        }
+        reply->deleteLater();
+        return;
+    }
+    
+    if (action == "map_tile") {
+        QString key = reply->property("tileKey").toString();
+        if (reply->error() == QNetworkReply::NoError) {
+            QPixmap pix;
+            if (pix.loadFromData(reply->readAll())) {
+                m_supplierMapTileCache.insert(key, pix);
+            } else {
+                m_supplierMapTileErrors++;
+            }
+        } else {
+            m_supplierMapTileErrors++;
+        }
+        
+        m_supplierMapPendingTiles.remove(key);
+        // Force repaint on every tile arrival
+        QPixmap mapPixmap(m_supplierMapImageSize);
+        mapPixmap.fill(QColor(26, 18, 8));
+        QPainter painter(&mapPixmap);
+        const int tileSize = 256;
+        for (int x = m_supplierMapTileX0; x <= m_supplierMapTileX1; ++x) {
+            for (int y = m_supplierMapTileY0; y <= m_supplierMapTileY1; ++y) {
+                QString tkey = QString("%1/%2/%3").arg(m_supplierMapZoom).arg(x).arg(y);
+                if (m_supplierMapTileCache.contains(tkey)) {
+                    int px = qRound((x * tileSize) - m_supplierMapTopLeftX);
+                    int py = qRound((y * tileSize) - m_supplierMapTopLeftY);
+                    painter.drawPixmap(px, py, m_supplierMapTileCache.value(tkey));
+                }
+            }
+        }
+
+        const int n = 1 << m_supplierMapZoom;
+        auto latToY = [n](double lat) {
+            double rad = qDegreesToRadians(lat);
+            return (1.0 - log(tan(rad) + 1.0 / cos(rad)) / M_PI) / 2.0 * n * 256;
+        };
+        auto lonToX = [n](double lon) {
+            return (lon + 180.0) / 360.0 * n * 256;
+        };
+
+        int cx = qRound(lonToX(m_supplierCenterLon) - m_supplierMapTopLeftX);
+        int cy = qRound(latToY(m_supplierCenterLat) - m_supplierMapTopLeftY);
+        
+        painter.setPen(QPen(Qt::white, 2));
+        painter.setBrush(QColor("#D4AF37"));
+        painter.drawRect(cx - 10, cy - 10, 20, 20);
+        painter.drawText(cx - 30, cy + 25, "Workshop");
+
+        for (int i=0; i<m_supplierPins.size(); ++i) {
+            auto &pin = m_supplierPins[i];
+            int px = qRound(lonToX(pin.lon) - m_supplierMapTopLeftX);
+            int py = qRound(latToY(pin.lat) - m_supplierMapTopLeftY);
+            
+            QColor color = pin.status == "Active" ? QColor(0, 255, 100, 200) : QColor(255, 50, 50, 200);
+            painter.setBrush(color);
+            painter.setPen(QPen(Qt::white, 1));
+            painter.drawEllipse(px - 8, py - 8, 16, 16);
+            
+            pin.rect = QRect(px - 10, py - 10, 20, 20);
+        }
+
+        m_supplierMapCurrentPixmap = mapPixmap;
+        m_supplierMapHasPixmap = true;
+        m_supplierMapImageLabel->setPixmap(mapPixmap);
+        
+        if (m_supplierMapPendingTiles.isEmpty()) {
+            if (m_supplierMapTileErrors > 0)
+                m_supplierMapStatusLabel->setText("Map loaded with missing tiles.");
+            else
+                m_supplierMapStatusLabel->setText(QString("Map loaded. %1 suppliers shown.").arg(m_supplierPins.size()));
+        }
+        reply->deleteLater();
+        return;
+    }
+    
+    reply->deleteLater();
+}
+
+void MainWindow::refreshSupplierMap()
+{
+    const int tileSize = 256;
+    const int zoom = m_supplierMapZoom;
+    const int n = 1 << zoom;
+    
+    if (m_supplierMapImageSize.width() < 64) m_supplierMapImageSize = QSize(800, 500);
+
+    double latRad = qDegreesToRadians(m_supplierCenterLat);
+    double xtile = (m_supplierCenterLon + 180.0) / 360.0 * n;
+    double ytile = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / M_PI) / 2.0 * n;
+
+    double worldX = xtile * tileSize;
+    double worldY = ytile * tileSize;
+
+    m_supplierMapTopLeftX = worldX - (m_supplierMapImageSize.width() / 2.0);
+    m_supplierMapTopLeftY = worldY - (m_supplierMapImageSize.height() / 2.0);
+
+    m_supplierMapTileX0 = static_cast<int>(floor(m_supplierMapTopLeftX / tileSize));
+    m_supplierMapTileY0 = static_cast<int>(floor(m_supplierMapTopLeftY / tileSize));
+    m_supplierMapTileX1 = static_cast<int>(floor((m_supplierMapTopLeftX + m_supplierMapImageSize.width() - 1) / tileSize));
+    m_supplierMapTileY1 = static_cast<int>(floor((m_supplierMapTopLeftY + m_supplierMapImageSize.height() - 1) / tileSize));
+
+    m_supplierMapTileCache.clear();
+    m_supplierMapPendingTiles.clear();
+    m_supplierMapTileErrors = 0;
+
+    for (int x = m_supplierMapTileX0; x <= m_supplierMapTileX1; ++x) {
+        int wrappedX = ((x % n) + n) % n;
+        for (int y = m_supplierMapTileY0; y <= m_supplierMapTileY1; ++y) {
+            if (y < 0 || y >= n) continue;
+            QString key = QString("%1/%2/%3").arg(zoom).arg(x).arg(y);
+            m_supplierMapPendingTiles.insert(key);
+
+            QUrl tileUrl(QString("https://tile.openstreetmap.org/%1/%2/%3.png").arg(zoom).arg(wrappedX).arg(y));
+            QNetworkRequest req(tileUrl);
+            req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+            QNetworkReply *reply = m_supplierMapNet->get(req);
+            reply->setProperty("mapAction", "map_tile");
+            reply->setProperty("tileKey", key);
+        }
+    }
+
+    // Force immediate base paint so the UI updates instantly
+    QPixmap mapPixmap(m_supplierMapImageSize);
+    mapPixmap.fill(QColor(26, 18, 8));
+    QPainter painter(&mapPixmap);
+    
+    auto latToY = [n](double lat) {
+        double rad = qDegreesToRadians(lat);
+        return (1.0 - log(tan(rad) + 1.0 / cos(rad)) / M_PI) / 2.0 * n * 256;
+    };
+    auto lonToX = [n](double lon) {
+        return (lon + 180.0) / 360.0 * n * 256;
+    };
+
+    int cx = qRound(lonToX(m_supplierCenterLon) - m_supplierMapTopLeftX);
+    int cy = qRound(latToY(m_supplierCenterLat) - m_supplierMapTopLeftY);
+    
+    painter.setPen(QPen(Qt::white, 2));
+    painter.setBrush(QColor("#D4AF37"));
+    painter.drawRect(cx - 10, cy - 10, 20, 20);
+    painter.drawText(cx - 30, cy + 25, "Workshop");
+
+    for (int i=0; i<m_supplierPins.size(); ++i) {
+        auto &pin = m_supplierPins[i];
+        int px = qRound(lonToX(pin.lon) - m_supplierMapTopLeftX);
+        int py = qRound(latToY(pin.lat) - m_supplierMapTopLeftY);
+        
+        QColor color = pin.status == "Active" ? QColor(0, 255, 100, 200) : QColor(255, 50, 50, 200);
+        painter.setBrush(color);
+        painter.setPen(QPen(Qt::white, 1));
+        painter.drawEllipse(px - 8, py - 8, 16, 16);
+        
+        pin.rect = QRect(px - 10, py - 10, 20, 20);
+    }
+
+    m_supplierMapCurrentPixmap = mapPixmap;
+    m_supplierMapHasPixmap = true;
+    m_supplierMapImageLabel->setPixmap(mapPixmap);
+    
+    if (m_supplierMapPendingTiles.isEmpty()) {
+        m_supplierMapStatusLabel->setText(QString("Map loaded. %1 suppliers shown.").arg(m_supplierPins.size()));
+    }
+}
+
+void MainWindow::checkSupplierVicinity(int supplierId)
+{
+    QSqlQuery q;
+    if (supplierId == -1) {
+        q.prepare("SELECT SUPPLIER_NAME, ACCOUNT_STATUS, ADDRESS FROM SUPPLIERS WHERE SUPPLIER_ID = (SELECT MAX(SUPPLIER_ID) FROM SUPPLIERS)");
+    } else {
+        q.prepare("SELECT SUPPLIER_NAME, ACCOUNT_STATUS, ADDRESS FROM SUPPLIERS WHERE SUPPLIER_ID = :id");
+        q.bindValue(":id", supplierId);
+    }
+    q.exec();
+    if (q.next()) {
+        QString name = q.value(0).toString();
+        QString status = q.value(1).toString();
+        QString address = q.value(2).toString().trimmed();
+        
+        if (!address.isEmpty()) {
+            QUrl url("https://nominatim.openstreetmap.org/search");
+            QUrlQuery query;
+            query.addQueryItem("q", address + ", Tunisia");
+            query.addQueryItem("format", "json");
+            query.addQueryItem("limit", "1");
+            url.setQuery(query);
+
+            QNetworkRequest req(url);
+            req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+            QNetworkReply *reply = m_supplierMapNet->get(req);
+            
+            connect(reply, &QNetworkReply::finished, this, [this, reply, name, status]() {
+                if (reply->error() == QNetworkReply::NoError) {
+                    QByteArray data = reply->readAll();
+                    QJsonDocument doc = QJsonDocument::fromJson(data);
+                    QJsonArray arr = doc.array();
+                    if (!arr.isEmpty()) {
+                        QJsonObject obj = arr.first().toObject();
+                        double lat = obj.value("lat").toString().toDouble();
+                        double lon = obj.value("lon").toString().toDouble();
+                        
+                        double dist = sqrt(pow(lat - m_supplierCenterLat, 2) + pow(lon - m_supplierCenterLon, 2));
+                        if (dist < 0.5) {
+                            QString verb = status == "Active" ? "opened" : "closed down";
+                            QMessageBox::information(this, "Vicinity Alert", QString("Alert: Supplier '%1' in the vicinity has %2!").arg(name).arg(verb));
+                        }
+                    }
+                }
+                reply->deleteLater();
+            });
+        }
+    }
+}
+
+// =============================================================================
+// SUPPLIER NOTIFICATION BELL
+// =============================================================================
+
+void MainWindow::checkAndPostSupplierNotifications()
+{
+    QSqlQuery qOut("SELECT SUPPLIER_ID, SUPPLIER_NAME, ACCOUNT_STATUS, STOCK_STATUS, REGISTRATION_DATE, NOTIFICATIONS_JSON FROM SUPPLIERS");
+    QDateTime now = QDateTime::currentDateTime();
+    int unreadTotal = 0;
+
+    while (qOut.next()) {
+        int id = qOut.value(0).toInt();
+        QString nm = qOut.value(1).toString();
+        QString accStatus = qOut.value(2).toString();
+        QString stkStatus = qOut.value(3).toString();
+        QDateTime regDate = qOut.value(4).toDateTime();
+        QString jsonStr = qOut.value(5).toString();
+
+        QJsonArray notifs;
+        if (!jsonStr.isEmpty()) {
+            notifs = QJsonDocument::fromJson(jsonStr.toUtf8()).array();
+        }
+
+        bool changed = false;
+        auto hasNotif = [&](const QString& type) {
+            for (int i=0; i<notifs.size(); ++i) {
+                if (notifs[i].toObject()["type"].toString() == type) return true;
+            }
+            return false;
+        };
+
+        // 1. New supplier
+        if (accStatus == "Active" && regDate.daysTo(now) <= 7) {
+            if (!hasNotif("NEW_SUPPLIER")) {
+                QJsonObject n;
+                n["id"] = QString::number(id) + "_new_" + QString::number(now.toMSecsSinceEpoch());
+                n["type"] = "NEW_SUPPLIER";
+                n["msg"] = QString("New supplier '%1' (ID %2) has just opened!").arg(nm).arg(id);
+                n["date"] = now.toString("dd/MM HH:mm");
+                n["is_read"] = 0;
+                notifs.append(n);
+                changed = true;
+            }
+        }
+
+        // 2. Closed
+        if (accStatus != "Active") {
+            if (!hasNotif("SUPPLIER_CLOSED")) {
+                QJsonObject n;
+                n["id"] = QString::number(id) + "_closed_" + QString::number(now.toMSecsSinceEpoch());
+                n["type"] = "SUPPLIER_CLOSED";
+                n["msg"] = QString("Supplier '%1' (ID %2) has closed / gone inactive.").arg(nm).arg(id);
+                n["date"] = now.toString("dd/MM HH:mm");
+                n["is_read"] = 0;
+                notifs.append(n);
+                changed = true;
+            }
+        }
+
+        // 3. Stock
+        if (stkStatus == "Out of Stock" || stkStatus == "Low Stock") {
+            bool hasUnreadStock = false;
+            for (int i=0; i<notifs.size(); ++i) {
+                QJsonObject obj = notifs[i].toObject();
+                if (obj["type"].toString() == "STOCK_ALERT" && obj["is_read"].toInt() == 0) {
+                    hasUnreadStock = true;
+                    break;
+                }
+            }
+            if (!hasUnreadStock) {
+                QJsonObject n;
+                n["id"] = QString::number(id) + "_stock_" + QString::number(now.toMSecsSinceEpoch());
+                n["type"] = "STOCK_ALERT";
+                n["msg"] = QString("Supplier '%1' (ID %2) is now: %3.").arg(nm).arg(id).arg(stkStatus);
+                n["date"] = now.toString("dd/MM HH:mm");
+                n["is_read"] = 0;
+                notifs.append(n);
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            QString newJson = QString::fromUtf8(QJsonDocument(notifs).toJson(QJsonDocument::Compact));
+            QSqlQuery u;
+            u.prepare("UPDATE SUPPLIERS SET NOTIFICATIONS_JSON = :json WHERE SUPPLIER_ID = :id");
+            u.bindValue(":json", newJson);
+            u.bindValue(":id", id);
+            u.exec();
+        }
+
+        for (int i=0; i<notifs.size(); ++i) {
+            if (notifs[i].toObject()["is_read"].toInt() == 0) unreadTotal++;
+        }
+    }
+
+    // Update bell badge (red dot) if there are unread notifications
+    if (m_supplierBellBtn) {
+        if (unreadTotal > 0) {
+            m_supplierBellBtn->setStyleSheet(
+                "QPushButton { background-color: #c0392b; border-radius: 22px; color: white; font-size: 20px; border: none; }"
+                "QPushButton:hover { background-color: #e74c3c; }");
+        } else {
+            m_supplierBellBtn->setStyleSheet(
+                "QPushButton { background-color: #8B6F47; border-radius: 22px; color: white; font-size: 20px; border: none; }"
+                "QPushButton:hover { background-color: #a3845a; }"
+                "QPushButton:pressed{ background-color: #6b5535; }");
+        }
+    }
+}
+
+void MainWindow::onSupplierBellClicked()
+{
+    // Refresh first
+    checkAndPostSupplierNotifications();
+
+    struct NotifItem {
+        int supplierId;
+        QString id;
+        QString type;
+        QString msg;
+        QString date;
+        int is_read;
+    };
+    QList<NotifItem> allNotifs;
+
+    QSqlQuery q("SELECT SUPPLIER_ID, NOTIFICATIONS_JSON FROM SUPPLIERS WHERE NOTIFICATIONS_JSON IS NOT NULL");
+    while (q.next()) {
+        int sId = q.value(0).toInt();
+        QString jsonStr = q.value(1).toString();
+        if (jsonStr.isEmpty()) continue;
+        QJsonArray arr = QJsonDocument::fromJson(jsonStr.toUtf8()).array();
+        for (int i=0; i<arr.size(); i++) {
+            QJsonObject o = arr[i].toObject();
+            allNotifs.append({sId, o["id"].toString(), o["type"].toString(), o["msg"].toString(), o["date"].toString(), o["is_read"].toInt()});
+        }
+    }
+
+    std::sort(allNotifs.begin(), allNotifs.end(), [](const NotifItem& a, const NotifItem& b) {
+        return a.date > b.date; // simple string compare on dd/MM HH:mm
+    });
+
+    // ---- Build the popup dialog ----
+    QDialog *dlg = new QDialog(this);
+    dlg->setWindowTitle("Supplier Notifications");
+    dlg->setMinimumSize(560, 420);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setStyleSheet(
+        "QDialog { background: #1a1208; }"
+        "QLabel { color: #f5e6cc; }"
+        "QScrollArea { background: transparent; border: none; }");
+
+    QVBoxLayout *root = new QVBoxLayout(dlg);
+    root->setContentsMargins(16, 16, 16, 16);
+    root->setSpacing(10);
+
+    QLabel *title = new QLabel((QString(QChar(0xD83D)) + QChar(0xDD14)) + "  Supplier Notifications", dlg);
+    title->setStyleSheet("font-size: 16px; font-weight: bold; color: #D4AF37;");
+    root->addWidget(title);
+
+    QScrollArea *scroll = new QScrollArea(dlg);
+    scroll->setWidgetResizable(true);
+    QWidget *inner = new QWidget;
+    inner->setStyleSheet("background: transparent;");
+    QVBoxLayout *list = new QVBoxLayout(inner);
+    list->setSpacing(8);
+
+    int count = 0;
+    for (const NotifItem& n : allNotifs) {
+        QString type = n.type;
+        QString msg  = n.msg;
+        QString dt   = n.date;
+        bool isRead  = n.is_read == 1;
+
+        QString icon;
+        QString bgColor;
+        if (type == "NEW_SUPPLIER")    { icon = QString(QChar(0x2705)); bgColor = "#1e3d1e"; }
+        else if (type == "SUPPLIER_CLOSED") { icon = QString(QChar(0x26D4)); bgColor = "#3d1e1e"; }
+        else                           { icon = QString(QChar(0x26A0)); bgColor = "#3d2e00"; }
+
+        QFrame *card = new QFrame(inner);
+        card->setStyleSheet(QString("background: %1; border-radius: 10px; border: 1px solid #8B6F47;").arg(bgColor));
+        QHBoxLayout *cl = new QHBoxLayout(card);
+
+        QLabel *ico = new QLabel(icon, card);
+        ico->setStyleSheet("font-size: 20px; background: transparent;");
+        ico->setFixedWidth(30);
+
+        QVBoxLayout *tl = new QVBoxLayout;
+        QLabel *lmsg = new QLabel(msg, card);
+        lmsg->setWordWrap(true);
+        lmsg->setStyleSheet(QString("font-weight: %1; font-size: 13px; background: transparent; color: %2;")
+            .arg(isRead ? "normal" : "bold")
+            .arg(isRead ? "#aaa" : "#f5e6cc"));
+        QLabel *ldt = new QLabel(dt, card);
+        ldt->setStyleSheet("font-size: 11px; color: #8B6F47; background: transparent;");
+        tl->addWidget(lmsg);
+        tl->addWidget(ldt);
+
+        QPushButton *markBtn = new QPushButton(isRead ? "Read" : "Mark Read", card);
+        markBtn->setFixedSize(90, 28);
+        markBtn->setEnabled(!isRead);
+        markBtn->setStyleSheet(
+            "QPushButton { background: #8B6F47; color: white; border-radius: 6px; font-size: 11px; border: none; padding: 2px 6px; }"
+            "QPushButton:hover { background: #a3845a; }"
+            "QPushButton:disabled { background: #444; color: #888; }");
+            
+        int sId = n.supplierId;
+        QString nId = n.id;
+        connect(markBtn, &QPushButton::clicked, dlg, [sId, nId, markBtn, lmsg]() {
+            QSqlQuery qGet;
+            qGet.prepare("SELECT NOTIFICATIONS_JSON FROM SUPPLIERS WHERE SUPPLIER_ID = :id");
+            qGet.bindValue(":id", sId);
+            if (qGet.exec() && qGet.next()) {
+                QJsonArray arr = QJsonDocument::fromJson(qGet.value(0).toString().toUtf8()).array();
+                for (int i=0; i<arr.size(); i++) {
+                    QJsonObject o = arr[i].toObject();
+                    if (o["id"].toString() == nId) {
+                        o["is_read"] = 1;
+                        arr[i] = o;
+                        break;
+                    }
+                }
+                QSqlQuery u;
+                u.prepare("UPDATE SUPPLIERS SET NOTIFICATIONS_JSON = :json WHERE SUPPLIER_ID = :id");
+                u.bindValue(":json", QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+                u.bindValue(":id", sId);
+                u.exec();
+            }
+            markBtn->setText("Read");
+            markBtn->setEnabled(false);
+            lmsg->setStyleSheet("font-weight: normal; font-size: 13px; background: transparent; color: #aaa;");
+        });
+
+        cl->addWidget(ico);
+        cl->addLayout(tl, 1);
+        cl->addWidget(markBtn);
+        list->addWidget(card);
+        count++;
+    }
+
+    if (count == 0) {
+        QLabel *empty = new QLabel("No notifications yet.", inner);
+        empty->setAlignment(Qt::AlignCenter);
+        empty->setStyleSheet("color: #8B6F47; font-size: 14px;");
+        list->addWidget(empty);
+    }
+
+    list->addStretch();
+    scroll->setWidget(inner);
+    root->addWidget(scroll, 1);
+
+    QPushButton *markAll = new QPushButton("Mark All as Read", dlg);
+    markAll->setStyleSheet(
+        "QPushButton { background: #8B6F47; color: white; border-radius: 8px; font-weight: bold; padding: 8px 20px; border: none; }"
+        "QPushButton:hover { background: #a3845a; }");
+    connect(markAll, &QPushButton::clicked, dlg, [this, dlg]() {
+        QSqlQuery q("SELECT SUPPLIER_ID, NOTIFICATIONS_JSON FROM SUPPLIERS WHERE NOTIFICATIONS_JSON LIKE '%\"is_read\":0%'");
+        while(q.next()) {
+            int sId = q.value(0).toInt();
+            QJsonArray arr = QJsonDocument::fromJson(q.value(1).toString().toUtf8()).array();
+            for(int i=0; i<arr.size(); i++) {
+                QJsonObject o = arr[i].toObject();
+                o["is_read"] = 1;
+                arr[i] = o;
+            }
+            QSqlQuery u;
+            u.prepare("UPDATE SUPPLIERS SET NOTIFICATIONS_JSON = :json WHERE SUPPLIER_ID = :id");
+            u.bindValue(":json", QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+            u.bindValue(":id", sId);
+            u.exec();
+        }
+        if (m_supplierBellBtn)
+            m_supplierBellBtn->setStyleSheet(
+                "QPushButton { background-color: #8B6F47; border-radius: 22px; color: white; font-size: 20px; border: none; }"
+                "QPushButton:hover { background-color: #a3845a; }");
+        dlg->accept();
+    });
+    root->addWidget(markAll);
+
+    dlg->exec();
+    checkAndPostSupplierNotifications();
+}
+
+void MainWindow::playSupplierSuccessAnimation(const QString &supplierName) {
+    // 1. Flash green on form fields
+    QList<QWidget*> widgets = { ui_supplier->le_nom, ui_supplier->le_id, ui_supplier->le_adresse, ui_supplier->le_type };
+    for (auto w : widgets) {
+        if (!w) continue;
+        QString oldStyle = w->styleSheet();
+        w->setStyleSheet(oldStyle + " background-color: rgba(76, 175, 80, 0.3); border: 2px solid #4CAF50;");
+        QTimer::singleShot(800, [=]() { w->setStyleSheet(oldStyle); });
+    }
+
+    // 2. Flying Card
+    QLabel *flyer = new QLabel(this);
+    // Use QChar combinations to avoid invalid universal character errors in MinGW
+    flyer->setText((QString(QChar(0xD83D)) + QChar(0xDE9A)) + " " + supplierName);
+    flyer->setFixedSize(160, 45);
+    flyer->setAlignment(Qt::AlignCenter);
+    flyer->setStyleSheet("background: #8B6F47; color: white; border: 2px solid #D4AF37; border-radius: 12px; font-weight: bold; font-family: 'Segoe UI';");
+    
+    QPoint startPos = ui_supplier->groupBox_gestion->mapTo(this, QPoint(150, 200));
+    QPoint endPos = QPoint(200, 100); 
+
+    flyer->move(startPos);
+    flyer->show();
+    flyer->raise();
+
+    QPropertyAnimation *moveAnim = new QPropertyAnimation(flyer, "pos");
+    moveAnim->setDuration(1000);
+    moveAnim->setStartValue(startPos);
+    moveAnim->setEndValue(endPos);
+    moveAnim->setEasingCurve(QEasingCurve::InOutBack);
+
+    QPropertyAnimation *scaleAnim = new QPropertyAnimation(flyer, "size");
+    scaleAnim->setDuration(1000);
+    scaleAnim->setStartValue(QSize(160, 45));
+    scaleAnim->setEndValue(QSize(10, 10));
+
+    QParallelAnimationGroup *group = new QParallelAnimationGroup(this);
+    group->addAnimation(moveAnim);
+    group->addAnimation(scaleAnim);
+    
+    connect(group, &QParallelAnimationGroup::finished, this, [=]() {
+        flyer->hide();
+        flyer->deleteLater();
+        
+        // 4. Confetti (Supplier network chips / blue & gold)
+        for (int i=0; i<15; ++i) {
+            QLabel *chip = new QLabel(this);
+            chip->setFixedSize(8, 8);
+            chip->setStyleSheet(QString("background: %1; border-radius: 3px; border: 1px solid rgba(0,0,0,0.2);")
+                                .arg(i%2==0 ? "#8B6F47" : "#3498db"));
+            QPoint cStart = endPos + QPoint(rand()%40-20, rand()%20-10);
+            chip->move(cStart);
+            chip->show();
+            chip->raise();
+            
+            QPropertyAnimation *cMove = new QPropertyAnimation(chip, "pos");
+            cMove->setDuration(600 + rand()%600);
+            cMove->setStartValue(cStart);
+            cMove->setEndValue(cStart + QPoint(rand()%140-70, rand()%140-30));
+            cMove->setEasingCurve(QEasingCurve::OutCubic);
+            
+            QGraphicsOpacityEffect *op = new QGraphicsOpacityEffect(chip);
+            chip->setGraphicsEffect(op);
+            QPropertyAnimation *cFade = new QPropertyAnimation(op, "opacity");
+            cFade->setDuration(cMove->duration());
+            cFade->setStartValue(1.0);
+            cFade->setEndValue(0.0);
+            
+            QParallelAnimationGroup *cGrp = new QParallelAnimationGroup(this);
+            cGrp->addAnimation(cMove);
+            cGrp->addAnimation(cFade);
+            connect(cGrp, &QParallelAnimationGroup::finished, chip, &QLabel::deleteLater);
+            cGrp->start(QAbstractAnimation::DeleteWhenStopped);
+        }
+    });
+    group->start(QAbstractAnimation::DeleteWhenStopped);
+
+    // 5. Toast notification
+    QLabel *toast = new QLabel(QString(QChar(0x2705)) + " " + supplierName + " connected!", this);
+    toast->setFixedSize(320, 55);
+    toast->setAlignment(Qt::AlignCenter);
+    toast->setStyleSheet(
+        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1E3C2D, stop:1 #12251B);"
+        "color: #4CAF50; border: 2.5px solid #2E8B57; border-radius: 15px; font-weight: bold; font-size: 14px;");
+    
+    QGraphicsDropShadowEffect *tShadow = new QGraphicsDropShadowEffect(toast);
+    tShadow->setBlurRadius(15);
+    tShadow->setOffset(0, 4);
+    toast->setGraphicsEffect(tShadow);
+
+    QPoint toastEnd = QPoint(this->width() - 350, 30);
+    QPoint toastStart = QPoint(this->width() + 10, 30);
+    toast->move(toastStart);
+    toast->show();
+    toast->raise();
+
+    QPropertyAnimation *tIn = new QPropertyAnimation(toast, "pos");
+    tIn->setDuration(700);
+    tIn->setStartValue(toastStart);
+    tIn->setEndValue(toastEnd);
+    tIn->setEasingCurve(QEasingCurve::OutBack);
+
+    QTimer::singleShot(3000, [=]() {
+        QPropertyAnimation *tOut = new QPropertyAnimation(toast, "pos");
+        tOut->setDuration(500);
+        tOut->setStartValue(toastEnd);
+        tOut->setEndValue(toastStart);
+        tOut->setEasingCurve(QEasingCurve::InBack);
+        connect(tOut, &QPropertyAnimation::finished, toast, &QLabel::deleteLater);
+        tOut->start(QAbstractAnimation::DeleteWhenStopped);
+    });
+    tIn->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void MainWindow::playSupplierModifyAnimation(const QString &supplierName) {
+    // 1. Flash blue on form fields
+    QList<QWidget*> widgets = { ui_supplier->le_nom, ui_supplier->le_id, ui_supplier->le_adresse, ui_supplier->le_type };
+    for (auto w : widgets) {
+        if (!w) continue;
+        QString oldStyle = w->styleSheet();
+        w->setStyleSheet(oldStyle + " background-color: rgba(52, 152, 219, 0.3); border: 2px solid #3498DB;");
+        QTimer::singleShot(800, [=]() { w->setStyleSheet(oldStyle); });
+    }
+
+    // 2. Toast notification
+    QLabel *toast = new QLabel(QString(QChar(0x270F)) + " " + supplierName + " updated!", this); // ✏️
+    toast->setFixedSize(320, 55);
+    toast->setAlignment(Qt::AlignCenter);
+    toast->setStyleSheet(
+        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1A252C, stop:1 #10161A);"
+        "color: #3498DB; border: 2.5px solid #2980B9; border-radius: 15px; font-weight: bold; font-size: 14px;");
+    
+    QGraphicsDropShadowEffect *tShadow = new QGraphicsDropShadowEffect(toast);
+    tShadow->setBlurRadius(15);
+    tShadow->setOffset(0, 4);
+    toast->setGraphicsEffect(tShadow);
+
+    QPoint toastEnd = QPoint(this->width() - 350, 30);
+    QPoint toastStart = QPoint(this->width() + 10, 30);
+    toast->move(toastStart);
+    toast->show();
+    toast->raise();
+
+    QPropertyAnimation *tIn = new QPropertyAnimation(toast, "pos");
+    tIn->setDuration(700);
+    tIn->setStartValue(toastStart);
+    tIn->setEndValue(toastEnd);
+    tIn->setEasingCurve(QEasingCurve::OutBack);
+
+    QTimer::singleShot(3000, [=]() {
+        QPropertyAnimation *tOut = new QPropertyAnimation(toast, "pos");
+        tOut->setDuration(500);
+        tOut->setStartValue(toastEnd);
+        tOut->setEndValue(toastStart);
+        tOut->setEasingCurve(QEasingCurve::InBack);
+        connect(tOut, &QPropertyAnimation::finished, toast, &QLabel::deleteLater);
+        tOut->start(QAbstractAnimation::DeleteWhenStopped);
+    });
+    tIn->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void MainWindow::playSupplierDeleteAnimation(const QString &supplierName) {
+    // 1. Toast notification
+    QLabel *toast = new QLabel(QString(QChar(0xD83D)) + QChar(0xDDD1) + " " + supplierName + " removed.", this); // 🗑️
+    toast->setFixedSize(320, 55);
+    toast->setAlignment(Qt::AlignCenter);
+    toast->setStyleSheet(
+        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3C1E1E, stop:1 #251212);"
+        "color: #E74C3C; border: 2.5px solid #C0392B; border-radius: 15px; font-weight: bold; font-size: 14px;");
+    
+    QGraphicsDropShadowEffect *tShadow = new QGraphicsDropShadowEffect(toast);
+    tShadow->setBlurRadius(15);
+    tShadow->setOffset(0, 4);
+    toast->setGraphicsEffect(tShadow);
+
+    QPoint toastEnd = QPoint(this->width() - 350, 30);
+    QPoint toastStart = QPoint(this->width() + 10, 30);
+    toast->move(toastStart);
+    toast->show();
+    toast->raise();
+
+    QPropertyAnimation *tIn = new QPropertyAnimation(toast, "pos");
+    tIn->setDuration(700);
+    tIn->setStartValue(toastStart);
+    tIn->setEndValue(toastEnd);
+    tIn->setEasingCurve(QEasingCurve::OutBack);
+
+    QTimer::singleShot(3000, [=]() {
+        QPropertyAnimation *tOut = new QPropertyAnimation(toast, "pos");
+        tOut->setDuration(500);
+        tOut->setStartValue(toastEnd);
+        tOut->setEndValue(toastStart);
+        tOut->setEasingCurve(QEasingCurve::InBack);
+        connect(tOut, &QPropertyAnimation::finished, toast, &QLabel::deleteLater);
+        tOut->start(QAbstractAnimation::DeleteWhenStopped);
+    });
+    tIn->start(QAbstractAnimation::DeleteWhenStopped);
+
+    // 2. Confetti (Red and Gray chips falling from the table area)
+    QPoint endPos = ui_supplier->tableView->mapTo(this, QPoint(ui_supplier->tableView->width() / 2, ui_supplier->tableView->height() / 2));
+    
+    for (int i=0; i<15; ++i) {
+        QLabel *chip = new QLabel(this);
+        chip->setFixedSize(8, 8);
+        chip->setStyleSheet(QString("background: %1; border-radius: 3px; border: 1px solid rgba(0,0,0,0.2);")
+                            .arg(i%2==0 ? "#E74C3C" : "#95A5A6"));
+        QPoint cStart = endPos + QPoint(rand()%100-50, rand()%40-20);
+        chip->move(cStart);
+        chip->show();
+        chip->raise();
+        
+        QPropertyAnimation *cMove = new QPropertyAnimation(chip, "pos");
+        cMove->setDuration(800 + rand()%600);
+        cMove->setStartValue(cStart);
+        cMove->setEndValue(cStart + QPoint(rand()%60-30, 100 + rand()%100)); // Falling down
+        cMove->setEasingCurve(QEasingCurve::InQuad); // Accelerate downwards
+        
+        QGraphicsOpacityEffect *op = new QGraphicsOpacityEffect(chip);
+        chip->setGraphicsEffect(op);
+        QPropertyAnimation *cFade = new QPropertyAnimation(op, "opacity");
+        cFade->setDuration(cMove->duration());
+        cFade->setStartValue(1.0);
+        cFade->setEndValue(0.0);
+        
+        QParallelAnimationGroup *cGrp = new QParallelAnimationGroup(this);
+        cGrp->addAnimation(cMove);
+        cGrp->addAnimation(cFade);
+        connect(cGrp, &QParallelAnimationGroup::finished, chip, &QLabel::deleteLater);
+        cGrp->start(QAbstractAnimation::DeleteWhenStopped);
+    }
+}
+
 
 
 

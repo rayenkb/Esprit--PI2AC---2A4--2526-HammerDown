@@ -1,3 +1,6 @@
+#include "mainwindow.h"
+#include <QApplication>
+
 void MainWindow::setupGlobalStyles()
 {
     QString style = R"(

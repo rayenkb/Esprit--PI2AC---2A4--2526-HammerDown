@@ -16,6 +16,13 @@
 #include <QMediaDevices>
 #include <QCameraDevice>
 
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QSettings>
+
 namespace Ui { class LoginFrame; }
 
 class LoginWindow : public QFrame {
@@ -35,6 +42,7 @@ private slots:
     void handleFaceLogin();
     void handleForgotPassword();
     void processCameraFrame();
+    void updateScanAnimation();
 
 private:
     Ui::LoginFrame *ui;
@@ -42,6 +50,9 @@ private:
     QMediaCaptureSession *m_captureSession = nullptr;
     QVideoSink *m_videoSink = nullptr;
     bool m_isFaceLoginActive = false;
+    qreal m_scanLineY = 0.0;
+    bool m_scanForward = true;
+    QTimer *m_scanLineTimer = nullptr;
 };
 
 #endif // LOGINWINDOW_H

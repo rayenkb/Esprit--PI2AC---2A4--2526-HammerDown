@@ -3,12 +3,14 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDebug>
+#include <QIcon>
 #include "mainwindow.h"
 #include "connection.h"
 
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
+    a.setWindowIcon(QIcon(":/assets/logo.png"));
     
     if (!createConnection()) {
         QMessageBox::warning(nullptr, "Database Connection Error",

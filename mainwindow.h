@@ -7,6 +7,7 @@
 #include <QPieSeries>
 #include <QPieSlice>
 #include <QBarSeries>
+#include <QHorizontalBarSeries>
 #include <QBarSet>
 #include <QBarCategoryAxis>
 #include <QValueAxis>
@@ -22,6 +23,7 @@
 #include <QVideoFrame>
 #include <QPropertyAnimation>
 #include <QTimer>
+#include <QTimeEdit>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -280,6 +282,10 @@ private slots:
     void onEmployeeDelete();
     void onEmployeeRefreshView();
     void onEmployeeRefreshHistory();
+    void updateSalaryInsight();
+    void onSuggestSalary();
+    void onStatsAiClicked();
+    void onAIPulseClicked();
     void onEmployeeSearch();
     void onEmployeeRowSelected(const QModelIndex &index);
     void onEmployeeSendMail();
@@ -298,6 +304,16 @@ private slots:
     void onSupplierRefreshView();
     void onSupplierSendSMS();
     void onSupplierUploadImage();
+    
+    // Supplier Map
+    void setupSupplierMapTab();
+    void refreshSupplierMap();
+    void onSupplierGeocodeFinished(QNetworkReply *reply);
+    void checkSupplierVicinity(int supplierId = -1);
+    void loadSupplierMapPins();
+    void onSupplierBellClicked();
+    void checkAndPostSupplierNotifications();
+    
     // Delivery rating system
     void onSupplierEnsureReviewsTable();
     void onSupplierReviewLoad();
@@ -441,6 +457,9 @@ private:
     QLabel *m_eqTypeInd = nullptr, *m_eqDateInd = nullptr, *m_eqPriceInd = nullptr, *m_eqDescInd = nullptr;
     void updateEquipProgress();
     void playEquipSuccessAnimation(const QString &equipName);
+    void playSupplierSuccessAnimation(const QString &supplierName);
+    void playSupplierModifyAnimation(const QString &supplierName);
+    void playSupplierDeleteAnimation(const QString &supplierName);
 
     void setupOrderMapTab();
     void requestMapForBuyerId();
@@ -479,6 +498,51 @@ private:
         QPoint m_mapDragOffset;
         QPixmap m_mapCurrentPixmap;
         bool m_mapHasPixmap = false;
+        
+    // --- Supplier Map ---
+    struct SupplierPin {
+        int id;
+        QString name;
+        QString type;
+        QString status;
+        double lat;
+        double lon;
+        QRect rect;
+    };
+    QList<SupplierPin> m_supplierPins;
+    int m_supplierGeocodePendingCount = 0;
+
+    QNetworkAccessManager *m_supplierMapNet = nullptr;
+    QLabel *m_supplierMapImageLabel = nullptr;
+    QLabel *m_supplierMapStatusLabel = nullptr;
+    QPushButton *m_supplierMapRefreshBtn = nullptr;
+    QPushButton *m_supplierMapZoomInBtn = nullptr;
+    QPushButton *m_supplierMapZoomOutBtn = nullptr;
+    QTimeEdit *m_teOpeningHour = nullptr;
+    QTimeEdit *m_teClosingHour = nullptr;
+    QPushButton *m_supplierBellBtn = nullptr;
+    
+    QHash<QString, QPixmap> m_supplierMapTileCache;
+    QSet<QString> m_supplierMapPendingTiles;
+    int m_supplierMapZoom = 13;
+    QSize m_supplierMapImageSize = QSize(800, 500);
+    double m_supplierMapTopLeftX = 0.0;
+    double m_supplierMapTopLeftY = 0.0;
+    int m_supplierMapTileX0 = 0;
+    int m_supplierMapTileY0 = 0;
+    int m_supplierMapTileX1 = 0;
+    int m_supplierMapTileY1 = 0;
+    int m_supplierMapTileErrors = 0;
+    
+    double m_supplierCenterLat = 36.8065; // Tunis default
+    double m_supplierCenterLon = 10.1815;
+    bool m_supplierMapDragging = false;
+    QPoint m_supplierMapDragStart;
+    double m_supplierMapDragCenterX = 0.0;
+    double m_supplierMapDragCenterY = 0.0;
+    QPoint m_supplierMapDragOffset;
+    QPixmap m_supplierMapCurrentPixmap;
+    bool m_supplierMapHasPixmap = false;
     
     // AI Summarization network manager
     QNetworkAccessManager *chatSummaryNetManager = nullptr;

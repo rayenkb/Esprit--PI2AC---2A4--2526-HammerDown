@@ -299,7 +299,7 @@ void LoreGuideWidget::appendBubble(const QString &text, bool isUser)
     bubble->setGraphicsEffect(eff);
     eff->setOpacity(0.0);
     QPropertyAnimation *anim = new QPropertyAnimation(eff, "opacity", bubble);
-    anim->setDuration(500);
+    anim->setDuration(120);
     anim->setStartValue(0.0);
     anim->setEndValue(1.0);
     anim->start(QAbstractAnimation::DeleteWhenStopped);
@@ -346,11 +346,16 @@ void LoreGuideWidget::callApi(const QString &userMessage)
         m_history.append(userMsg);
     }
 
+    trimConversationHistory(6);
+
     QString currentModel = m_modelList.value(m_retryCount, m_modelList.first());
 
     QJsonObject body;
     body["model"] = currentModel;
     body["messages"] = m_history;
+    body["max_tokens"] = 160;
+    body["temperature"] = 0.2;
+    body["top_p"] = 0.8;
 
     QNetworkRequest req(QUrl("https://openrouter.ai/api/v1/chat/completions"));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -365,6 +370,34 @@ void LoreGuideWidget::callApi(const QString &userMessage)
     req.setSslConfiguration(sslConfig);
 
     m_network->post(req, QJsonDocument(body).toJson());
+}
+
+void LoreGuideWidget::trimConversationHistory(int maxNonSystemMessages)
+{
+    if (maxNonSystemMessages <= 0) return;
+
+    QJsonArray systemMessages;
+    QJsonArray nonSystemMessages;
+
+    for (const QJsonValue &val : m_history) {
+        QJsonObject msg = val.toObject();
+        if (msg["role"].toString() == "system")
+            systemMessages.append(msg);
+        else
+            nonSystemMessages.append(msg);
+    }
+
+    if (nonSystemMessages.size() <= maxNonSystemMessages) return;
+
+    QJsonArray trimmed;
+    for (const QJsonValue &val : systemMessages)
+        trimmed.append(val);
+
+    int start = nonSystemMessages.size() - maxNonSystemMessages;
+    for (int i = start; i < nonSystemMessages.size(); ++i)
+        trimmed.append(nonSystemMessages.at(i));
+
+    m_history = trimmed;
 }
 
 bool LoreGuideWidget::isImageRequest(const QString &text) const
@@ -747,7 +780,8 @@ QString LoreGuideWidget::executeSqlCommand(const QString &sql)
 
 QString LoreGuideWidget::buildSystemPrompt() const
 {
-    QString base = R"(You are the official assistant for "HammerDown" — a professional enterprise management desktop application built with Qt 6 / C++ and Oracle Database. You help users with managing employees, clients, orders, equipment, and suppliers. Answer questions clearly and accurately. You have FULL access to the database. Below is the current live data from the database — use it to answer user questions precisely.
+    QString base = R"(You are the official assistant for "HammerDown" — a professional enterprise management desktop application built with Qt 6 / C++ and Oracle Database.
+Answer clearly and briefly.
 
 DATABASE SCHEMA:
 - EMPLOYEES(EMPLOYEE_ID NUMBER PK, FIRST_NAME, LAST_NAME, JOB_TITLE, EMAIL, PHONE_NUMBER, SALARY NUMBER(12,2), DEPARTMENT, AGE NUMBER, EMPLOYEE_STATUS)
@@ -756,103 +790,11 @@ DATABASE SCHEMA:
 - EQUIPMENT(EQUIPMENT_ID NUMBER PK, EQUIPMENT_TYPE, QUANTITY NUMBER, UNIT_PRICE NUMBER(12,2), STATUS, DESCRIPTION, LOCATION, NOTES, NEXT_MAINTENANCE DATE, COUT_ACQUISITION NUMBER(12,2), RESPONSABLE)
 - SUPPLIERS(SUPPLIER_ID NUMBER PK, SUPPLIER_NAME, EMAIL, PHONE_NUMBER, ADDRESS, POSTAL_CODE, DELIVERY_RATING NUMBER(3,2), QUALITY_RATING NUMBER(3,2), ACCOUNT_STATUS)
 
-You can INSERT, UPDATE, or DELETE data. When the user asks you to add, modify, or remove records, output the SQL inside [EXECUTE_SQL]...[/EXECUTE_SQL] tags. Rules:
+When a DB action is needed, output SQL inside [EXECUTE_SQL]...[/EXECUTE_SQL] tags.
 - Use Oracle SQL syntax.
 - Only one statement per tag. Use multiple tags for multiple statements.
-- For INSERT: use the next available ID or let the sequence/trigger handle it.
-- Always confirm what you did after the SQL.
-- Example: "I'll add that employee now. [EXECUTE_SQL]INSERT INTO EMPLOYEES (FIRST_NAME, LAST_NAME, JOB_TITLE) VALUES ('John', 'Smith', 'Blacksmith')[/EXECUTE_SQL] Done! John Smith has been added."
-- NEVER use DROP TABLE, TRUNCATE, ALTER TABLE, or any DDL commands. Only DML (INSERT, UPDATE, DELETE) is allowed.)";
+- NEVER use DROP TABLE, TRUNCATE, ALTER TABLE, or any DDL commands.
+- Keep replies concise to reduce latency.)";
 
-    // ── Inject live database context ──
-    QString dbContext;
-
-    // Orders
-    {
-        QSqlQuery q("SELECT ORDER_ID, CLIENT_ID, EMPLOYEE_ID, ORDER_TYPE, ORDER_STATUS, TOTAL_QUANTITY, TOTAL_PRICE, PAYMENT_STATUS FROM ORDERS ORDER BY ORDER_ID");
-        QStringList rows;
-        while (q.next()) {
-            rows << QString("  - Order #%1 | Client ID: %2 | Employee ID: %3 | Type: %4 | Status: %5 | Qty: %6 | Total: $%7 | Payment: %8")
-                        .arg(q.value(0).toInt())
-                        .arg(q.value(1).toInt())
-                        .arg(q.value(2).toInt())
-                        .arg(q.value(3).toString())
-                        .arg(q.value(4).toString())
-                        .arg(q.value(5).toInt())
-                        .arg(q.value(6).toDouble(), 0, 'f', 2)
-                        .arg(q.value(7).toString());
-        }
-        if (!rows.isEmpty())
-            dbContext += "\n\nCURRENT ORDERS (" + QString::number(rows.size()) + "):\n" + rows.join("\n");
-        else
-            dbContext += "\n\nCURRENT ORDERS: None found in database.";
-    }
-
-    // Employees
-    {
-        QSqlQuery q("SELECT EMPLOYEE_ID, FIRST_NAME, LAST_NAME, JOB_TITLE, DEPARTMENT, EMPLOYEE_STATUS FROM EMPLOYEES ORDER BY EMPLOYEE_ID");
-        QStringList rows;
-        while (q.next()) {
-            rows << QString("  - ID: %1 | %2 %3 | Title: %4 | Dept: %5 | Status: %6")
-                        .arg(q.value(0).toInt())
-                        .arg(q.value(1).toString())
-                        .arg(q.value(2).toString())
-                        .arg(q.value(3).toString())
-                        .arg(q.value(4).toString())
-                        .arg(q.value(5).toString());
-        }
-        if (!rows.isEmpty())
-            dbContext += "\n\nCURRENT EMPLOYEES (" + QString::number(rows.size()) + "):\n" + rows.join("\n");
-    }
-
-    // Clients
-    {
-        QSqlQuery q("SELECT CLIENT_ID, FIRST_NAME, LAST_NAME, EMAIL, PHONE_NUMBER, STATUS FROM CLIENTS ORDER BY CLIENT_ID");
-        QStringList rows;
-        while (q.next()) {
-            rows << QString("  - ID: %1 | %2 %3 | Email: %4 | Phone: %5 | Status: %6")
-                        .arg(q.value(0).toInt())
-                        .arg(q.value(1).toString())
-                        .arg(q.value(2).toString())
-                        .arg(q.value(3).toString())
-                        .arg(q.value(4).toString())
-                        .arg(q.value(5).toString());
-        }
-        if (!rows.isEmpty())
-            dbContext += "\n\nCURRENT CLIENTS (" + QString::number(rows.size()) + "):\n" + rows.join("\n");
-    }
-
-    // Equipment
-    {
-        QSqlQuery q("SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, QUANTITY, STATUS, LOCATION FROM EQUIPMENT ORDER BY EQUIPMENT_ID");
-        QStringList rows;
-        while (q.next()) {
-            rows << QString("  - ID: %1 | Type: %2 | Qty: %3 | Status: %4 | Location: %5")
-                        .arg(q.value(0).toInt())
-                        .arg(q.value(1).toString())
-                        .arg(q.value(2).toInt())
-                        .arg(q.value(3).toString())
-                        .arg(q.value(4).toString());
-        }
-        if (!rows.isEmpty())
-            dbContext += "\n\nCURRENT EQUIPMENT (" + QString::number(rows.size()) + "):\n" + rows.join("\n");
-    }
-
-    // Suppliers
-    {
-        QSqlQuery q("SELECT SUPPLIER_ID, SUPPLIER_NAME, EMAIL, PHONE_NUMBER, ACCOUNT_STATUS FROM SUPPLIERS ORDER BY SUPPLIER_ID");
-        QStringList rows;
-        while (q.next()) {
-            rows << QString("  - ID: %1 | Name: %2 | Email: %3 | Phone: %4 | Status: %5")
-                        .arg(q.value(0).toInt())
-                        .arg(q.value(1).toString())
-                        .arg(q.value(2).toString())
-                        .arg(q.value(3).toString())
-                        .arg(q.value(4).toString());
-        }
-        if (!rows.isEmpty())
-            dbContext += "\n\nCURRENT SUPPLIERS (" + QString::number(rows.size()) + "):\n" + rows.join("\n");
-    }
-
-    return base + dbContext;
+    return base;
 }

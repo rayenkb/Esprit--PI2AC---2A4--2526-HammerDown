@@ -15,7 +15,7 @@ class WelcomeNotificationBar : public QWidget {
     Q_OBJECT
 
 public:
-    explicit WelcomeNotificationBar(const QString &employeeName, const QString &managementName, QWidget *parent = nullptr);
+    explicit WelcomeNotificationBar(const QString &employeeName, const QString &employeeRole, const QString &managementName, QWidget *parent = nullptr);
     ~WelcomeNotificationBar();
 
     void startEntrance();
@@ -32,6 +32,7 @@ private slots:
 
 private:
     QString m_employeeName;
+    QString m_employeeRole;
     QString m_managementName;
     QLabel *m_gifLabel;
     QMovie *m_movie;

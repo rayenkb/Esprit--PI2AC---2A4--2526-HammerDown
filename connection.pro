@@ -83,7 +83,9 @@ RESOURCES += \
     resources.qrc \
     sounds.qrc
 
-## Translation files removed to avoid .qm dependency
+# Translation files
+TRANSLATIONS += \
+    translations/app_fr.ts
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

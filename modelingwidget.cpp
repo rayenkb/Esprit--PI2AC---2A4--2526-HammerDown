@@ -18,9 +18,7 @@
 #include <cfloat>
 #include <functional>
 #include <QSet>
-#include <QRegularExpression>
-#include <QSslConfiguration>
-#include <QProcessEnvironment>
+#include <QMap>
 #include <cmath>
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -236,7 +234,7 @@ void GLViewport::computeObjectBounds(int index, QVector3D &outMin, QVector3D &ou
     QVector3D minV(FLT_MAX, FLT_MAX, FLT_MAX);
     QVector3D maxV(-FLT_MAX, -FLT_MAX, -FLT_MAX);
     for (const QVector3D &c : corners) {
-        QVector3D w = world * c;
+        QVector3D w = world.map(c);
         minV.setX(qMin(minV.x(), w.x()));
         minV.setY(qMin(minV.y(), w.y()));
         minV.setZ(qMin(minV.z(), w.z()));
@@ -308,7 +306,7 @@ QVector3D GLViewport::computeWorldPivot(int index) const
     QVector3D localPivot = obj.position + obj.pivot;
 
     if (obj.parentIndex >= 0 && obj.parentIndex < m_objects->size()) {
-        return m_worldMatrices.at(obj.parentIndex) * localPivot;
+        return m_worldMatrices.at(obj.parentIndex).map(localPivot);
     }
     return localPivot;
 }
@@ -483,6 +481,8 @@ void GLViewport::drawObject(int index, const SceneObject &obj, bool highlight)
             case PrimitiveType::Cone:     drawCone(24); break;
             case PrimitiveType::Pyramid:  drawPyramid(); break;
             case PrimitiveType::Plane:    drawPlane(); break;
+            case PrimitiveType::Capsule:  drawCapsule(24, 12); break;
+            case PrimitiveType::Torus:    drawTorus(28, 16); break;
         }
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         glLineWidth(1.0f);
@@ -509,6 +509,8 @@ void GLViewport::drawObject(int index, const SceneObject &obj, bool highlight)
         case PrimitiveType::Cone:     drawCone(24); break;
         case PrimitiveType::Pyramid:  drawPyramid(); break;
         case PrimitiveType::Plane:    drawPlane(); break;
+        case PrimitiveType::Capsule:  drawCapsule(24, 12); break;
+        case PrimitiveType::Torus:    drawTorus(28, 16); break;
     }
 
     if (m_shadingMode == ShadingMode::Wireframe) {
@@ -528,6 +530,8 @@ void GLViewport::drawObject(int index, const SceneObject &obj, bool highlight)
             case PrimitiveType::Cone:     drawCone(24); break;
             case PrimitiveType::Pyramid:  drawPyramid(); break;
             case PrimitiveType::Plane:    drawPlane(); break;
+            case PrimitiveType::Capsule:  drawCapsule(24, 12); break;
+            case PrimitiveType::Torus:    drawTorus(28, 16); break;
         }
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         glLineWidth(1.0f);
@@ -673,6 +677,93 @@ void GLViewport::drawPlane()
     glVertex3f( 0.5f, 0,  0.5f);
     glVertex3f(-0.5f, 0,  0.5f);
     glEnd();
+}
+
+void GLViewport::drawCapsule(int slices, int stacks)
+{
+    const float radius = 0.25f;
+    const float cylinderHalf = 0.25f;
+
+    glBegin(GL_QUAD_STRIP);
+    for (int i = 0; i <= slices; ++i) {
+        float a = 2.0f * float(M_PI) * float(i) / float(slices);
+        float x = std::cos(a);
+        float z = std::sin(a);
+        glNormal3f(x, 0.0f, z);
+        glVertex3f(radius * x, cylinderHalf, radius * z);
+        glVertex3f(radius * x, -cylinderHalf, radius * z);
+    }
+    glEnd();
+
+    for (int stack = 0; stack < stacks; ++stack) {
+        float t0 = (float(stack) / float(stacks)) * (float(M_PI) * 0.5f);
+        float t1 = (float(stack + 1) / float(stacks)) * (float(M_PI) * 0.5f);
+
+        glBegin(GL_QUAD_STRIP);
+        for (int i = 0; i <= slices; ++i) {
+            float a = 2.0f * float(M_PI) * float(i) / float(slices);
+            float ca = std::cos(a), sa = std::sin(a);
+
+            float ct0 = std::cos(t0), st0 = std::sin(t0);
+            float ct1 = std::cos(t1), st1 = std::sin(t1);
+
+            glNormal3f(ca * ct0, st0, sa * ct0);
+            glVertex3f(radius * ca * ct0, cylinderHalf + radius * st0, radius * sa * ct0);
+
+            glNormal3f(ca * ct1, st1, sa * ct1);
+            glVertex3f(radius * ca * ct1, cylinderHalf + radius * st1, radius * sa * ct1);
+        }
+        glEnd();
+
+        glBegin(GL_QUAD_STRIP);
+        for (int i = 0; i <= slices; ++i) {
+            float a = 2.0f * float(M_PI) * float(i) / float(slices);
+            float ca = std::cos(a), sa = std::sin(a);
+
+            float ct0 = std::cos(t0), st0 = std::sin(t0);
+            float ct1 = std::cos(t1), st1 = std::sin(t1);
+
+            glNormal3f(ca * ct0, -st0, sa * ct0);
+            glVertex3f(radius * ca * ct0, -cylinderHalf - radius * st0, radius * sa * ct0);
+
+            glNormal3f(ca * ct1, -st1, sa * ct1);
+            glVertex3f(radius * ca * ct1, -cylinderHalf - radius * st1, radius * sa * ct1);
+        }
+        glEnd();
+    }
+}
+
+void GLViewport::drawTorus(int majorSegments, int minorSegments)
+{
+    const float majorRadius = 0.33f;
+    const float minorRadius = 0.14f;
+
+    for (int i = 0; i < majorSegments; ++i) {
+        float u0 = 2.0f * float(M_PI) * float(i) / float(majorSegments);
+        float u1 = 2.0f * float(M_PI) * float(i + 1) / float(majorSegments);
+
+        glBegin(GL_QUAD_STRIP);
+        for (int j = 0; j <= minorSegments; ++j) {
+            float v = 2.0f * float(M_PI) * float(j) / float(minorSegments);
+            float cv = std::cos(v), sv = std::sin(v);
+
+            float cu0 = std::cos(u0), su0 = std::sin(u0);
+            float cu1 = std::cos(u1), su1 = std::sin(u1);
+
+            float r0 = majorRadius + minorRadius * cv;
+            float r1 = majorRadius + minorRadius * cv;
+
+            QVector3D n0(cu0 * cv, sv, su0 * cv);
+            QVector3D n1(cu1 * cv, sv, su1 * cv);
+
+            glNormal3f(n0.x(), n0.y(), n0.z());
+            glVertex3f(r0 * cu0, minorRadius * sv, r0 * su0);
+
+            glNormal3f(n1.x(), n1.y(), n1.z());
+            glVertex3f(r1 * cu1, minorRadius * sv, r1 * su1);
+        }
+        glEnd();
+    }
 }
 
 float GLViewport::computeGridStep() const
@@ -856,7 +947,7 @@ void GLViewport::drawStatsOverlay()
     p.setPen(QColor(230, 230, 230));
     p.setFont(QFont("Segoe UI", 9));
 
-    QVector3D camPos = (computeViewMatrix().inverted() * QVector3D(0, 0, 0));
+    QVector3D camPos = computeViewMatrix().inverted().map(QVector3D(0, 0, 0));
     QStringList lines;
     lines << QString("Objects: %1").arg(m_objects ? m_objects->size() : 0)
           << QString("Cam Pos: %1 %2 %3")
@@ -973,8 +1064,8 @@ bool GLViewport::pickOrientationCube(const QPoint &pos, ViewPreset &outPreset) c
     camRot.rotate(m_camPitch, 1, 0, 0);
     QMatrix4x4 inv = (proj * view * camRot).inverted();
 
-    QVector3D nearPoint = inv * QVector3D(ndcX, ndcY, -1.0f);
-    QVector3D farPoint = inv * QVector3D(ndcX, ndcY, 1.0f);
+    QVector3D nearPoint = inv.map(QVector3D(ndcX, ndcY, -1.0f));
+    QVector3D farPoint = inv.map(QVector3D(ndcX, ndcY, 1.0f));
     QVector3D dir = (farPoint - nearPoint).normalized();
 
     float tmin = 0.0f;
@@ -1046,8 +1137,8 @@ bool GLViewport::pickObject(const QPoint &pos, int &outIndex)
     QMatrix4x4 proj = computeProjectionMatrix();
     QMatrix4x4 inv = (proj * view).inverted();
 
-    QVector3D nearPoint = inv * QVector3D(ndcX, ndcY, -1.0f);
-    QVector3D farPoint = inv * QVector3D(ndcX, ndcY, 1.0f);
+    QVector3D nearPoint = inv.map(QVector3D(ndcX, ndcY, -1.0f));
+    QVector3D farPoint = inv.map(QVector3D(ndcX, ndcY, 1.0f));
     QVector3D dir = (farPoint - nearPoint).normalized();
 
     float closestT = FLT_MAX;
@@ -1093,6 +1184,7 @@ bool GLViewport::pickObject(const QPoint &pos, int &outIndex)
 
 GLViewport::GizmoAxis GLViewport::pickGizmoAxis(const QPoint &pos, GizmoMode mode) const
 {
+    Q_UNUSED(mode);
     if (m_selectedIdx < 0 || m_selectedIdx >= (m_objects ? m_objects->size() : 0))
         return GizmoAxis::None;
 
@@ -1549,7 +1641,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     addGroup->setStyleSheet(kGroupStyle);
     auto *addLayout = new QHBoxLayout(addGroup);
     m_addCombo = new QComboBox;
-    m_addCombo->addItems({"Cube", "Cylinder", "Sphere", "Plane", "Cone", "Pyramid"});
+    m_addCombo->addItems({"Cube", "Cylinder", "Sphere", "Plane", "Cone", "Pyramid", "Capsule", "Torus"});
     m_addCombo->setStyleSheet("QComboBox { background: #FFF; border-radius: 6px; padding: 4px 8px; font-size: 13px; }");
     addLayout->addWidget(m_addCombo);
 
@@ -1577,54 +1669,6 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     presetLayout->addLayout(presetRow1);
     presetLayout->addLayout(presetRow2);
     sideLayout->addWidget(presetGroup);
-
-    // ── Generate Environment ──
-    auto *genGroup = new QGroupBox("Generate Environment");
-    genGroup->setStyleSheet(kGroupStyle);
-    auto *genLayout = new QVBoxLayout(genGroup);
-
-    auto *btnToggleGen = new QPushButton("🌍 Generate From Text");
-    btnToggleGen->setStyleSheet(kBtnStyle + "QPushButton { background-color: #2A7B9B; font-size: 14px; padding: 8px; } QPushButton:hover { background-color: #3A9BBB; }");
-    genLayout->addWidget(btnToggleGen);
-
-    m_generatePanel = new QWidget;
-    m_generatePanel->setVisible(false);
-    auto *genPanelLayout = new QVBoxLayout(m_generatePanel);
-    genPanelLayout->setContentsMargins(0, 4, 0, 0);
-
-    auto *genHint = new QLabel("Type anything! e.g. \"bedroom with lamp\",\n\"forest\", \"car\", \"house with fence\"...");
-    genHint->setStyleSheet("color: #aaa; font-size: 11px; padding: 2px;");
-    genHint->setWordWrap(true);
-    genPanelLayout->addWidget(genHint);
-
-    m_generateInput = new QLineEdit;
-    m_generateInput->setPlaceholderText("Describe your 3D scene...");
-    m_generateInput->setStyleSheet("QLineEdit { background: #FFF; border-radius: 6px; padding: 6px 10px; font-size: 13px; }");
-    genPanelLayout->addWidget(m_generateInput);
-
-    auto *btnGenerate = new QPushButton("✨ Generate");
-    btnGenerate->setStyleSheet(kBtnStyle + "QPushButton { background-color: #1B8B5A; font-size: 13px; padding: 7px; } QPushButton:hover { background-color: #2BAB7A; }");
-    genPanelLayout->addWidget(btnGenerate);
-
-    m_genStatusLabel = new QLabel("");
-    m_genStatusLabel->setStyleSheet("color: #aaa; font-size: 11px; padding: 2px;");
-    m_genStatusLabel->setWordWrap(true);
-    m_genStatusLabel->setVisible(false);
-    genPanelLayout->addWidget(m_genStatusLabel);
-
-    genLayout->addWidget(m_generatePanel);
-    sideLayout->addWidget(genGroup);
-
-    m_genNetworkManager = new QNetworkAccessManager(this);
-    connect(m_genNetworkManager, &QNetworkAccessManager::finished, this, &ModelingWidget::onAiReplyFinished);
-
-    connect(btnToggleGen, &QPushButton::clicked, this, [this]() {
-        m_generatePanel->setVisible(!m_generatePanel->isVisible());
-        if (m_generatePanel->isVisible())
-            m_generateInput->setFocus();
-    });
-    connect(btnGenerate, &QPushButton::clicked, this, &ModelingWidget::onGenerateEnvironment);
-    connect(m_generateInput, &QLineEdit::returnPressed, this, &ModelingWidget::onGenerateEnvironment);
 
     // ── Object list ──
     auto *objGroup = new QGroupBox("Scene Objects");
@@ -1883,7 +1927,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
 void ModelingWidget::addPrimitive(PrimitiveType type)
 {
     pushUndoSnapshot();
-    static const char *names[] = {"Cube", "Cylinder", "Sphere", "Plane", "Cone", "Pyramid"};
+    static const char *names[] = {"Cube", "Cylinder", "Sphere", "Plane", "Cone", "Pyramid", "Capsule", "Torus"};
     SceneObject obj;
     obj.type = type;
     obj.name = QString("%1_%2").arg(names[int(type)]).arg(m_nextId++);
@@ -2565,186 +2609,4 @@ void ModelingWidget::buildPresetWardrobe()
             m_objects.append(foot);
         }
     }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Generate Environment — dynamic scene from any text input
-// ════════════════════════════════════════════════════════════════════════════
-
-void ModelingWidget::onGenerateEnvironment()
-{
-    QString input = m_generateInput->text().trimmed();
-    if (input.isEmpty()) return;
-
-    const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    const QString openRouterKey = env.value("OPENROUTER_API_KEY").trimmed();
-    const QString fallbackOpenRouterKey = "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";
-    const QString authKey = openRouterKey.isEmpty() ? fallbackOpenRouterKey : openRouterKey;
-
-    m_genStatusLabel->setText("✨ AI is imagining your scene...");
-    m_genStatusLabel->setVisible(true);
-    m_generateInput->setEnabled(false);
-
-    // AI System Prompt setup
-    QString systemPrompt = R"(You are a 3D environment generator.
-Respond ONLY with a valid JSON array of objects to create.
-Available Primitive Types: "Cube", "Sphere", "Cylinder", "Cone", "Pyramid", "Plane".
-Format: [{"type":"Cube","name":"box","pos":[0,1,0],"scale":[1,1,1],"color":"#FF0000"}])";
-
-    QJsonObject userMsg;
-    userMsg["role"] = "user";
-    userMsg["content"] = input;
-
-    QJsonObject sysMsg;
-    sysMsg["role"] = "system";
-    sysMsg["content"] = systemPrompt;
-
-    QJsonArray messages;
-    messages.append(sysMsg);
-    messages.append(userMsg);
-
-    const QString endpoint = "https://openrouter.ai/api/v1/chat/completions";
-    const QString modelName = "meta-llama/llama-3.3-70b-instruct:free";
-
-    QJsonObject body;
-    body["model"] = modelName;
-    body["messages"] = messages;
-
-    QUrl url(endpoint);
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("Authorization", ("Bearer " + authKey).toUtf8());
-    request.setRawHeader("HTTP-Referer", "https://hammerdown.app");
-    request.setRawHeader("X-Title", "HammerDown 3D Generator");
-
-    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
-    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
-    request.setSslConfiguration(sslConfig);
-
-    m_genNetworkManager->post(request, QJsonDocument(body).toJson());
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-void ModelingWidget::onAiReplyFinished(QNetworkReply *reply)
-{
-    m_generateInput->setEnabled(true);
-    m_genStatusLabel->setVisible(false);
-
-    const QByteArray data = reply->readAll();
-
-    if (reply->error() != QNetworkReply::NoError) {
-        const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const QString responseText = QString::fromUtf8(data).trimmed();
-        QString errorText = "Could not connect to the AI service.\n" + reply->errorString();
-        if (statusCode > 0) {
-            errorText += QString("\nHTTP status: %1").arg(statusCode);
-        }
-        if (!responseText.isEmpty()) {
-            errorText += "\n\nServer response:\n" + responseText.left(500);
-        }
-        QMessageBox::warning(this, "AI Error", errorText);
-        reply->deleteLater();
-        return;
-    }
-
-    reply->deleteLater();
-
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonObject obj = doc.object();
-    QJsonArray choices = obj["choices"].toArray();
-    if (choices.isEmpty()) return;
-
-    QString content = choices[0].toObject()["message"].toObject()["content"].toString().trimmed();
-    
-    // Clean content (some LLMs wrap in ```json ... ```)
-    if (content.contains("```")) {
-        QRegularExpression re("```(?:json)?\\s*([\\[\\{].*?[\\]\\}])\\s*```", QRegularExpression::DotMatchesEverythingOption);
-        QRegularExpressionMatch match = re.match(content);
-        if (match.hasMatch()) content = match.captured(1);
-        else {
-            int start = content.indexOf("[");
-            int end = content.lastIndexOf("]");
-            if (start != -1 && end != -1) content = content.mid(start, end - start + 1);
-        }
-    }
-
-    QJsonDocument sceneDoc = QJsonDocument::fromJson(content.toUtf8());
-    QJsonArray sceneArray;
-    if (sceneDoc.isArray()) sceneArray = sceneDoc.array();
-    else if (sceneDoc.isObject()) {
-        QJsonObject root = sceneDoc.object();
-        if (root.contains("objects") && root["objects"].isArray()) sceneArray = root["objects"].toArray();
-        else if (root.contains("scene") && root["scene"].isArray()) sceneArray = root["scene"].toArray();
-        else sceneArray.append(root);
-    }
-
-    if (sceneArray.isEmpty()) {
-        QMessageBox::warning(this, "Generation Failed", "AI response was not in a recognized JSON format.");
-        return;
-    }
-
-    pushUndoSnapshot();
-    m_objects.clear();
-    m_nextId = 1;
-
-    for (int i = 0; i < sceneArray.size(); ++i) {
-        QJsonObject o = sceneArray[i].toObject();
-        QString typeStr = o["type"].toString().toLower();
-        SceneObject obj;
-        if (typeStr == "cube") obj.type = PrimitiveType::Cube;
-        else if (typeStr == "sphere") obj.type = PrimitiveType::Sphere;
-        else if (typeStr == "cylinder") obj.type = PrimitiveType::Cylinder;
-        else if (typeStr == "cone") obj.type = PrimitiveType::Cone;
-        else if (typeStr == "pyramid") obj.type = PrimitiveType::Pyramid;
-        else if (typeStr == "plane") obj.type = PrimitiveType::Plane;
-        else continue;
-
-        obj.name = o["name"].toString().isEmpty() ? QString("%1_%2").arg(typeStr).arg(m_nextId++) : o["name"].toString();
-        QJsonArray pos = o["pos"].toArray();
-        if (pos.size() >= 3) obj.position = QVector3D(pos[0].toDouble(), pos[1].toDouble(), pos[2].toDouble());
-        QJsonArray sc = o["scale"].toArray();
-        if (sc.size() >= 3) obj.scale = QVector3D(sc[0].toDouble(), sc[1].toDouble(), sc[2].toDouble());
-        QString colStr = o["color"].toString();
-        if (colStr.startsWith("#")) obj.color = QColor(colStr);
-        m_objects.append(obj);
-    }
-
-    refreshObjectList();
-    if (!m_objects.isEmpty()) m_objectList->setCurrentRow(0);
-    m_viewport->resetCamera();
-    m_viewport->update();
 }

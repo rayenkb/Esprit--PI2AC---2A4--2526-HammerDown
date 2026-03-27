@@ -2,23 +2,10 @@
 #include "ui_login.h"
 #include <QPainter>
 #include <QPainterPath>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QInputDialog>
-#include <QTime>
-#include <QGraphicsOpacityEffect>
-#include <QPropertyAnimation>
-#include <QSequentialAnimationGroup>
-#include <QTimer>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QPushButton>
-#include <QLineEdit>
-#include <QStackedWidget>
-#include <QGraphicsOpacityEffect>
-#include <QPropertyAnimation>
-#include <QSequentialAnimationGroup>
-#include <QSqlError>
-#include <QPair>
+#include <QBuffer>
 
 LoginWindow::LoginWindow(QWidget *parent)
     : QFrame(parent)
@@ -39,6 +26,9 @@ LoginWindow::LoginWindow(QWidget *parent)
     m_captureSession->setVideoSink(m_videoSink);
 
     connect(m_videoSink, &QVideoSink::videoFrameChanged, this, &LoginWindow::processCameraFrame);
+
+    m_scanLineTimer = new QTimer(this);
+    connect(m_scanLineTimer, &QTimer::timeout, this, &LoginWindow::updateScanAnimation);
 }
 
 void LoginWindow::handleLogin() {
@@ -70,237 +60,136 @@ void LoginWindow::handleLogin() {
     }
 }
 
+static bool isSameFaceLocally(const QImage& img1, const QImage& img2) {
+    if (img1.isNull() || img2.isNull()) return false;
+    
+    QImage i1 = img1.scaled(32, 32, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_Grayscale8);
+    QImage i2 = img2.scaled(32, 32, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_Grayscale8);
+    
+    long long diff = 0;
+    for (int y = 0; y < 32; ++y) {
+        const uchar* p1 = i1.constScanLine(y);
+        const uchar* p2 = i2.constScanLine(y);
+        for (int x = 0; x < 32; ++x) {
+            diff += std::abs(p1[x] - p2[x]);
+        }
+    }
+    double avgDiff = (double)diff / (32.0 * 32.0);
+    // Threshold 60.0 allows standard lighting deviations 
+    return avgDiff < 60.0;
+}
+
 void LoginWindow::handleFaceLogin() {
-    // Without OpenCV, we show a simplified "Select to Login" interface or mock recognition
-    // For now, let's allow "Face Login" to work by showing a list of registered faces
-    // OR just open the camera and "match" if there's only one.
-    
-    QDir facesDir("data/faces");
-    QStringList models = facesDir.entryList(QStringList() << "face_*.png", QDir::Files);
-    
-    if (models.isEmpty()) {
-        QMessageBox::information(this, tr("Face Login"), tr("No face data found. Register in Employee Management first."));
+    QString idStr = ui->login_id->text().trimmed();
+    if(idStr.isEmpty()){
+        QMessageBox::warning(this, tr("Identity Verification"), tr("Please enter your Employee ID in the login field before scanning your face."));
+        return;
+    }
+    int employeeId = idStr.toInt();
+    QString savedFacePath = QString("data/faces/face_%1.png").arg(employeeId);
+    if (!QFile::exists(savedFacePath)) {
+        QMessageBox::information(this, tr("Face Login"), tr("No face registered for this ID. Please register in Employee Management first."));
         return;
     }
 
     if (m_isFaceLoginActive) {
         m_camera->stop();
+        m_scanLineTimer->stop();
         ui->lbl_camera_preview->hide();
         m_isFaceLoginActive = false;
-        ui->btn_face_login->setStyleSheet("#btn_face_login { background-color: rgba(139, 111, 71, 0.2); border: 1px solid #8B6F47; border-radius: 20px; }");
+        ui->btn_face_login->setText("Face Scan Login");
+        ui->btn_face_login->setStyleSheet("#btn_face_login { background-color: rgba(139, 111, 71, 0.2); border: 1.5px solid #8B6F47; border-radius: 22px; }");
     } else {
-        // Cinematic camera reveal
         ui->lbl_camera_preview->show();
-        QGraphicsOpacityEffect *op = new QGraphicsOpacityEffect(ui->lbl_camera_preview);
-        ui->lbl_camera_preview->setGraphicsEffect(op);
-        QPropertyAnimation *fade = new QPropertyAnimation(op, "opacity");
-        fade->setDuration(500);
-        fade->setStartValue(0.0);
-        fade->setEndValue(1.0);
-        fade->setEasingCurve(QEasingCurve::InOutQuad);
-        fade->start(QPropertyAnimation::DeleteWhenStopped);
-
         m_camera->start();
+        m_scanLineTimer->start(16); // ~60fps for smooth animation
         m_isFaceLoginActive = true;
-        ui->btn_face_login->setStyleSheet("#btn_face_login { background-color: #8B6F47; border: 1px solid white; border-radius: 20px; color: white; }");
+        m_scanLineY = 0.0;
+        ui->btn_face_login->setText("Scanning...");
+        ui->btn_face_login->setStyleSheet("#btn_face_login { background-color: #8B6F47; border: 1px solid white; border-radius: 22px; color: white; }");
         
-        // Match after 2.5 seconds to enjoy the cinematic scanner
-        QTimer::singleShot(2500, this, [this, models]() {
+        // Scan for 3 seconds, then verify
+        QTimer::singleShot(3000, this, [this, savedFacePath, employeeId]() {
             if (!m_isFaceLoginActive) return;
             
-            // Simulation: use the first available face data
-            QString firstFace = models.first();
-            int employeeId = firstFace.section('_', 1, 1).section('.', 0, 0).toInt();
+            ui->btn_face_login->setText("Verifying...");
             
-            QSqlDatabase db = QSqlDatabase::database();
-            QSqlQuery q(db);
-            q.prepare("SELECT FIRST_NAME FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
-            q.bindValue(":id", employeeId);
-            QString empName = "";
-            if (q.exec() && q.next()) empName = q.value(0).toString();
+            QVideoFrame frame = m_videoSink->videoFrame();
+            QImage liveImage = frame.toImage().convertToFormat(QImage::Format_RGB888).mirrored(true, false);
             
             m_camera->stop();
+            m_scanLineTimer->stop();
             m_isFaceLoginActive = false;
-
-            // Generate "Cinematic Welcome" overlay exactly on the camera preview
-            QPixmap welcomePix(ui->lbl_camera_preview->size());
-            welcomePix.fill(Qt::transparent);
-            QPainter p(&welcomePix);
-            p.setRenderHint(QPainter::Antialiasing);
             
-            // Draw luxury background circle
-            p.setBrush(QColor(20, 15, 10, 240));
-            p.setPen(QPen(QColor(212, 175, 55), 4));
-            p.drawEllipse(welcomePix.rect().adjusted(2, 2, -2, -2));
+            QImage regImage(savedFacePath);
             
-            // Draw text
-            p.setPen(QColor(212, 175, 55));
-            QFont f = p.font();
-            f.setPointSize(22);
-            f.setBold(true);
-            f.setLetterSpacing(QFont::AbsoluteSpacing, 2);
-            p.setFont(f);
-            p.drawText(welcomePix.rect(), Qt::AlignCenter, "WELCOME\n" + empName.toUpper());
+            ui->lbl_camera_preview->hide();
+            ui->btn_face_login->setText("Face Scan Login");
+            ui->btn_face_login->setStyleSheet("#btn_face_login { background-color: rgba(139, 111, 71, 0.2); border: 1.5px solid #8B6F47; border-radius: 22px; }");
             
-            ui->lbl_camera_preview->setPixmap(welcomePix);
-            
-            // Cinematic pulse effect for the welcome
-            QGraphicsOpacityEffect *glow = new QGraphicsOpacityEffect(ui->lbl_camera_preview);
-            ui->lbl_camera_preview->setGraphicsEffect(glow);
-            QPropertyAnimation *pulse = new QPropertyAnimation(glow, "opacity");
-            pulse->setDuration(1000);
-            pulse->setKeyValueAt(0, 0.0);
-            pulse->setKeyValueAt(0.3, 1.0);
-            pulse->setKeyValueAt(0.7, 1.0);
-            pulse->setKeyValueAt(1.0, 0.0);
-            pulse->start(QPropertyAnimation::DeleteWhenStopped);
-
-            // Wait 2 seconds (time of the pulse + extra) then vanish and login
-            QTimer::singleShot(2000, this, [this, employeeId]() {
-                ui->lbl_camera_preview->hide();
+            if (isSameFaceLocally(liveImage, regImage)) {
                 emit loginSuccessful(employeeId);
-            });
+            } else {
+                QMessageBox::critical(this, "Security Breach", "Access Denied. Biomolecular profile does not match the registered credentials.");
+            }
         });
     }
 }
 
 void LoginWindow::handleForgotPassword() {
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Hammer Down - Security Protocol"));
-    dialog.setFixedSize(500, 360);
-    dialog.setStyleSheet("QDialog { background-color: #1A140A; border: 2px solid #D4AF37; border-radius: 12px; } "
-                         "QLabel { color: #D4AF37; font-weight: bold; font-family: 'Segoe UI', Arial; } "
-                         "QLineEdit { background-color: rgba(0,0,0,0.5); color: #F0E0C0; border: 1px solid #8B6F47; padding: 10px; border-radius: 6px; font-size: 14px; } "
-                         "QLineEdit:focus { border-color: #D4AF37; } "
-                         "QPushButton { background-color: #8B6F47; color: white; padding: 10px; border-radius: 6px; font-weight: bold; font-size: 14px; border: none; } "
-                         "QPushButton:hover { background-color: #A0825A; } "
-                         "QPushButton:pressed { background-color: #6D5535; }");
+    bool ok;
+    QString idStr = QInputDialog::getText(this, tr("Forgot Password - Step 1/3"),
+                                         tr("Identity Check: Please enter your Employee ID:"), QLineEdit::Normal,
+                                         ui->login_id->text(), &ok);
+    if (!ok || idStr.trimmed().isEmpty()) return;
 
-    QVBoxLayout *mainLayout = new QVBoxLayout(&dialog);
-    QStackedWidget *stack = new QStackedWidget(&dialog);
-    mainLayout->addWidget(stack);
+    idStr = idStr.trimmed();
+    QSqlDatabase db = QSqlDatabase::database();
+    if (!db.isOpen()) {
+        QMessageBox::critical(this, "Database Error", tr("System database is disconnected."));
+        return;
+    }
+    
+    QSqlQuery query(db);
+    query.prepare("SELECT EMAIL FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
+    query.bindValue(":id", idStr);
 
-    // Common Step Header Function
-    auto createHeader = [&](const QString &title, const QString &subtitle) {
-        QWidget *w = new QWidget();
-        QVBoxLayout *l = new QVBoxLayout(w);
-        l->setContentsMargins(0, 0, 0, 0);
-        QLabel *tLbl = new QLabel(title, w);
-        tLbl->setAlignment(Qt::AlignCenter);
-        tLbl->setStyleSheet("font-size: 18px; letter-spacing: 2px; color: #D4AF37; margin-bottom: 5px;");
-        l->addWidget(tLbl);
-        QLabel *sLbl = new QLabel(subtitle, w);
-        sLbl->setAlignment(Qt::AlignCenter);
-        sLbl->setStyleSheet("color: #A0A0A0; font-weight: normal; margin-bottom: 20px;");
-        l->addWidget(sLbl);
-        return qMakePair(w, l);
-    };
-
-    // Transition Helper
-    auto animateTransition = [&](int index) {
-        QWidget *current = stack->currentWidget();
-        QWidget *next = stack->widget(index);
+    if (query.exec() && query.next()) {
+        QString dbEmail = query.value("EMAIL").toString();
         
-        QGraphicsOpacityEffect *outEff = new QGraphicsOpacityEffect(current);
-        current->setGraphicsEffect(outEff);
-        QPropertyAnimation *fadeOut = new QPropertyAnimation(outEff, "opacity");
-        fadeOut->setDuration(300);
-        fadeOut->setStartValue(1.0);
-        fadeOut->setEndValue(0.0);
-
-        connect(fadeOut, &QPropertyAnimation::finished, [stack, index, next]() {
-            stack->setCurrentIndex(index);
-            QGraphicsOpacityEffect *inEff = new QGraphicsOpacityEffect(next);
-            next->setGraphicsEffect(inEff);
-            QPropertyAnimation *fadeIn = new QPropertyAnimation(inEff, "opacity");
-            fadeIn->setDuration(300);
-            fadeIn->setStartValue(0.0);
-            fadeIn->setEndValue(1.0);
-            fadeIn->start(QPropertyAnimation::DeleteWhenStopped);
-        });
-        fadeOut->start(QPropertyAnimation::DeleteWhenStopped);
-    };
-
-    QString targetId;
-    QString targetEmail;
-
-    // --- STEP 1: IDENTITY DISCOVERY ---
-    auto step1 = createHeader("IDENTITY DISCOVERY", "Please enter your Employee ID to initiate formula.");
-    QLineEdit *idEdit = new QLineEdit(step1.first);
-    idEdit->setPlaceholderText("Enter ID (e.g. 1)");
-    step1.second->addWidget(idEdit);
-    QPushButton *btnNext1 = new QPushButton("Verify Identity", step1.first);
-    step1.second->addWidget(btnNext1);
-    stack->addWidget(step1.first);
-
-    // --- STEP 2: FORMULA CHALLENGE ---
-    auto step2 = createHeader("FORMULA CHALLENGE", "Confirm your identity by entering your registered email.");
-    QLineEdit *emailEdit = new QLineEdit(step2.first);
-    emailEdit->setPlaceholderText("yourname@company.com");
-    step2.second->addWidget(emailEdit);
-    QPushButton *btnNext2 = new QPushButton("Authorize Reset", step2.first);
-    step2.second->addWidget(btnNext2);
-    stack->addWidget(step2.first);
-
-    // --- STEP 3: PROTOCOL RESET ---
-    auto step3 = createHeader("PROTOCOL RESET", "Specify your new secure credentials.");
-    QLineEdit *pwdEdit = new QLineEdit(step3.first);
-    pwdEdit->setEchoMode(QLineEdit::Password);
-    pwdEdit->setPlaceholderText("New Password");
-    step3.second->addWidget(pwdEdit);
-    QLineEdit *confirmEdit = new QLineEdit(step3.first);
-    confirmEdit->setEchoMode(QLineEdit::Password);
-    confirmEdit->setPlaceholderText("Confirm Password");
-    step3.second->addWidget(confirmEdit);
-    QPushButton *btnFinish = new QPushButton("Finalize Formula", step3.first);
-    step3.second->addWidget(btnFinish);
-    stack->addWidget(step3.first);
-
-    // --- LOGIC ---
-    connect(btnNext1, &QPushButton::clicked, [&]() {
-        targetId = idEdit->text().trimmed();
-        if (targetId.isEmpty()) return;
-        
-        QSqlQuery q;
-        q.prepare("SELECT EMAIL FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
-        q.bindValue(":id", targetId);
-        if (q.exec() && q.next()) {
-            targetEmail = q.value(0).toString();
-            animateTransition(1);
-        } else {
-            QMessageBox::warning(&dialog, "Access Denied", "System Error: Employee ID not found in database.");
-        }
-    });
-
-    connect(btnNext2, &QPushButton::clicked, [&]() {
-        if (emailEdit->text().trimmed().toLower() == targetEmail.trimmed().toLower()) {
-            animateTransition(2);
-        } else {
-            QMessageBox::critical(&dialog, "Verification Failed", "Formula Mismatch: Email does not align with Identity records.");
-        }
-    });
-
-    connect(btnFinish, &QPushButton::clicked, [&]() {
-        if (pwdEdit->text().isEmpty()) return;
-        if (pwdEdit->text() != confirmEdit->text()) {
-            QMessageBox::warning(&dialog, "Mismatch", "Formula Error: Passwords do not align.");
+        if (dbEmail.isEmpty()) {
+            QMessageBox::warning(this, tr("Forgot Password"), tr("No security email registered for this ID. Please contact HR explicitly."));
             return;
         }
 
-        QSqlQuery update;
-        update.prepare("UPDATE EMPLOYEES SET PASSWORD = :pass WHERE EMPLOYEE_ID = :id");
-        update.bindValue(":pass", pwdEdit->text());
-        update.bindValue(":id", targetId);
-        if (update.exec()) {
-            QSqlDatabase::database().commit();
-            QMessageBox::information(&dialog, "Success", "Security Protocol Updated. You may now proceed to Login.");
-            dialog.accept();
-        } else {
-            QMessageBox::critical(&dialog, "Database Error", "Failed to commit update: " + update.lastError().text());
+        QString inputEmail = QInputDialog::getText(this, tr("Forgot Password - Step 2/3"),
+                                         tr("Security Check: Enter your registered Email Address:"), QLineEdit::Normal,
+                                         "", &ok);
+        if (!ok || inputEmail.trimmed().isEmpty()) return;
+        
+        if(inputEmail.trimmed().compare(dbEmail, Qt::CaseInsensitive) != 0) {
+            QMessageBox::critical(this, tr("Security Alert"), tr("The email address provided does not match the registered security email. Access denied."));
+            return;
         }
-    });
-
-    dialog.exec();
+        
+        QString newPass = QInputDialog::getText(this, tr("Forgot Password - Step 3/3"),
+                                         tr("Identity Verified! Enter your NEW Password:"), QLineEdit::Password,
+                                         "", &ok);
+        if (!ok || newPass.trimmed().isEmpty()) return;
+        
+        QSqlQuery updateQuery(db);
+        updateQuery.prepare("UPDATE EMPLOYEES SET PASSWORD = :pass WHERE EMPLOYEE_ID = :id");
+        updateQuery.bindValue(":pass", newPass.trimmed());
+        updateQuery.bindValue(":id", idStr);
+        
+        if(updateQuery.exec()) {
+            QMessageBox::information(this, tr("Password Reset"), tr("Your password has been securely reset! You can now log in."));
+        } else {
+            QMessageBox::critical(this, tr("Database Error"), tr("Failed to update password across the network. Error: ") + updateQuery.lastError().text());
+        }
+    } else {
+        QMessageBox::warning(this, tr("Forgot Password"), tr("System could not securely locate this Employee ID."));
+    }
 }
 
 void LoginWindow::processCameraFrame() {
@@ -329,6 +218,19 @@ void LoginWindow::processCameraFrame() {
     ui->lbl_camera_preview->setPixmap(getCircularPixmap(croppedPix));
 }
 
+void LoginWindow::updateScanAnimation() {
+    if (!m_isFaceLoginActive) return;
+    
+    if (m_scanForward) {
+        m_scanLineY += 0.02;
+        if (m_scanLineY >= 1.0) m_scanForward = false;
+    } else {
+        m_scanLineY -= 0.02;
+        if (m_scanLineY <= 0.0) m_scanForward = true;
+    }
+    update();
+}
+
 QPixmap LoginWindow::getCircularPixmap(const QPixmap &src) {
     if (src.isNull()) return src;
     
@@ -346,31 +248,34 @@ QPixmap LoginWindow::getCircularPixmap(const QPixmap &src) {
     
     painter.drawPixmap(0, 0, src);
     
-    // Add a professional gold border
+    // SCAN LINE OVERLAY
+    if (m_isFaceLoginActive) {
+        int y = m_scanLineY * src.height();
+        
+        // Laser Glow
+        QLinearGradient laserGrad(0, y - 10, 0, y + 10);
+        laserGrad.setColorAt(0, Qt::transparent);
+        laserGrad.setColorAt(0.5, QColor(0, 255, 255, 180)); // Cyan laser
+        laserGrad.setColorAt(1, Qt::transparent);
+        
+        painter.setBrush(laserGrad);
+        painter.setPen(Qt::NoPen);
+        painter.drawRect(0, y - 10, src.width(), 20);
+        
+        // Core Line
+        painter.setPen(QPen(QColor(255, 255, 255, 220), 2));
+        painter.drawLine(0, y, src.width(), y);
+    }
+    
+    // Add a professional pulsing gold border
     painter.setClipping(false);
-    painter.setPen(QPen(QColor(139, 111, 71), 4));
+    int borderPulse = 0;
+    if (m_isFaceLoginActive) {
+        borderPulse = qAbs(qSin(m_scanLineY * 3.14159) * 4);
+    }
+    
+    painter.setPen(QPen(QColor(139, 111, 71), 4 + borderPulse));
     painter.drawEllipse(src.rect().adjusted(2, 2, -2, -2));
-    
-    // Cinematic Scanning Line Overlay
-    int msec = QTime::currentTime().msecsSinceStartOfDay() % 2000;
-    float scanPos = (msec < 1000) ? (msec / 1000.0) : (2.0 - (msec / 1000.0));
-    int yOffset = src.height() * scanPos;
-    
-    QLinearGradient scanGrad(0, yOffset - 40, 0, yOffset);
-    scanGrad.setColorAt(0, Qt::transparent);
-    scanGrad.setColorAt(1, QColor(0, 255, 255, 120)); // Cyan scanning glow
-    painter.setBrush(scanGrad);
-    painter.setPen(Qt::NoPen);
-    
-    // Draw the gradient sweeping area (intersected with the circle for perfection)
-    QPainterPath circlePath;
-    circlePath.addEllipse(src.rect().adjusted(2, 2, -2, -2));
-    painter.setClipPath(circlePath);
-    painter.drawRect(0, yOffset - 40, src.width(), 40);
-    
-    // Solid glowing laser line
-    painter.setPen(QPen(QColor(0, 255, 255, 220), 3));
-    painter.drawLine(0, yOffset, src.width(), yOffset);
     
     return out;
 }
