@@ -12,20 +12,20 @@ static bool createConnection()
     QSqlDatabase db = QSqlDatabase::addDatabase("QOCI");
     db.setHostName("localhost");
     db.setPort(1521);
-    db.setDatabaseName("source_2a4");
-    db.setUserName("SYSTEM");
-    db.setPassword("esprit");
+    db.setDatabaseName("Source_Projet2A");
+    db.setUserName("skrrt");
+    db.setPassword("exprix");
 
     if (!db.open()) {
         qDebug() << "QOCI driver failed, trying ODBC...";
-
+        
         // METHOD 2: Fallback to ODBC
         QSqlDatabase::removeDatabase("qt_sql_default_connection");
         db = QSqlDatabase::addDatabase("QODBC");
-
+        
         // Option A: Use TNS name (if configured in tnsnames.ora)
-        db.setDatabaseName("source_2a4");
-
+        db.setDatabaseName("Source_Projet2A");
+        
         /* Option B: Full connection string (uncomment if Option A doesn't work)
         db.setDatabaseName(
             "DRIVER={Oracle in OraClient12Home1};"
@@ -34,24 +34,24 @@ static bool createConnection()
             "PWD=exprix;"
         );
         */
-
-        db.setUserName("SYSTEM");
-        db.setPassword("esprit");
-
+        
+        db.setUserName("skrrt");
+        db.setPassword("exprix");
+        
         if (!db.open()) {
             qDebug() << "Database connection failed!";
             qDebug() << "Error: " << db.lastError().text();
             qDebug() << "Driver error: " << db.lastError().driverText();
             qDebug() << "Database error: " << db.lastError().databaseText();
-
+            
             // List available drivers
             qDebug() << "Available SQL drivers:" << QSqlDatabase::drivers();
             return false;
         }
     }
-
+    
     qDebug() << "Database connected successfully!";
-
+    
     // Test query to verify connection
     QSqlQuery testQuery;
     if (testQuery.exec("SELECT 1 FROM DUAL")) {
@@ -59,7 +59,7 @@ static bool createConnection()
     } else {
         qDebug() << "Database test query failed: " << testQuery.lastError().text();
     }
-
+    
     return true;
 }
 
