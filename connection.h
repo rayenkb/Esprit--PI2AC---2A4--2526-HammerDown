@@ -5,49 +5,100 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QDebug>
+#include <QStringList>
 
-static bool createConnection()
+static void resetDefaultConnection()
 {
-    // METHOD 1: Try Oracle native driver first (QOCI)
+    const QString connName = QStringLiteral("qt_sql_default_connection");
+    if (QSqlDatabase::contains(connName)) {
+        {
+            QSqlDatabase db = QSqlDatabase::database(connName, false);
+            if (db.isValid()) db.close();
+        }
+        QSqlDatabase::removeDatabase(connName);
+    }
+}
+
+static bool tryQoci(const QString &serviceName)
+{
+    resetDefaultConnection();
     QSqlDatabase db = QSqlDatabase::addDatabase("QOCI");
     db.setHostName("localhost");
     db.setPort(1521);
-    db.setDatabaseName("Source_Projet2A");
+    db.setDatabaseName(serviceName);
+    db.setUserName("skrrt");
+    db.setPassword("exprix");
+    if (db.open()) return true;
+
+    qDebug() << "QOCI failed for" << serviceName << ":" << db.lastError().text();
+    return false;
+}
+
+static bool tryQodbc(const QString &serviceName)
+{
+    resetDefaultConnection();
+    QSqlDatabase db = QSqlDatabase::addDatabase("QODBC");
     db.setUserName("skrrt");
     db.setPassword("exprix");
 
-    if (!db.open()) {
-        qDebug() << "QOCI driver failed, trying ODBC...";
-        
-        // METHOD 2: Fallback to ODBC
-        QSqlDatabase::removeDatabase("qt_sql_default_connection");
-        db = QSqlDatabase::addDatabase("QODBC");
-        
-        // Option A: Use TNS name (if configured in tnsnames.ora)
-        db.setDatabaseName("Source_Projet2A");
-        
-        /* Option B: Full connection string (uncomment if Option A doesn't work)
-        db.setDatabaseName(
-            "DRIVER={Oracle in OraClient12Home1};"
-            "DBQ=localhost:1521/Source_Projet2A;"
-            "UID=skrrt;"
-            "PWD=exprix;"
-        );
-        */
-        
-        db.setUserName("skrrt");
-        db.setPassword("exprix");
-        
-        if (!db.open()) {
-            qDebug() << "Database connection failed!";
-            qDebug() << "Error: " << db.lastError().text();
-            qDebug() << "Driver error: " << db.lastError().driverText();
-            qDebug() << "Database error: " << db.lastError().databaseText();
-            
-            // List available drivers
-            qDebug() << "Available SQL drivers:" << QSqlDatabase::drivers();
-            return false;
+    // Try DSN/TNS alias first.
+    db.setDatabaseName(serviceName);
+    if (db.open()) return true;
+    qDebug() << "QODBC alias failed for" << serviceName << ":" << db.lastError().text();
+
+    // Then try direct Oracle connect strings with common ODBC driver names.
+    const QStringList driverNames = {
+        "Oracle in OraClient12Home1",
+        "Oracle in OraDB21Home1",
+        "Oracle in instantclient_21_14",
+        "Oracle ODBC Driver"
+    };
+
+    for (const QString &drv : driverNames) {
+        db.setDatabaseName(QString("DRIVER={%1};DBQ=localhost:1521/%2;UID=skrrt;PWD=exprix;")
+                               .arg(drv, serviceName));
+        if (db.open()) {
+            qDebug() << "QODBC connected using" << drv << "for" << serviceName;
+            return true;
         }
+        qDebug() << "QODBC direct failed using" << drv << "for" << serviceName << ":" << db.lastError().text();
+    }
+
+    return false;
+}
+
+static bool createConnection()
+{
+    const QStringList servicesToTry = {"XEPDB1", "xe", "Source_Projet2A"};
+    const QStringList drivers = QSqlDatabase::drivers();
+
+    qDebug() << "Available SQL drivers:" << drivers;
+
+    bool connected = false;
+
+    if (drivers.contains("QOCI")) {
+        for (const QString &svc : servicesToTry) {
+            if (tryQoci(svc)) {
+                connected = true;
+                qDebug() << "Connected via QOCI to" << svc;
+                break;
+            }
+        }
+    }
+
+    if (!connected && drivers.contains("QODBC")) {
+        for (const QString &svc : servicesToTry) {
+            if (tryQodbc(svc)) {
+                connected = true;
+                qDebug() << "Connected via QODBC to" << svc;
+                break;
+            }
+        }
+    }
+
+    if (!connected) {
+        qDebug() << "Database connection failed for all drivers/services.";
+        return false;
     }
     
     qDebug() << "Database connected successfully!";
