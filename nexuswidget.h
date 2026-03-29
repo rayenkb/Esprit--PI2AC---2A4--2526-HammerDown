@@ -31,6 +31,7 @@
 #include <QDateTime>
 #include <QDateEdit>
 #include <QTextEdit>
+#include <QCheckBox>
 #include <QRandomGenerator>
 #include <cmath>
 
@@ -151,12 +152,22 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
+    struct CalendarEvent {
+        QDate date;
+        QString equipment;
+        QString kind;
+        QColor color;
+    };
+
     void drawColonyPainter(QPainter &p);
     void drawOrganism(QPainter &p, const MaintenanceOrganism &org, const QPointF &pos);
     void drawTendril(QPainter &p, const QPointF &start, const QPointF &end, int severity);
     void drawCalendarPainter(QPainter &p);
+    void drawCalendarMonth(QPainter &p, const QRectF &rect, const QDate &month);
     void drawHistoryPainter(QPainter &p);
     void drawHistoryNode(QPainter &p, const MaintenanceHistoryRecord &rec, const QPointF &pos);
+    QList<CalendarEvent> buildCalendarEvents(const QDate &month) const;
+    void navigateCalendarMonth(int delta);
     void populateHealingScheduler();
 
     InferenceEngine *m_engine;
@@ -184,6 +195,8 @@ private:
     QComboBox *m_healEquipCombo;
     QTextEdit *m_healNotes;
     QPushButton *m_healBtn;
+    QDateEdit *m_healDeadline;
+    QList<QCheckBox*> m_healChecklist;
     
     // Tab switching
     QPushButton *m_btnColony;
@@ -193,6 +206,11 @@ private:
     // History/Animation state
     QPointF m_lastMousePos;
     float m_calendarOffset;
+    QDate m_calendarMonth;
+    QDate m_prevCalendarMonth;
+    int m_calendarSlideDir;
+    qreal m_calendarSlideProgress;
+    QTimer *m_calendarAnimTimer;
 };
 
 // ============================================================================

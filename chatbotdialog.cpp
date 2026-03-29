@@ -25,10 +25,11 @@ ChatBotDialog::ChatBotDialog(QWidget *parent, bool isWeatherBot)
     setupUI();
 
     // OpenRouter API key
-    apiKey = "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";
+    apiKey = "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";
     imageApiUrl = "";
     imageModel = "";
     retryCount = 0;
+    rateLimitRetries = 0;
 
     // Fallback model list — if one model is down, try the next
     modelList << "nvidia/nemotron-nano-9b-v2:free"
@@ -739,7 +740,8 @@ void ChatBotDialog::callApi(const QString &userMessage)
         conversationHistory.append(userMsg);
         pendingUserMessage = userMessage;
         retryCount = 0;
-    } else if (!pendingUserMessage.isEmpty() && conversationHistory.isEmpty() || 
+        rateLimitRetries = 0;
+    } else if ((!pendingUserMessage.isEmpty() && conversationHistory.isEmpty()) || 
                (!conversationHistory.isEmpty() && conversationHistory.last().toObject()["role"].toString() != "user")) {
         // If we're retrying and the user message was popped off, re-add it
         QJsonObject userMsg;
@@ -936,20 +938,43 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
     QString responseText;
 
     if (reply->error() != QNetworkReply::NoError) {
+        QVariant httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+        int statusCode = httpStatus.isValid() ? httpStatus.toInt() : 0;
+
+        // Special handling for HTTP 429 (Too Many Requests) — wait and retry
+        if (statusCode == 429 && rateLimitRetries < 2) {
+            rateLimitRetries++;
+            reply->deleteLater();
+            // Remove the user message so callApi re-adds it
+            if (!conversationHistory.isEmpty()) conversationHistory.removeLast();
+            int delayMs = rateLimitRetries * 3000; // 3s, 6s backoff
+            typingIndicator->setVisible(true);
+            inputField->setEnabled(false);
+            sendButton->setEnabled(false);
+            QTimer::singleShot(delayMs, this, [this]() {
+                callApi(""); // retry with same model
+            });
+            return;
+        }
+
         // Network-level error — try next model
         if (retryCount + 1 < modelList.size()) {
             reply->deleteLater();
+            rateLimitRetries = 0; // reset for next model
             retryWithNextModel();
             return;
         }
-        QVariant httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
-        QString statusInfo = httpStatus.isValid() ? QString(" [HTTP %1]").arg(httpStatus.toInt()) : "";
-        responseText = "Connection error" + statusInfo + ": " + reply->errorString();
+        QString statusInfo = httpStatus.isValid() ? QString(" [HTTP %1]").arg(statusCode) : "";
+        if (statusCode == 429) {
+            responseText = "The AI service is currently busy (rate limited). Please wait a moment and try again.";
+        } else {
+            responseText = "Connection error" + statusInfo + ": " + reply->errorString();
+        }
         if (!data.isEmpty()) {
             QJsonDocument errDoc = QJsonDocument::fromJson(data);
             if (!errDoc.isNull() && errDoc.object().contains("error")) {
                 QString apiMsg = errDoc.object()["error"].toObject()["message"].toString();
-                if (!apiMsg.isEmpty())
+                if (!apiMsg.isEmpty() && statusCode != 429)
                     responseText += "\nDetails: " + apiMsg;
             }
         }
@@ -959,13 +984,29 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
         if (!doc.isNull()) {
             QJsonObject root = doc.object();
             if (root.contains("error")) {
+                QJsonObject errObj = root["error"].toObject();
+                int errCode = errObj["code"].toInt();
+                // API-level 429: wait and retry
+                if (errCode == 429 && rateLimitRetries < 2) {
+                    rateLimitRetries++;
+                    reply->deleteLater();
+                    if (!conversationHistory.isEmpty()) conversationHistory.removeLast();
+                    int delayMs = rateLimitRetries * 3000;
+                    typingIndicator->setVisible(true);
+                    inputField->setEnabled(false);
+                    sendButton->setEnabled(false);
+                    QTimer::singleShot(delayMs, this, [this]() {
+                        callApi("");
+                    });
+                    return;
+                }
                 // API returned an error — try next model
                 if (retryCount + 1 < modelList.size()) {
                     reply->deleteLater();
+                    rateLimitRetries = 0;
                     retryWithNextModel();
                     return;
                 }
-                QJsonObject errObj = root["error"].toObject();
                 QString errMsg = errObj["message"].toString();
                 QVariant httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
                 QString statusInfo = httpStatus.isValid() ? QString(" [HTTP %1]").arg(httpStatus.toInt()) : "";

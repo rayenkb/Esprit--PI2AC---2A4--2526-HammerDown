@@ -1022,28 +1022,34 @@ MainWindow::MainWindow(QWidget *parent)
     ui_order->tabWidget->tabBar()->hide();
     // Setup radio button navigation for all UIs
     // Y set to (TabWidgetY + 25) to align with inner buttons.
-    setupTabNavigation(clientPage, ui_client->tabWidget, {"Manage", "View", "Stats", "Mail", "Calendar"}, 150, 45, {0, 1, 2, 3, 4});   // Override indices: Manage->0, View->1, Stats->2, Mail->3, Calendar->4
-    setupTabNavigation(employeePage, ui_employee->tabWidget, {"Manage", "View", "Stats", "History"}, 150, 95);  // 70+25
-    setupTabNavigation(supplierPage, ui_supplier->tabWidget, {"Manage", "Stats", "View", "Reviews", "Map"}, 150, 45, {0, 1, 2, 3, 4});
-    setupTabNavigation(equipmentPage, ui_equipment->tabWidget, {"Manage", "View", "History", "Stats", "Chat", "NEXUS", "COSTS"}, 85, 95, {0, 1, 2, 3, 4, 5, 6}, 108); 
+    setupTabNavigation(clientPage, ui_client->tabWidget, {"Manage", "View", "Stats", "Mail", "Calendar"}, 150, 45, {0, 1, 2, 3, 4}, 115, 40);   // Override indices: Manage->0, View->1, Stats->2, Mail->3, Calendar->4
+    setupTabNavigation(employeePage, ui_employee->tabWidget, {"Manage", "View", "Stats", "History"}, 150, 95, {}, 115, 40);  // 70+25
+    setupTabNavigation(supplierPage, ui_supplier->tabWidget, {"Manage", "Stats", "View", "Reviews", "Map"}, 150, 45, {0, 1, 2, 3, 4}, 115, 40);
+    setupTabNavigation(equipmentPage, ui_equipment->tabWidget, {"Manage", "View", "History", "Stats", "Chat", "NEXUS", "COSTS"}, 96, 95, {0, 1, 2, 3, 4, 5, 6}, 103, 34);
     connect(ui_equipment->tabWidget, &QTabWidget::currentChanged, this, [this](int idx) {
+        Q_UNUSED(idx);
         if (!equipmentPage) return;
         const QStringList equipTabs = {"Manage", "View", "History", "Stats", "Chat", "NEXUS", "COSTS"};
-        const int startX = (idx == 0) ? 85 : 120;
+        const int startX = 96;
         const int y = 95;
-        const int spacing = 108;
+        const int spacing = 103;
+        const int afterFirstShift = 34;
+        const int manageNudgeRight = 50;
+        const int costsNudgeLeft = 16;
         for (int i = 0; i < equipTabs.size(); ++i) {
             const auto radios = equipmentPage->findChildren<QRadioButton*>();
             for (auto *rb : radios) {
                 if (!rb) continue;
                 if (rb->property("trKey").toString() == equipTabs[i]) {
-                    rb->move(startX + (spacing * i), y);
+                    const int extra = (i > 0 ? afterFirstShift : 0) + (i == 0 ? manageNudgeRight : 0) + (i == 6 ? -costsNudgeLeft : 0);
+                    rb->move(startX + (spacing * i) + extra, y);
                     break;
                 }
             }
         }
     });
-    setupTabNavigation(orderPage, ui_order->tabWidget, {"Manage", "QR Code", "Catalog", "3D Modeling", "Map"}, 250, 85, {}, 125);   // 60+25
+    ui_equipment->tabWidget->setCurrentIndex(ui_equipment->tabWidget->currentIndex());
+    setupTabNavigation(orderPage, ui_order->tabWidget, {"Manage", "QR Code", "Catalog", "3D Modeling", "Map"}, 250, 85, {}, 125, 40);   // 60+25
 
     // Standardize UI Styling
     setupGlobalStyles();
@@ -4680,9 +4686,32 @@ void MainWindow::setupEquipmentModes()
     m_eqPriceInd= makeInd("[💰 Price ⬜]", "ind_price"); 
     m_eqDescInd = makeInd("[📝 Desc ⬜]", "ind_desc");
 
+    ui_equipment->label_type->setText(QString::fromUtf8("\xF0\x9F\x94\xA7 Type:"));
+    ui_equipment->label_date_achat->setText(QString::fromUtf8("\xF0\x9F\x93\x85 Purchase Date:"));
+    ui_equipment->label_unit_price->setText(QString::fromUtf8("\xF0\x9F\x92\xB0 Unit Price (dt):"));
+    ui_equipment->label_etat->setText(QString::fromUtf8("\xF0\x9F\x93\x8A Status:"));
+    ui_equipment->label_quantity->setText(QString::fromUtf8("\xF0\x9F\x93\xA6 Quantity:"));
+    ui_equipment->label_desc->setText(QString::fromUtf8("\xF0\x9F\x93\x9D Description:"));
+
+    const QString compactLabelStyle = "color: white; font-size: 11px; font-weight: bold; background: transparent;";
+    ui_equipment->label_type->setStyleSheet(compactLabelStyle);
+    ui_equipment->label_date_achat->setStyleSheet(compactLabelStyle);
+    ui_equipment->label_unit_price->setStyleSheet(compactLabelStyle);
+    ui_equipment->label_etat->setStyleSheet(compactLabelStyle);
+    ui_equipment->label_quantity->setStyleSheet(compactLabelStyle);
+    ui_equipment->label_desc->setStyleSheet(compactLabelStyle);
+    ui_equipment->label_id->setStyleSheet(compactLabelStyle);
+
+    ui_equipment->le_type->setFixedHeight(32);
+    ui_equipment->de_date_achat->setFixedHeight(32);
+    ui_equipment->dsb_unit_price->setFixedHeight(32);
+    ui_equipment->cb_status->setFixedHeight(32);
+    ui_equipment->sb_quantity->setFixedHeight(32);
+    ui_equipment->te_desc->setFixedHeight(80);
+
     auto updateUI = [=](bool isAdd) {
         // Shift amount for other fields when ID is hidden
-        int yOffset = isAdd ? 25 : 0; 
+        int yOffset = isAdd ? 22 : 0;
         
         m_equipProgress->setVisible(isAdd);
         pTitle->setVisible(isAdd);
@@ -4722,27 +4751,36 @@ void MainWindow::setupEquipmentModes()
             ui_equipment->le_id->move(ui_equipment->le_id->x(), 70);
         }
 
-        // Adjust positions of other fields
-        ui_equipment->label_type->move(ui_equipment->label_type->x(), 125 + yOffset);
-        ui_equipment->le_type->move(ui_equipment->le_type->x(), 125 + yOffset);
-        
-        ui_equipment->label_date_achat->move(ui_equipment->label_date_achat->x(), 180 + yOffset);
-        ui_equipment->de_date_achat->move(ui_equipment->de_date_achat->x(), 180 + yOffset);
-        
-        ui_equipment->label_unit_price->move(ui_equipment->label_unit_price->x(), 235 + yOffset);
-        ui_equipment->dsb_unit_price->move(ui_equipment->dsb_unit_price->x(), 235 + yOffset);
-        
-        ui_equipment->label_etat->move(ui_equipment->label_etat->x(), 290 + yOffset);
-        ui_equipment->cb_status->move(ui_equipment->cb_status->x(), 290 + yOffset);
-        
-        ui_equipment->label_quantity->move(ui_equipment->label_quantity->x(), 345 + yOffset);
-        ui_equipment->sb_quantity->move(ui_equipment->sb_quantity->x(), 345 + yOffset);
+        // Compact field stack to match the target form proportions
+        const int fieldGap = 42;  // tighter vertical gap between fields
+        const int typeY = 110 + yOffset;
+        const int dateY = typeY + fieldGap;
+        const int priceY = dateY + fieldGap;
+        const int statusY = priceY + fieldGap;
+        const int qtyY = statusY + fieldGap;
+        const int descY = qtyY + fieldGap;
 
-        ui_equipment->label_desc->move(ui_equipment->label_desc->x(), 400 + yOffset);
-        ui_equipment->te_desc->move(ui_equipment->te_desc->x(), 400 + yOffset);
+        ui_equipment->label_type->move(ui_equipment->label_type->x(), typeY);
+        ui_equipment->le_type->move(ui_equipment->le_type->x(), typeY);
 
-        // Lower the action buttons
-        int btnY = 510 + yOffset; 
+        ui_equipment->label_date_achat->move(ui_equipment->label_date_achat->x(), dateY);
+        ui_equipment->de_date_achat->move(ui_equipment->de_date_achat->x(), dateY);
+
+        ui_equipment->label_unit_price->move(ui_equipment->label_unit_price->x(), priceY);
+        ui_equipment->dsb_unit_price->move(ui_equipment->dsb_unit_price->x(), priceY);
+
+        ui_equipment->label_etat->move(ui_equipment->label_etat->x(), statusY);
+        ui_equipment->cb_status->move(ui_equipment->cb_status->x(), statusY);
+
+        ui_equipment->label_quantity->move(ui_equipment->label_quantity->x(), qtyY);
+        ui_equipment->sb_quantity->move(ui_equipment->sb_quantity->x(), qtyY);
+
+        ui_equipment->label_desc->move(ui_equipment->label_desc->x(), descY);
+        ui_equipment->te_desc->move(ui_equipment->te_desc->x(), descY);
+        ui_equipment->te_desc->setFixedHeight(80);
+
+        // Keep clear space under description so buttons never overlap
+        int btnY = descY + 80 + 18;
         ui_equipment->btn_add->move(ui_equipment->btn_add->x(), btnY);
         ui_equipment->btn_modify->move(ui_equipment->btn_modify->x(), btnY);
         ui_equipment->btn_delete->move(ui_equipment->btn_delete->x(), btnY);
@@ -5081,11 +5119,11 @@ void MainWindow::setupGlobalStyles()
     qApp->setStyleSheet(style);
 }
 
-void MainWindow::setupTabNavigation(QWidget* parentWidget, QTabWidget* tabWidget, const QStringList& tabNames, int startX, int yPos, const QList<int>& targetIndices, int spacing)
+void MainWindow::setupTabNavigation(QWidget* parentWidget, QTabWidget* tabWidget, const QStringList& tabNames, int startX, int yPos, const QList<int>& targetIndices, int spacing, int afterFirstShift)
 {
     int y = yPos;
     
-    QString rbStyle = "QRadioButton { font-weight: bold; font-size: 14px; color: white; } QRadioButton::indicator { width: 15px; height: 15px; }";
+    QString rbStyle = "QRadioButton { font-weight: bold; font-size: 12px; color: white; } QRadioButton::indicator { width: 14px; height: 14px; }";
     
     QButtonGroup *group = new QButtonGroup(parentWidget);
     group->setExclusive(true);
@@ -5094,7 +5132,8 @@ void MainWindow::setupTabNavigation(QWidget* parentWidget, QTabWidget* tabWidget
         const QString key = tabNames[i];
         const QString translated = QCoreApplication::translate("QObject", key.toUtf8().constData());
         QRadioButton *rb = new QRadioButton(translated, parentWidget);
-        rb->setGeometry(startX + (spacing * i), y, 110, 30);
+        const int tabX = startX + (spacing * i) + (i > 0 ? afterFirstShift : 0);
+        rb->setGeometry(tabX, y, 98, 28);
         rb->setStyleSheet(rbStyle);
         rb->setProperty("trKey", key);
         

@@ -222,7 +222,7 @@ public:
     void setupOrderModes();
     void setupGlobalStyles();
     QPixmap getCircularPixmap(const QPixmap &src);
-    void setupTabNavigation(QWidget* parentWidget, QTabWidget* tabWidget, const QStringList& tabNames, int startX, int yPos, const QList<int>& targetIndices = {}, int spacing = 115);
+    void setupTabNavigation(QWidget* parentWidget, QTabWidget* tabWidget, const QStringList& tabNames, int startX, int yPos, const QList<int>& targetIndices = {}, int spacing = 115, int afterFirstShift = 0);
     void switchLanguage(const QString &language);
         bool eventFilter(QObject *watched, QEvent *event) override;
 private slots:
