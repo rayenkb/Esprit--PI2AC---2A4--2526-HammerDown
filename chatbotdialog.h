@@ -48,6 +48,11 @@ private:
     void trimConversationHistory(int maxNonSystemMessages);
     bool handleLocalCommand(const QString &text, QString *responseOut);
     QString handleAddRandomOrders(int count);
+    QString handleAddRandomEmployees(int count);
+    QString handleAddRandomClients(int count);
+    QString handleAddRandomSuppliers(int count);
+    QString handleAddRandomEquipment(int count);
+    int getNextId(const QString &tableName, const QString &idColumn, int fallback = 1);
     void callApi(const QString &userMessage);
     void callImageApi(const QString &prompt);
     void retryWithNextModel();

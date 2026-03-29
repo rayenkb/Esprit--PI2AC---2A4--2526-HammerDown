@@ -31,11 +31,11 @@ ChatBotDialog::ChatBotDialog(QWidget *parent, bool isWeatherBot)
     retryCount = 0;
     rateLimitRetries = 0;
 
-    // Fallback model list — if one model is down, try the next
-    modelList << "nvidia/nemotron-nano-9b-v2:free"
-              << "openrouter/free"
-              << "meta-llama/llama-3.3-70b-instruct:free"
-              << "google/gemma-3-27b-it:free";
+    // Fallback model list — prefer OpenRouter auto-routing first.
+    modelList << "openrouter/auto"
+              << "meta-llama/llama-3.1-8b-instruct:free"
+              << "mistralai/mistral-7b-instruct:free"
+              << "google/gemma-2-9b-it:free";
 
     // Seed conversation with system prompt
     QJsonObject systemMsg;
@@ -477,6 +477,31 @@ bool ChatBotDialog::handleLocalCommand(const QString &text, QString *responseOut
     QString trimmed = text.trimmed();
     QString lower = trimmed.toLower();
 
+    QRegularExpression addRandomRx("^add\\s+(\\d+)\\s+random\\s+(orders?|employees?|clients?|suppliers?|equipment|equipments|equipement|equipements)\\s*(now)?$");
+    QRegularExpressionMatch addRandomMatch = addRandomRx.match(lower);
+    if (addRandomMatch.hasMatch()) {
+        if (!QSqlDatabase::database().isOpen()) {
+            *responseOut = "Database connection is not available. Please check your DB settings.";
+            return true;
+        }
+
+        int count = addRandomMatch.captured(1).toInt();
+        QString entity = addRandomMatch.captured(2);
+
+        if (entity.startsWith("order")) {
+            *responseOut = handleAddRandomOrders(count);
+        } else if (entity.startsWith("employee")) {
+            *responseOut = handleAddRandomEmployees(count);
+        } else if (entity.startsWith("client")) {
+            *responseOut = handleAddRandomClients(count);
+        } else if (entity.startsWith("supplier")) {
+            *responseOut = handleAddRandomSuppliers(count);
+        } else {
+            *responseOut = handleAddRandomEquipment(count);
+        }
+        return true;
+    }
+
     QRegularExpression addOrdersRx("^add\\s+(\\d+)\\s+random\\s+orders?$");
     QRegularExpressionMatch addMatch = addOrdersRx.match(lower);
     if (addMatch.hasMatch()) {
@@ -573,9 +598,15 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
     const QStringList orderStatuses = {"Pending", "Processing", "Completed"};
     const QStringList paymentStatuses = {"Unpaid", "Partial", "Paid"};
 
+    int nextOrderId = 1;
+    QSqlQuery nextIdQuery;
+    if (nextIdQuery.exec("SELECT NVL(MAX(order_id), 0) + 1 FROM ORDERS") && nextIdQuery.next()) {
+        nextOrderId = nextIdQuery.value(0).toInt();
+    }
+
     QSqlQuery insertQuery;
     insertQuery.prepare("INSERT INTO ORDERS (order_id, client_id, employee_id, order_type, total_quantity, total_price, order_date, order_status, payment_status) "
-                        "VALUES (NULL, :client, :employee, :type, :quantity, :price, SYSDATE, :status, :payment)");
+                        "VALUES (:id, :client, :employee, :type, :quantity, :price, SYSDATE, :status, :payment)");
 
     int success = 0;
     QStringList errors;
@@ -588,18 +619,39 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
         int quantity = QRandomGenerator::global()->bounded(1, 51);
         double price = 50.0 + (QRandomGenerator::global()->generateDouble() * 1950.0);
 
-        insertQuery.bindValue(":client", clientId);
-        insertQuery.bindValue(":employee", employeeId);
-        insertQuery.bindValue(":type", type);
-        insertQuery.bindValue(":quantity", quantity);
-        insertQuery.bindValue(":price", price);
-        insertQuery.bindValue(":status", status);
-        insertQuery.bindValue(":payment", payment);
+        bool inserted = false;
+        for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
+            insertQuery.bindValue(":id", nextOrderId);
+            insertQuery.bindValue(":client", clientId);
+            insertQuery.bindValue(":employee", employeeId);
+            insertQuery.bindValue(":type", type);
+            insertQuery.bindValue(":quantity", quantity);
+            insertQuery.bindValue(":price", price);
+            insertQuery.bindValue(":status", status);
+            insertQuery.bindValue(":payment", payment);
 
-        if (insertQuery.exec()) {
-            success++;
-        } else {
-            errors << insertQuery.lastError().databaseText();
+            if (insertQuery.exec()) {
+                success++;
+                nextOrderId++;
+                inserted = true;
+                break;
+            }
+
+            QString dbError = insertQuery.lastError().databaseText();
+            if (dbError.contains("ORA-00001")) {
+                QSqlQuery refreshIdQuery;
+                if (refreshIdQuery.exec("SELECT NVL(MAX(order_id), 0) + 1 FROM ORDERS") && refreshIdQuery.next()) {
+                    nextOrderId = refreshIdQuery.value(0).toInt();
+                    continue;
+                }
+            }
+
+            errors << dbError;
+            break;
+        }
+
+        if (!inserted && errors.size() < (i + 1)) {
+            errors << QString("Failed to insert order at batch index %1.").arg(i + 1);
         }
     }
 
@@ -608,6 +660,301 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
         result += "\nErrors:";
         int maxErr = qMin(3, errors.size());
         for (int i = 0; i < maxErr; ++i)
+            result += "\n- " + errors.at(i);
+    }
+    return result;
+}
+
+int ChatBotDialog::getNextId(const QString &tableName, const QString &idColumn, int fallback)
+{
+    QSqlQuery q;
+    QString sql = QString("SELECT NVL(MAX(%1), 0) + 1 FROM %2").arg(idColumn, tableName);
+    if (q.exec(sql) && q.next()) {
+        int value = q.value(0).toInt();
+        return value > 0 ? value : fallback;
+    }
+    return fallback;
+}
+
+QString ChatBotDialog::handleAddRandomEmployees(int count)
+{
+    if (count <= 0) return "Please provide a positive number of employees to add.";
+    if (count > 50) count = 50;
+
+    const QStringList firstNames = {"Adam", "Lina", "Sami", "Nour", "Youssef", "Maya", "Rami", "Salma"};
+    const QStringList lastNames = {"Ben Ali", "Trabelsi", "Mansour", "Haddad", "Gharbi", "Jaziri", "Ayari", "Kefi"};
+    const QStringList jobs = {"Carpenter", "Designer", "Technician", "Manager", "Installer"};
+    const QStringList departments = {"Production", "Design", "Operations", "Sales", "Maintenance"};
+    const QStringList statuses = {"Active", "On Leave", "Inactive"};
+
+    int nextId = getNextId("EMPLOYEES", "EMPLOYEE_ID");
+
+    QSqlQuery insertQuery;
+    insertQuery.prepare("INSERT INTO EMPLOYEES (EMPLOYEE_ID, FIRST_NAME, LAST_NAME, JOB_TITLE, EMAIL, PHONE_NUMBER, SALARY, DEPARTMENT, AGE, EMPLOYEE_STATUS) "
+                        "VALUES (:id, :first, :last, :job, :email, :phone, :salary, :dept, :age, :status)");
+
+    int success = 0;
+    QStringList errors;
+    for (int i = 0; i < count; ++i) {
+        QString first = firstNames.at(QRandomGenerator::global()->bounded(firstNames.size()));
+        QString last = lastNames.at(QRandomGenerator::global()->bounded(lastNames.size()));
+        QString job = jobs.at(QRandomGenerator::global()->bounded(jobs.size()));
+        QString dept = departments.at(QRandomGenerator::global()->bounded(departments.size()));
+        QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        int age = QRandomGenerator::global()->bounded(20, 56);
+        double salary = 1200.0 + (QRandomGenerator::global()->generateDouble() * 3800.0);
+        QString email = QString("%1.%2%3@hammerdown.tn").arg(first.toLower().remove(' '), last.toLower().remove(' '), QString::number(nextId));
+        QString phone = QString("+216%1").arg(QRandomGenerator::global()->bounded(20000000, 99999999));
+
+        bool inserted = false;
+        for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
+            insertQuery.bindValue(":id", nextId);
+            insertQuery.bindValue(":first", first);
+            insertQuery.bindValue(":last", last);
+            insertQuery.bindValue(":job", job);
+            insertQuery.bindValue(":email", email);
+            insertQuery.bindValue(":phone", phone);
+            insertQuery.bindValue(":salary", salary);
+            insertQuery.bindValue(":dept", dept);
+            insertQuery.bindValue(":age", age);
+            insertQuery.bindValue(":status", status);
+
+            if (insertQuery.exec()) {
+                success++;
+                nextId++;
+                inserted = true;
+                break;
+            }
+
+            QString dbError = insertQuery.lastError().databaseText();
+            if (dbError.contains("ORA-00001")) {
+                nextId = getNextId("EMPLOYEES", "EMPLOYEE_ID", nextId + 1);
+                continue;
+            }
+            errors << dbError;
+            break;
+        }
+    }
+
+    QString result = QString("[OK: Inserted %1 of %2 random employees]").arg(success).arg(count);
+    if (!errors.isEmpty()) {
+        result += "\nErrors:";
+        for (int i = 0; i < qMin(3, errors.size()); ++i)
+            result += "\n- " + errors.at(i);
+    }
+    return result;
+}
+
+QString ChatBotDialog::handleAddRandomClients(int count)
+{
+    if (count <= 0) return "Please provide a positive number of clients to add.";
+    if (count > 50) count = 50;
+
+    const QStringList firstNames = {"Hedi", "Amira", "Karim", "Sarra", "Walid", "Ines", "Fares", "Rania"};
+    const QStringList lastNames = {"Mabrouk", "Cherif", "Ben Salem", "Khalfallah", "Mejri", "Boussetta", "Chaari", "Sfaxi"};
+    const QStringList genders = {"Male", "Female"};
+    const QStringList statuses = {"Active", "Inactive", "Pending"};
+    const QStringList streets = {"Avenue Habib Bourguiba", "Rue de Marseille", "Avenue de la Liberte", "Rue d'Alger"};
+
+    int nextId = getNextId("CLIENTS", "CLIENT_ID");
+
+    QSqlQuery insertQuery;
+    insertQuery.prepare("INSERT INTO CLIENTS (CLIENT_ID, FIRST_NAME, LAST_NAME, EMAIL, PHONE_NUMBER, ADDRESS, GENDER, AGE, ACCOUNT_BALANCE, STATUS) "
+                        "VALUES (:id, :first, :last, :email, :phone, :address, :gender, :age, :balance, :status)");
+
+    int success = 0;
+    QStringList errors;
+    for (int i = 0; i < count; ++i) {
+        QString first = firstNames.at(QRandomGenerator::global()->bounded(firstNames.size()));
+        QString last = lastNames.at(QRandomGenerator::global()->bounded(lastNames.size()));
+        QString gender = genders.at(QRandomGenerator::global()->bounded(genders.size()));
+        QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        QString address = QString("%1, Tunis").arg(streets.at(QRandomGenerator::global()->bounded(streets.size())));
+        int age = QRandomGenerator::global()->bounded(21, 66);
+        double balance = QRandomGenerator::global()->generateDouble() * 10000.0;
+        QString email = QString("%1.%2%3@client.tn").arg(first.toLower().remove(' '), last.toLower().remove(' '), QString::number(nextId));
+        QString phone = QString("+216%1").arg(QRandomGenerator::global()->bounded(20000000, 99999999));
+
+        bool inserted = false;
+        for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
+            insertQuery.bindValue(":id", nextId);
+            insertQuery.bindValue(":first", first);
+            insertQuery.bindValue(":last", last);
+            insertQuery.bindValue(":email", email);
+            insertQuery.bindValue(":phone", phone);
+            insertQuery.bindValue(":address", address);
+            insertQuery.bindValue(":gender", gender);
+            insertQuery.bindValue(":age", age);
+            insertQuery.bindValue(":balance", balance);
+            insertQuery.bindValue(":status", status);
+
+            if (insertQuery.exec()) {
+                success++;
+                nextId++;
+                inserted = true;
+                break;
+            }
+
+            QString dbError = insertQuery.lastError().databaseText();
+            if (dbError.contains("ORA-00001")) {
+                nextId = getNextId("CLIENTS", "CLIENT_ID", nextId + 1);
+                continue;
+            }
+            errors << dbError;
+            break;
+        }
+    }
+
+    QString result = QString("[OK: Inserted %1 of %2 random clients]").arg(success).arg(count);
+    if (!errors.isEmpty()) {
+        result += "\nErrors:";
+        for (int i = 0; i < qMin(3, errors.size()); ++i)
+            result += "\n- " + errors.at(i);
+    }
+    return result;
+}
+
+QString ChatBotDialog::handleAddRandomSuppliers(int count)
+{
+    if (count <= 0) return "Please provide a positive number of suppliers to add.";
+    if (count > 50) count = 50;
+
+    const QStringList prefixes = {"Atlas", "Nord", "Cedar", "Prime", "Delta", "Sahara", "Olive", "Nova"};
+    const QStringList suffixes = {"Wood", "Supply", "Materials", "Trade", "Systems", "Partners"};
+    const QStringList statuses = {"Active", "Pending", "Inactive"};
+
+    int nextId = getNextId("SUPPLIERS", "SUPPLIER_ID");
+
+    QSqlQuery insertQuery;
+    insertQuery.prepare("INSERT INTO SUPPLIERS (SUPPLIER_ID, SUPPLIER_NAME, EMAIL, PHONE_NUMBER, ADDRESS, POSTAL_CODE, DELIVERY_RATING, QUALITY_RATING, ACCOUNT_STATUS) "
+                        "VALUES (:id, :name, :email, :phone, :address, :postal, :delivery, :quality, :status)");
+
+    int success = 0;
+    QStringList errors;
+    for (int i = 0; i < count; ++i) {
+        QString name = QString("%1 %2").arg(prefixes.at(QRandomGenerator::global()->bounded(prefixes.size())),
+                                             suffixes.at(QRandomGenerator::global()->bounded(suffixes.size())));
+        QString normalizedName = name.toLower();
+        normalizedName.replace(' ', '.');
+        QString email = QString("contact%1@%2.tn").arg(nextId).arg(normalizedName);
+        QString phone = QString("+216%1").arg(QRandomGenerator::global()->bounded(20000000, 99999999));
+        QString address = QString("Zone Industrielle %1, Tunis").arg(QRandomGenerator::global()->bounded(1, 25));
+        QString postal = QString::number(QRandomGenerator::global()->bounded(1000, 9999));
+        double delivery = 2.5 + (QRandomGenerator::global()->generateDouble() * 2.5);
+        double quality = 2.5 + (QRandomGenerator::global()->generateDouble() * 2.5);
+        QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+
+        bool inserted = false;
+        for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
+            insertQuery.bindValue(":id", nextId);
+            insertQuery.bindValue(":name", name);
+            insertQuery.bindValue(":email", email);
+            insertQuery.bindValue(":phone", phone);
+            insertQuery.bindValue(":address", address);
+            insertQuery.bindValue(":postal", postal);
+            insertQuery.bindValue(":delivery", delivery);
+            insertQuery.bindValue(":quality", quality);
+            insertQuery.bindValue(":status", status);
+
+            if (insertQuery.exec()) {
+                success++;
+                nextId++;
+                inserted = true;
+                break;
+            }
+
+            QString dbError = insertQuery.lastError().databaseText();
+            if (dbError.contains("ORA-00001")) {
+                nextId = getNextId("SUPPLIERS", "SUPPLIER_ID", nextId + 1);
+                continue;
+            }
+            errors << dbError;
+            break;
+        }
+    }
+
+    QString result = QString("[OK: Inserted %1 of %2 random suppliers]").arg(success).arg(count);
+    if (!errors.isEmpty()) {
+        result += "\nErrors:";
+        for (int i = 0; i < qMin(3, errors.size()); ++i)
+            result += "\n- " + errors.at(i);
+    }
+    return result;
+}
+
+QString ChatBotDialog::handleAddRandomEquipment(int count)
+{
+    if (count <= 0) return "Please provide a positive number of equipment records to add.";
+    if (count > 50) count = 50;
+
+    QVector<int> employeeIds;
+    QSqlQuery employeeQuery("SELECT EMPLOYEE_ID FROM EMPLOYEES");
+    while (employeeQuery.next())
+        employeeIds.append(employeeQuery.value(0).toInt());
+
+    if (employeeIds.isEmpty()) {
+        return "Cannot add equipment: EMPLOYEES table is empty (RESPONSABLE is required).";
+    }
+
+    const QStringList types = {"Drill", "Saw", "Sander", "Compressor", "Workstation", "Safety Kit"};
+    const QStringList statuses = {"Available", "In Use", "Maintenance"};
+    const QStringList locations = {"Warehouse A", "Warehouse B", "Workshop 1", "Workshop 2", "Site Storage"};
+
+    int nextId = getNextId("EQUIPMENT", "EQUIPMENT_ID");
+
+    QSqlQuery insertQuery;
+    insertQuery.prepare("INSERT INTO EQUIPMENT (EQUIPMENT_ID, EQUIPMENT_TYPE, QUANTITY, UNIT_PRICE, STATUS, DESCRIPTION, LOCATION, NOTES, NEXT_MAINTENANCE, COUT_ACQUISITION, RESPONSABLE) "
+                        "VALUES (:id, :type, :qty, :unit_price, :status, :description, :location, :notes, SYSDATE + :days_to_maintenance, :cout, :responsable)");
+
+    int success = 0;
+    QStringList errors;
+    for (int i = 0; i < count; ++i) {
+        QString type = types.at(QRandomGenerator::global()->bounded(types.size()));
+        QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        int qty = QRandomGenerator::global()->bounded(1, 31);
+        double unitPrice = 80.0 + (QRandomGenerator::global()->generateDouble() * 2920.0);
+        double cout = unitPrice * qty;
+        QString description = QString("%1 for carpentry operations").arg(type);
+        QString location = locations.at(QRandomGenerator::global()->bounded(locations.size()));
+        QString notes = "Generated by assistant";
+        int days = QRandomGenerator::global()->bounded(30, 181);
+        int responsable = employeeIds.at(QRandomGenerator::global()->bounded(employeeIds.size()));
+
+        bool inserted = false;
+        for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
+            insertQuery.bindValue(":id", nextId);
+            insertQuery.bindValue(":type", type);
+            insertQuery.bindValue(":qty", qty);
+            insertQuery.bindValue(":unit_price", unitPrice);
+            insertQuery.bindValue(":status", status);
+            insertQuery.bindValue(":description", description);
+            insertQuery.bindValue(":location", location);
+            insertQuery.bindValue(":notes", notes);
+            insertQuery.bindValue(":days_to_maintenance", days);
+            insertQuery.bindValue(":cout", cout);
+            insertQuery.bindValue(":responsable", responsable);
+
+            if (insertQuery.exec()) {
+                success++;
+                nextId++;
+                inserted = true;
+                break;
+            }
+
+            QString dbError = insertQuery.lastError().databaseText();
+            if (dbError.contains("ORA-00001")) {
+                nextId = getNextId("EQUIPMENT", "EQUIPMENT_ID", nextId + 1);
+                continue;
+            }
+            errors << dbError;
+            break;
+        }
+    }
+
+    QString result = QString("[OK: Inserted %1 of %2 random equipment records]").arg(success).arg(count);
+    if (!errors.isEmpty()) {
+        result += "\nErrors:";
+        for (int i = 0; i < qMin(3, errors.size()); ++i)
             result += "\n- " + errors.at(i);
     }
     return result;
@@ -694,11 +1041,12 @@ DATABASE SCHEMA:
 You can INSERT, UPDATE, DELETE, or SELECT data. When the user asks you to add, modify, remove, or read records, output the SQL inside [EXECUTE_SQL]...[/EXECUTE_SQL] tags. Rules:
 - Use Oracle SQL syntax.
 - Only one statement per tag. Use multiple tags for multiple statements.
+- Only operate on these tables: EMPLOYEES, CLIENTS, ORDERS, EQUIPMENT, SUPPLIERS.
 - For INSERT: use the next available ID or let the sequence/trigger handle it.
 - Always confirm what you did after the SQL.
 - Example: "I'll add that employee now. [EXECUTE_SQL]INSERT INTO EMPLOYEES (FIRST_NAME, LAST_NAME, JOB_TITLE) VALUES ('John', 'Smith', 'Blacksmith')[/EXECUTE_SQL] Done! John Smith has been added."
  - For reading data, use SELECT queries inside [EXECUTE_SQL]...[/EXECUTE_SQL] tags, and keep results small (limit rows).
- - NEVER use DROP TABLE, TRUNCATE, ALTER TABLE, or any DDL commands. Only SELECT/INSERT/UPDATE/DELETE are allowed.)";
+ - NEVER use DROP, TRUNCATE, ALTER, CREATE, GRANT, REVOKE, RENAME, BEGIN/DECLARE blocks, or any DDL/PLSQL commands. Only SELECT/INSERT/UPDATE/DELETE are allowed.)";
 
     return base;
 }
@@ -772,7 +1120,7 @@ void ChatBotDialog::callApi(const QString &userMessage)
     QJsonObject body;
     body["model"] = currentModel;
     body["messages"] = conversationHistory;
-    body["max_tokens"] = 160;
+    body["max_tokens"] = 500;
     body["temperature"] = 0.2;
     body["top_p"] = 0.8;
 
@@ -973,9 +1321,17 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
         if (!data.isEmpty()) {
             QJsonDocument errDoc = QJsonDocument::fromJson(data);
             if (!errDoc.isNull() && errDoc.object().contains("error")) {
-                QString apiMsg = errDoc.object()["error"].toObject()["message"].toString();
+                QJsonObject errObj = errDoc.object()["error"].toObject();
+                QString apiMsg = errObj["message"].toString();
+                if (apiMsg.isEmpty())
+                    apiMsg = errObj["code"].toString();
                 if (!apiMsg.isEmpty() && statusCode != 429)
                     responseText += "\nDetails: " + apiMsg;
+
+                QJsonObject metaObj = errObj["metadata"].toObject();
+                QString providerRaw = metaObj["raw"].toString();
+                if (!providerRaw.isEmpty() && statusCode != 429)
+                    responseText += "\nProvider: " + providerRaw.left(240);
             }
         }
         if (!conversationHistory.isEmpty()) conversationHistory.removeLast();
@@ -1047,6 +1403,14 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
         responseText = "Assistant returned an empty response" + statusText + ".";
     }
 
+    // If AI provider is down, still support direct SQL execution for power users.
+    QString pendingUpper = pendingUserMessage.trimmed().toUpper();
+    bool isDirectSql = pendingUpper.startsWith("SELECT") || pendingUpper.startsWith("INSERT") ||
+                       pendingUpper.startsWith("UPDATE") || pendingUpper.startsWith("DELETE");
+    if ((responseText.startsWith("Connection error") || responseText.startsWith("API error")) && isDirectSql) {
+        responseText = "AI service is unavailable right now. Executing your SQL directly:\n" + executeSqlCommand(pendingUserMessage);
+    }
+
     if (!m_isWeatherBot)
         responseText = processResponse(responseText);
     appendMessage(m_isWeatherBot ? "MeteoBot" : "Assistant", responseText, false);
@@ -1056,37 +1420,214 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
 QString ChatBotDialog::processResponse(const QString &response)
 {
     QString result = response;
-    QRegularExpression rx(R"(\[EXECUTE_SQL\](.*?)\[/EXECUTE_SQL\])", QRegularExpression::DotMatchesEverythingOption);
-    QRegularExpressionMatchIterator it = rx.globalMatch(result);
 
+    // Match EXECUTE_SQL tags case-insensitively and tolerate whitespace/newlines around tag names.
+    QRegularExpression taggedRx(
+        R"(\[\s*EXECUTE_SQL\s*\](.*?)\[\s*/\s*EXECUTE_SQL\s*\])",
+        QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+
+    QRegularExpressionMatchIterator it = taggedRx.globalMatch(result);
     while (it.hasNext()) {
         QRegularExpressionMatch match = it.next();
         QString sql = match.captured(1).trimmed();
         QString execResult = executeSqlCommand(sql);
         result.replace(match.captured(0), execResult);
     }
+
+    // If model output was truncated and closing tag is missing, execute the tail anyway.
+    QRegularExpression openOnlyRx(R"(\[\s*EXECUTE_SQL\s*\](.*)$)",
+                                  QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch openOnlyMatch = openOnlyRx.match(result);
+    if (openOnlyMatch.hasMatch() && !result.contains(QRegularExpression(R"(\[\s*/\s*EXECUTE_SQL\s*\])", QRegularExpression::CaseInsensitiveOption))) {
+        QString sql = openOnlyMatch.captured(1).trimmed();
+        QString execResult = executeSqlCommand(sql);
+        result.replace(openOnlyMatch.captured(0), execResult);
+    }
+
     return result;
 }
 
 QString ChatBotDialog::executeSqlCommand(const QString &sql)
 {
-    // Safety: block DDL and any non-DML statements
-    QString upper = sql.toUpper().trimmed();
-    if (upper.startsWith("DROP") || upper.startsWith("TRUNCATE") ||
-        upper.startsWith("ALTER") || upper.startsWith("CREATE")) {
-        return "[Blocked: DDL commands are not allowed]";
+    QString trimmedSql = sql.trimmed();
+
+    // Strip markdown fences if the model wrapped SQL in ```sql ... ```.
+    QRegularExpression fenceRx(R"(^\s*```(?:sql)?\s*([\s\S]*?)\s*```\s*$)",
+                               QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch fenceMatch = fenceRx.match(trimmedSql);
+    if (fenceMatch.hasMatch()) {
+        trimmedSql = fenceMatch.captured(1).trimmed();
     }
 
+    if (trimmedSql.isEmpty()) {
+        return "[Blocked: empty SQL command]";
+    }
+
+    // Normalize curly apostrophes to plain SQL apostrophes.
+    trimmedSql.replace(QChar(0x2019), '\'');
+
+    // Auto-repair common quote mistakes: apostrophe inside a string literal
+    // such as d'Alger should become d''Alger.
+    auto repairQuotedStrings = [](const QString &input, bool *changed, bool *unterminated) {
+        QString out;
+        out.reserve(input.size() + 8);
+        bool inLiteral = false;
+        bool didChange = false;
+
+        for (int i = 0; i < input.size(); ++i) {
+            QChar ch = input.at(i);
+            if (ch != '\'') {
+                out.append(ch);
+                continue;
+            }
+
+            if (!inLiteral) {
+                inLiteral = true;
+                out.append(ch);
+                continue;
+            }
+
+            if (i + 1 < input.size() && input.at(i + 1) == '\'') {
+                out.append("''");
+                ++i;
+                continue;
+            }
+
+            QChar prev = (i > 0) ? input.at(i - 1) : QChar();
+            QChar next = (i + 1 < input.size()) ? input.at(i + 1) : QChar();
+            bool insideWord = prev.isLetterOrNumber() && next.isLetterOrNumber();
+
+            if (insideWord) {
+                out.append("''");
+                didChange = true;
+            } else {
+                inLiteral = false;
+                out.append(ch);
+            }
+        }
+
+        if (changed) *changed = didChange;
+        if (unterminated) *unterminated = inLiteral;
+        return out;
+    };
+
+    bool quoteRepaired = false;
+    bool unterminatedLiteral = false;
+    trimmedSql = repairQuotedStrings(trimmedSql, &quoteRepaired, &unterminatedLiteral);
+    if (unterminatedLiteral) {
+        return "[Blocked: malformed quoted string. Text values must use single quotes and internal apostrophes must be doubled, e.g. 'Rue d''Alger']";
+    }
+
+    QString upper = trimmedSql.toUpper();
+    const bool isPlSqlBlock = upper.startsWith("DECLARE") || upper.startsWith("BEGIN");
+
+    if (!isPlSqlBlock) {
+        // For plain SQL, allow a single trailing semicolon and strip comments.
+        QRegularExpression blockCommentRx(R"(/\*[\s\S]*?\*/)");
+        trimmedSql.remove(blockCommentRx);
+        QRegularExpression lineCommentRx(R"(--[^\r\n]*)");
+        trimmedSql.remove(lineCommentRx);
+        trimmedSql = trimmedSql.trimmed();
+
+        while (trimmedSql.endsWith(';')) {
+            trimmedSql.chop(1);
+            trimmedSql = trimmedSql.trimmed();
+        }
+
+        if (trimmedSql.contains(';')) {
+            return "[Blocked: only one plain SQL statement is allowed]";
+        }
+    }
+
+    // Safety: block DDL, privilege changes, and PL/SQL blocks.
+    upper = trimmedSql.toUpper();
+    const QStringList blockedTokens = {
+        " DROP ", " TRUNCATE ", " ALTER ", " CREATE ", " GRANT ", " REVOKE ",
+        " RENAME ", " COMMENT ", " ANALYZE ", " MERGE ",
+        " EXECUTE IMMEDIATE ", " COMMIT ", " ROLLBACK ", " SAVEPOINT "
+    };
+
+    QString padded = " " + upper + " ";
+    for (const QString &token : blockedTokens) {
+        if (padded.contains(token)) {
+            return "[Blocked: schema/administrative SQL is not allowed]";
+        }
+    }
+
+    // Enforce management-table scope.
+    const QStringList allowedTables = {"EMPLOYEES", "CLIENTS", "ORDERS", "EQUIPMENT", "SUPPLIERS"};
     const bool isInsert = upper.startsWith("INSERT");
     const bool isUpdate = upper.startsWith("UPDATE");
     const bool isDelete = upper.startsWith("DELETE");
     const bool isSelect = upper.startsWith("SELECT");
-    if (!isInsert && !isUpdate && !isDelete && !isSelect) {
-        return "[Blocked: only SELECT, INSERT, UPDATE, and DELETE are allowed]";
+
+    if (isPlSqlBlock) {
+        // Allow PL/SQL only when it performs DML on allowed management tables.
+        bool hasDml = upper.contains(" INSERT ") || upper.contains(" UPDATE ") || upper.contains(" DELETE ") || upper.contains(" SELECT ");
+        if (!hasDml) {
+            return "[Blocked: PL/SQL block must contain DML only]";
+        }
+
+        QRegularExpression tableRx("\\b(?:INTO|UPDATE|FROM|JOIN)\\s+([A-Z0-9_]+)", QRegularExpression::CaseInsensitiveOption);
+        QRegularExpressionMatchIterator it = tableRx.globalMatch(trimmedSql);
+        bool foundAnyTable = false;
+        while (it.hasNext()) {
+            QRegularExpressionMatch m = it.next();
+            QString table = m.captured(1).toUpper();
+            if (table == "DUAL") {
+                continue;
+            }
+            foundAnyTable = true;
+            if (!allowedTables.contains(table)) {
+                return "[Blocked: PL/SQL target table is outside allowed management tables]";
+            }
+        }
+
+        if (!foundAnyTable) {
+            return "[Blocked: no allowed management table found in PL/SQL block]";
+        }
+    } else {
+        if (!isInsert && !isUpdate && !isDelete && !isSelect) {
+            return "[Blocked: only SELECT, INSERT, UPDATE, and DELETE are allowed]";
+        }
+
+        QString targetTable;
+        if (isInsert) {
+            QRegularExpression rx("^\\s*INSERT\\s+INTO\\s+([A-Z0-9_]+)", QRegularExpression::CaseInsensitiveOption);
+            QRegularExpressionMatch m = rx.match(trimmedSql);
+            if (m.hasMatch()) targetTable = m.captured(1).toUpper();
+        } else if (isUpdate) {
+            QRegularExpression rx("^\\s*UPDATE\\s+([A-Z0-9_]+)", QRegularExpression::CaseInsensitiveOption);
+            QRegularExpressionMatch m = rx.match(trimmedSql);
+            if (m.hasMatch()) targetTable = m.captured(1).toUpper();
+        } else if (isDelete) {
+            QRegularExpression rx("^\\s*DELETE\\s+FROM\\s+([A-Z0-9_]+)", QRegularExpression::CaseInsensitiveOption);
+            QRegularExpressionMatch m = rx.match(trimmedSql);
+            if (m.hasMatch()) targetTable = m.captured(1).toUpper();
+        } else if (isSelect) {
+            QRegularExpression fromJoinRx("\\b(?:FROM|JOIN)\\s+([A-Z0-9_]+)", QRegularExpression::CaseInsensitiveOption);
+            QRegularExpressionMatchIterator it = fromJoinRx.globalMatch(trimmedSql);
+            bool hasAllowedTable = false;
+            while (it.hasNext()) {
+                QRegularExpressionMatch m = it.next();
+                QString table = m.captured(1).toUpper();
+                if (allowedTables.contains(table)) {
+                    hasAllowedTable = true;
+                    break;
+                }
+            }
+            if (!hasAllowedTable) {
+                return "[Blocked: SELECT is limited to management tables only]";
+            }
+        }
+
+        if (!targetTable.isEmpty() && !allowedTables.contains(targetTable)) {
+            return "[Blocked: target table is outside allowed management tables]";
+        }
     }
 
     QSqlQuery q;
-    if (q.exec(sql)) {
+    if (q.exec(trimmedSql)) {
         if (isSelect) {
             QSqlRecord rec = q.record();
             QStringList headers;
@@ -1123,6 +1664,10 @@ QString ChatBotDialog::executeSqlCommand(const QString &sql)
         else
             return QString("[OK: %1 row(s) affected]").arg(affected);
     } else {
-        return "[Error: " + q.lastError().text() + "]";
+        QString dbError = q.lastError().text();
+        if (dbError.contains("ORA-01756", Qt::CaseInsensitive)) {
+            return "[Blocked: malformed quoted string. Use single quotes for text and escape apostrophes by doubling them, e.g. 'Rue d''Alger']";
+        }
+        return "[Error: " + dbError + "]";
     }
 }
