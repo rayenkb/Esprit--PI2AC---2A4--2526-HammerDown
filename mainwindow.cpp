@@ -6142,6 +6142,9 @@ void MainWindow::onEmployeeRefreshView()
             ui_employee->lbl_stat_avg_age->setText(QString("Avg Team Age: %1").arg(avgAge, 0, 'f', 1));
         }
     }
+
+    // Keep the stats dashboard in sync with current employee data.
+    setupEmployeeStats();
 }
 
 void MainWindow::onEmployeeSearch()
@@ -6482,8 +6485,44 @@ void MainWindow::setupEmployeeStats()
         delete item;
     }
 
-    // --- CHART 1: Pie Chart (Staff Distribution by Role) ---
+    // Style helper used by all charts in this dashboard.
+    auto styleChart = [](QChart *chart, const QString &title) {
+        if (!chart) return;
+        chart->setTitle(title);
+        chart->setTitleBrush(QBrush(QColor("#D4AF37")));
+        chart->setTitleFont(QFont("Segoe UI", 12, QFont::Bold));
+        chart->setBackgroundVisible(false);
+        chart->setPlotAreaBackgroundVisible(true);
+        chart->setPlotAreaBackgroundBrush(QBrush(QColor(20, 13, 7, 140)));
+        chart->setAnimationOptions(QChart::AllAnimations);
+
+        if (chart->legend()) {
+            chart->legend()->setLabelColor(QColor("#E7D8B1"));
+            chart->legend()->setFont(QFont("Segoe UI", 9, QFont::DemiBold));
+            chart->legend()->setBackgroundVisible(false);
+        }
+    };
+
+    auto makePanel = [](QChartView *view) {
+        if (!view) return;
+        view->setRenderHint(QPainter::Antialiasing);
+        view->setStyleSheet(
+            "QChartView {"
+            "background: rgba(8, 5, 3, 0.62);"
+            "border: 1px solid rgba(212, 175, 55, 0.38);"
+            "border-radius: 20px;"
+            "padding: 10px;"
+            "}"
+            "QChartView:hover {"
+            "border: 1px solid rgba(212, 175, 55, 0.8);"
+            "}"
+        );
+    };
+
+    // --- CHART 1: Donut Chart (Staff Distribution by Role) ---
     QPieSeries *series = new QPieSeries();
+    series->setHoleSize(0.46);
+    series->setPieSize(0.78);
     QSqlQuery q("SELECT JOB_TITLE, COUNT(*) FROM EMPLOYEES GROUP BY JOB_TITLE");
     double totalEmployees = 0;
     struct StatData { QString label; int count; };
@@ -6496,33 +6535,62 @@ void MainWindow::setupEmployeeStats()
         totalEmployees += count;
     }
 
+    const QList<QColor> donutPalette {
+        QColor("#E8D3A2"), QColor("#D8B67A"), QColor("#C79D5E"), QColor("#F2E6CE"),
+        QColor("#B78947"), QColor("#9F7138"), QColor("#F0D9B0"), QColor("#E3C185")
+    };
+
+    int colorIdx = 0;
     for (const auto& d : dataList) {
         double percentage = (totalEmployees > 0) ? (d.count * 100.0 / totalEmployees) : 0;
         QString labelText = QString("%1 (%2%)").arg(d.label).arg(percentage, 0, 'f', 1);
         QPieSlice *slice = series->append(labelText, d.count);
+
+        const QColor baseColor = donutPalette.at(colorIdx % donutPalette.size());
+        const QColor rimColor = baseColor.darker(165);
+        QRadialGradient grad(QPointF(0.35, 0.28), 0.95);
+        grad.setCoordinateMode(QGradient::ObjectBoundingMode);
+        grad.setColorAt(0.0, baseColor.lighter(150));
+        grad.setColorAt(0.55, baseColor);
+        grad.setColorAt(1.0, baseColor.darker(170));
+
+        slice->setBrush(QBrush(grad));
         slice->setLabelVisible(true);
-        // Use a nice color palette
-        slice->setBorderWidth(2);
-        slice->setBorderColor(QColor(139, 111, 71, 100));
+        slice->setLabelArmLengthFactor(0.18);
+        slice->setLabelColor(QColor("#EEE1C8"));
+        slice->setPen(QPen(rimColor, 2.2));
+
+        // Hover gives an extruded and brighter 3D effect per segment.
+        connect(slice, &QPieSlice::hovered, this, [slice, baseColor, rimColor](bool state) {
+            QRadialGradient hoverGrad(QPointF(0.35, 0.28), 0.95);
+            hoverGrad.setCoordinateMode(QGradient::ObjectBoundingMode);
+            hoverGrad.setColorAt(0.0, baseColor.lighter(state ? 190 : 150));
+            hoverGrad.setColorAt(0.55, baseColor.lighter(state ? 145 : 100));
+            hoverGrad.setColorAt(1.0, baseColor.darker(state ? 135 : 170));
+
+            slice->setBrush(QBrush(hoverGrad));
+            slice->setExploded(state);
+            slice->setExplodeDistanceFactor(state ? 0.13 : 0.03);
+            slice->setPen(QPen(rimColor.darker(state ? 105 : 100), state ? 3.0 : 2.2));
+            slice->setLabelFont(QFont("Segoe UI", state ? 10 : 9, QFont::DemiBold));
+        });
+
+        ++colorIdx;
     }
 
     QChart *chartPie = new QChart();
     chartPie->addSeries(series);
-    chartPie->setTitle("Employee Distribution by Title");
-    chartPie->setTheme(QChart::ChartThemeDark);
-    chartPie->setBackgroundBrush(QBrush(QColor(30, 20, 10))); // Matching app theme
-    chartPie->setAnimationOptions(QChart::AllAnimations);
+    styleChart(chartPie, "WORKFORCE SECTORS");
     chartPie->legend()->setAlignment(Qt::AlignRight);
-    chartPie->legend()->setFont(QFont("Segoe UI", 9));
+    chartPie->legend()->setMarkerShape(QLegend::MarkerShapeCircle);
 
     QChartView *viewPie = new QChartView(chartPie);
-    viewPie->setRenderHint(QPainter::Antialiasing);
-    viewPie->setStyleSheet("background: transparent; border: 1px solid #8B6F47; border-radius: 12px;");
+    makePanel(viewPie);
 
     // --- CHART 2: Bar Chart (Age Distribution) ---
     QBarSet *set = new QBarSet("Employees Count");
-    set->setColor(QColor("#B8925A"));
-    set->setBorderColor(QColor("#D4AF37"));
+    set->setColor(QColor("#C7A066"));
+    set->setBorderColor(QColor("#E8D3A2"));
     
     QStringList categories;
     QSqlQuery q2("SELECT CASE "
@@ -6545,31 +6613,37 @@ void MainWindow::setupEmployeeStats()
     barSeries->append(set);
     barSeries->setLabelsVisible(true);
     barSeries->setLabelsPosition(QAbstractBarSeries::LabelsOutsideEnd);
+    barSeries->setLabelsFormat("@value");
 
     QChart *chartBar = new QChart();
     chartBar->addSeries(barSeries);
-    chartBar->setTitle("Employee Age Groups");
-    chartBar->setTheme(QChart::ChartThemeDark);
-    chartBar->setBackgroundBrush(QBrush(QColor(30, 20, 10)));
-    chartBar->setAnimationOptions(QChart::SeriesAnimations);
+    styleChart(chartBar, "DEMOGRAPHIC \u00BB 18-24, 25-34, 45+");
+    chartBar->legend()->hide();
     
     QBarCategoryAxis *axisX = new QBarCategoryAxis();
     axisX->append(categories);
+    axisX->setLabelsColor(QColor("#E7D8B1"));
+    axisX->setGridLineVisible(false);
+    axisX->setLinePenColor(QColor("#E8D3A2"));
     chartBar->addAxis(axisX, Qt::AlignBottom);
     barSeries->attachAxis(axisX);
 
     QValueAxis *axisY = new QValueAxis();
     axisY->setLabelFormat("%d");
+    axisY->setLabelsColor(QColor("#E7D8B1"));
+    axisY->setGridLineColor(QColor(231, 216, 177, 55));
+    axisY->setLinePenColor(QColor("#E8D3A2"));
+    axisY->setMinorTickCount(0);
     chartBar->addAxis(axisY, Qt::AlignLeft);
     barSeries->attachAxis(axisY);
 
     QChartView *viewBar = new QChartView(chartBar);
-    viewBar->setRenderHint(QPainter::Antialiasing);
-    viewBar->setStyleSheet("background: transparent; border: 1px solid #8B6F47; border-radius: 12px;");
+    makePanel(viewBar);
 
     // --- CHART 3: Horizontal Bar Chart (Avg Salary by Role) ---
     QBarSet *salarySet = new QBarSet("Avg Salary ($)");
-    salarySet->setColor(QColor("#4CAF50")); // Green for money
+    salarySet->setColor(QColor("#D4AF37"));
+    salarySet->setBorderColor(QColor("#F2E6CE"));
     
     QStringList salaryCategories;
     QSqlQuery q3("SELECT JOB_TITLE, AVG(SALARY) FROM EMPLOYEES GROUP BY JOB_TITLE ORDER BY AVG(SALARY) DESC");
@@ -6581,29 +6655,64 @@ void MainWindow::setupEmployeeStats()
     QHorizontalBarSeries *salarySeries = new QHorizontalBarSeries();
     salarySeries->append(salarySet);
     salarySeries->setLabelsVisible(true);
+    salarySeries->setLabelsFormat("$@value");
+    salarySeries->setLabelsPosition(QAbstractBarSeries::LabelsOutsideEnd);
 
     QChart *chartSalary = new QChart();
     chartSalary->addSeries(salarySeries);
-    chartSalary->setTitle("Market Salary Benchmarks by Role");
-    chartSalary->setTheme(QChart::ChartThemeDark);
-    chartSalary->setBackgroundBrush(QBrush(QColor(30, 20, 10)));
-    chartSalary->setAnimationOptions(QChart::SeriesAnimations);
+    styleChart(chartSalary, "PAYROLL BENCHMARKS");
+    chartSalary->legend()->hide();
 
     QBarCategoryAxis *axisYRole = new QBarCategoryAxis();
     axisYRole->append(salaryCategories);
+    axisYRole->setLabelsColor(QColor("#E7D8B1"));
+    axisYRole->setGridLineVisible(false);
+    axisYRole->setLinePenColor(QColor("#E8D3A2"));
     chartSalary->addAxis(axisYRole, Qt::AlignLeft);
     salarySeries->attachAxis(axisYRole);
 
     QValueAxis *axisXSalary = new QValueAxis();
     axisXSalary->setLabelFormat("$%d");
+    axisXSalary->setLabelsColor(QColor("#E7D8B1"));
+    axisXSalary->setGridLineColor(QColor(231, 216, 177, 55));
+    axisXSalary->setLinePenColor(QColor("#E8D3A2"));
+    axisXSalary->setMinorTickCount(0);
     chartSalary->addAxis(axisXSalary, Qt::AlignBottom);
     salarySeries->attachAxis(axisXSalary);
 
     QChartView *viewSalary = new QChartView(chartSalary);
-    viewSalary->setRenderHint(QPainter::Antialiasing);
-    viewSalary->setStyleSheet("background: transparent; border: 1px solid #8B6F47; border-radius: 12px;");
+    makePanel(viewSalary);
+
+    ui_employee->btn_stats_ai_gen->setStyleSheet(
+        "QPushButton {"
+        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #F8C35A, stop:1 #8B4513);"
+        "border: 2px solid #5A2D0C;"
+        "border-radius: 25px;"
+        "color: #FFF7E8;"
+        "font-weight: 800;"
+        "font-size: 14px;"
+        "padding-left: 12px;"
+        "text-align: left;"
+        "}"
+        "QPushButton:hover {"
+        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFD480, stop:1 #A0521A);"
+        "}"
+    );
+
+    ui_employee->lbl_stats_ai_insight->setStyleSheet(
+        "QLabel {"
+        "color: #D4AF37;"
+        "font-size: 30px;"
+        "font-style: italic;"
+        "background: rgba(17, 12, 7, 0.35);"
+        "padding: 10px;"
+        "border-radius: 16px;"
+        "border: 1px solid rgba(212, 175, 55, 0.35);"
+        "}"
+    );
 
     ui_employee->gridLayout_stats->setSpacing(15);
+    ui_employee->gridLayout_stats->setContentsMargins(8, 8, 8, 8);
     ui_employee->gridLayout_stats->addWidget(viewPie, 0, 0);
     ui_employee->gridLayout_stats->addWidget(viewBar, 0, 1);
     ui_employee->gridLayout_stats->addWidget(viewSalary, 1, 0, 1, 2); // Span both columns
