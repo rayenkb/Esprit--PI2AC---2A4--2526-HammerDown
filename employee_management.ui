@@ -89,8 +89,8 @@ QLineEdit:focus {
      </property>
      <property name="styleSheet">
       <string notr="true">
-        QGroupBox { background-color: transparent; border: 1px solid #8B6F47; border-radius: 5px; margin-top: 20px; }
-        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 0 5px; background-color: rgb(210, 174, 193); font-weight: bold; color: white; border-radius: 3px; }
+        QGroupBox { background-color: rgba(255, 255, 255, 0.03); border: 2px solid rgba(212, 175, 55, 0.15); border-radius: 25px; margin-top: 30px; }
+        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 6px 30px; background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8B6F47, stop:1 #A0825A); font-weight: 800; color: white; border-radius: 12px; font-size: 15px; text-transform: uppercase; letter-spacing: 2px; }
         QLineEdit {
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFFFFF, stop:1 #F5F5F5);
             border: 2px solid #8B6F47;
@@ -908,98 +908,150 @@ QPushButton:hover { background-color: #7B68EE; border-color: #FFF; }</string>
    </widget>
    <widget class="QWidget" name="tab_history">
     <attribute name="title">
-     <string>History</string>
+     <string>📋 Personnel Records</string>
     </attribute>
-    <widget class="QLabel" name="label_titre_histo">
-     <property name="geometry">
-      <rect>
-       <x>750</x>
-       <y>20</y>
-       <width>300</width>
-       <height>30</height>
-      </rect>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 18px; font-weight: bold; color: white;</string>
-     </property>
-     <property name="text">
-      <string>Staff Directory &amp; Timeline</string>
-     </property>
-     <property name="alignment">
-      <set>Qt::AlignmentFlag::AlignCenter</set>
-     </property>
-    </widget>
-    <widget class="QLineEdit" name="le_history_search">
+    <widget class="QFrame" name="frame_history_header">
      <property name="geometry">
       <rect>
        <x>20</x>
-       <y>60</y>
-       <width>250</width>
-       <height>30</height>
+       <y>15</y>
+       <width>1011</width>
+       <height>80</height>
       </rect>
      </property>
-     <property name="placeholderText">
-      <string>Search by name or ID...</string>
+     <property name="styleSheet">
+      <string notr="true">QFrame#frame_history_header {
+    background: rgba(44, 34, 21, 0.9);
+    border: 1px solid rgba(212, 175, 55, 0.4);
+    border-radius: 12px;
+}</string>
      </property>
-    </widget>
-    <widget class="QComboBox" name="cb_history_filter">
-     <property name="geometry">
-      <rect>
-       <x>280</x>
-       <y>60</y>
-       <width>150</width>
-       <height>30</height>
-      </rect>
-     </property>
-     <item>
-      <property name="text">
-       <string>All Job Titles</string>
+     <layout class="QHBoxLayout" name="horizontalLayout_history_header">
+      <property name="leftMargin">
+       <number>20</number>
       </property>
-     </item>
+      <property name="rightMargin">
+       <number>20</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="label_titre_histo">
+        <property name="styleSheet">
+         <string notr="true">font-size: 22px; font-weight: bold; color: white; font-family: 'Gadugi'; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);</string>
+        </property>
+        <property name="text">
+         <string>TIMELINE &amp; STAFF DIRECTORY</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer_history">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QComboBox" name="cb_history_filter">
+        <property name="minimumSize">
+         <size>
+          <width>160</width>
+          <height>36</height>
+         </size>
+        </property>
+        <item>
+         <property name="text">
+          <string>All Personnel</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="le_history_search">
+        <property name="minimumSize">
+         <size>
+          <width>220</width>
+          <height>36</height>
+         </size>
+        </property>
+        <property name="placeholderText">
+         <string>Search across records...</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </widget>
     <widget class="QTableView" name="tableView_historique_emp">
      <property name="geometry">
       <rect>
        <x>20</x>
-       <y>100</y>
+       <y>110</y>
        <width>1011</width>
-       <height>491</height>
+       <height>481</height>
       </rect>
      </property>
      <property name="styleSheet">
       <string notr="true">
-        QHeaderView::section { background-color: #8B6F47; color: white; border: none; padding: 4px; }
-        QTableView { border: 1px solid #8B6F47; background-color: white; color: #333333; selection-background-color: #E0E0E0; selection-color: black; }
+        QTableView { border: 2px solid #8B6F47; background: rgba(255, 255, 255, 0.95); gridline-color: #D4A96A; font-family: 'Segoe UI'; font-size: 13px; border-radius: 8px; }
+        QHeaderView::section { background: #8B6F47; color: white; padding: 10px; border: none; font-weight: bold; }
+        QTableView::item:selected { background: #D4AF37; color: white; }
       </string>
      </property>
     </widget>
-     <widget class="QPushButton" name="btn_export_pdf">
-      <property name="geometry">
-       <rect>
-        <x>20</x>
-        <y>610</y>
-        <width>150</width>
-        <height>40</height>
-       </rect>
-      </property>
-      <property name="text">
-       <string>Export PDF</string>
-      </property>
-     </widget>
-     <widget class="QPushButton" name="btn_refresh_history">
-      <property name="geometry">
-       <rect>
-        <x>450</x>
-        <y>610</y>
-        <width>150</width>
-        <height>40</height>
-       </rect>
-      </property>
-      <property name="text">
-       <string>Refresh Timeline</string>
-      </property>
-     </widget>
+    <widget class="QFrame" name="frame_history_footer">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>605</y>
+       <width>1011</width>
+       <height>60</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QFrame#frame_history_footer { background: rgba(18, 14, 10, 0.95); border-top: 2px solid rgba(212, 175, 55, 0.3); border-bottom-left-radius: 20px; border-bottom-right-radius: 20px; }</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_footer">
+      <item>
+       <widget class="QPushButton" name="btn_export_pdf">
+        <property name="minimumSize">
+         <size>
+          <width>160</width>
+          <height>40</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QPushButton { background: #A31D1D; color: white; border-radius: 20px; font-weight: bold; font-size: 13px; } QPushButton:hover { background: #D32F2F; }</string>
+        </property>
+        <property name="text">
+         <string>📄 Export Audit Log</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer_footer">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_refresh_history">
+        <property name="minimumSize">
+         <size>
+          <width>180</width>
+          <height>40</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QPushButton { background: #8B6F47; color: white; border-radius: 20px; font-weight: bold; font-size: 13px; } QPushButton:hover { background: #A0825A; }</string>
+        </property>
+        <property name="text">
+         <string>🔄 Synchronize Timeline</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </widget>
+   </widget>
     <widget class="QWidget" name="tab_mail">
      <attribute name="title">
       <string>Contact</string>

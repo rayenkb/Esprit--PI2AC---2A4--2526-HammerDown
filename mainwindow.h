@@ -217,6 +217,7 @@ public:
     void setupClientCalendar();
     void showTutorialOverlay(const QString &text);
     void setupEmployeeModes();
+    void toggleEmployeeFields(bool active);
     void onEmployeeEnsureHistoryTable();
     void logActivity(const QString &action, const QString &module = "General");
     void setupSupplierModes();
@@ -293,6 +294,7 @@ private slots:
     void onEmployeeRowSelected(const QModelIndex &index);
     void onEmployeeSendMail();
     void onEmployeeExportPDF();
+    void onEmployeeExportHistoryPDF();
     void onEmployeeHistorySearch();
     void onEmployeeMailTemplateChanged(int index);
     void processEmpCameraFrame();

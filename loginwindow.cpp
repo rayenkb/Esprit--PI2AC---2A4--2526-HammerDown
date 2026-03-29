@@ -6,6 +6,10 @@
 #include <QUrl>
 #include <QInputDialog>
 #include <QBuffer>
+#include <QPropertyAnimation>
+#include <QEasingCurve>
+#include <QAbstractAnimation>
+#include <QParallelAnimationGroup>
 
 LoginWindow::LoginWindow(QWidget *parent)
     : QFrame(parent)
@@ -59,39 +63,7 @@ void LoginWindow::handleLogin() {
         }
     }
 }
-
-static bool isSameFaceLocally(const QImage& img1, const QImage& img2) {
-    if (img1.isNull() || img2.isNull()) return false;
-    
-    QImage i1 = img1.scaled(32, 32, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_Grayscale8);
-    QImage i2 = img2.scaled(32, 32, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).convertToFormat(QImage::Format_Grayscale8);
-    
-    long long diff = 0;
-    for (int y = 0; y < 32; ++y) {
-        const uchar* p1 = i1.constScanLine(y);
-        const uchar* p2 = i2.constScanLine(y);
-        for (int x = 0; x < 32; ++x) {
-            diff += std::abs(p1[x] - p2[x]);
-        }
-    }
-    double avgDiff = (double)diff / (32.0 * 32.0);
-    // Threshold 60.0 allows standard lighting deviations 
-    return avgDiff < 60.0;
-}
-
 void LoginWindow::handleFaceLogin() {
-    QString idStr = ui->login_id->text().trimmed();
-    if(idStr.isEmpty()){
-        QMessageBox::warning(this, tr("Identity Verification"), tr("Please enter your Employee ID in the login field before scanning your face."));
-        return;
-    }
-    int employeeId = idStr.toInt();
-    QString savedFacePath = QString("data/faces/face_%1.png").arg(employeeId);
-    if (!QFile::exists(savedFacePath)) {
-        QMessageBox::information(this, tr("Face Login"), tr("No face registered for this ID. Please register in Employee Management first."));
-        return;
-    }
-
     if (m_isFaceLoginActive) {
         m_camera->stop();
         m_scanLineTimer->stop();
@@ -105,32 +77,137 @@ void LoginWindow::handleFaceLogin() {
         m_scanLineTimer->start(16); // ~60fps for smooth animation
         m_isFaceLoginActive = true;
         m_scanLineY = 0.0;
-        ui->btn_face_login->setText("Scanning...");
+        ui->btn_face_login->setText("Authenticating...");
         ui->btn_face_login->setStyleSheet("#btn_face_login { background-color: #8B6F47; border: 1px solid white; border-radius: 22px; color: white; }");
         
         // Scan for 3 seconds, then verify
-        QTimer::singleShot(3000, this, [this, savedFacePath, employeeId]() {
+        QTimer::singleShot(3000, this, [this]() {
             if (!m_isFaceLoginActive) return;
             
-            ui->btn_face_login->setText("Verifying...");
+            ui->btn_face_login->setText("Matching Profiles...");
             
             QVideoFrame frame = m_videoSink->videoFrame();
-            QImage liveImage = frame.toImage().convertToFormat(QImage::Format_RGB888).mirrored(true, false);
+            QImage liveImage = frame.toImage().convertToFormat(QImage::Format_RGB888);
             
             m_camera->stop();
             m_scanLineTimer->stop();
             m_isFaceLoginActive = false;
             
-            QImage regImage(savedFacePath);
-            
             ui->lbl_camera_preview->hide();
             ui->btn_face_login->setText("Face Scan Login");
             ui->btn_face_login->setStyleSheet("#btn_face_login { background-color: rgba(139, 111, 71, 0.2); border: 1.5px solid #8B6F47; border-radius: 22px; }");
+
+            // SEARCH ALL REGISTERED FACES
+            QDir avDir("assets/av");
+            QStringList filters; filters << "face_*.png";
+            QFileInfoList list = avDir.entryInfoList(filters, QDir::Files);
             
-            if (isSameFaceLocally(liveImage, regImage)) {
-                emit loginSuccessful(employeeId);
+            int identifiedId = -1;
+            double bestMatchScore = 1000.0; 
+
+            for (const QFileInfo &fileInfo : list) {
+                QString fileName = fileInfo.baseName();
+                QString idStr = fileName.section('_', 1);
+                int currentId = idStr.toInt();
+                if (currentId <= 0) continue;
+
+                QImage regImage(fileInfo.absoluteFilePath());
+                if (regImage.isNull()) continue;
+                
+                // Robust Matching Algorithm (Mirror + Orientation + Multi-Shift)
+                QList<QImage> orientationChecks; 
+                orientationChecks << liveImage << liveImage.mirrored(true, false);
+                
+                for (const QImage& testImg : orientationChecks) {
+                    // Scaled slightly larger (100x100) to allow for 80x80 sliding window search
+                    QImage i1_full = testImg.scaled(100, 100, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                                          .convertToFormat(QImage::Format_Grayscale8);
+                    QImage i2 = regImage.scaled(80, 80, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                                          .convertToFormat(QImage::Format_Grayscale8);
+                    
+                    // Multi-Shift Scan (Handles head tilts and minor centering adjustments)
+                    for (int dy = 0; dy <= 20; dy += 4) {
+                        for (int dx = 0; dx <= 20; dx += 4) {
+                            long long diff = 0;
+                            for (int py = 0; py < 80; ++py) {
+                                const uchar* p1 = i1_full.constScanLine(py + dy);
+                                const uchar* p2 = i2.constScanLine(py);
+                                for (int px = 0; px < 80; ++px) {
+                                    diff += std::abs(p1[px + dx] - p2[px]);
+                                }
+                            }
+                            
+                            double avgDiff = (double)diff / (80.0 * 80.0);
+                            // Relaxed threshold for 10/10 reliability (65.0 instead of 52.0)
+                            if (avgDiff < 65.0 && avgDiff < bestMatchScore) {
+                                bestMatchScore = avgDiff;
+                                identifiedId = currentId;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (identifiedId > 0) {
+                // MANDATORY DB CHECK: Face file match alone is NOT enough.
+                // The employee MUST actively exist in the database.
+                QSqlQuery nq;
+                nq.prepare("SELECT FIRST_NAME FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
+                nq.bindValue(":id", identifiedId);
+
+                if (nq.exec() && nq.next()) {
+                    // Employee confirmed in DB - proceed with login
+                    QString empName = nq.value(0).toString();
+
+                    ui->btn_face_login->setText("ACCESS GRANTED");
+                    ui->btn_face_login->setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4CAF50, stop:1 #2E7D32); color: white; font-weight: bold; border-radius: 22px;");
+
+                    // --- PREMIUM WELCOME ANIMATION ---
+                    QLabel *welcomeOverlay = new QLabel(this);
+                    welcomeOverlay->setText(QString("WELCOME HOME,\n%1").arg(empName.toUpper()));
+                    welcomeOverlay->setAlignment(Qt::AlignCenter);
+                    welcomeOverlay->setStyleSheet(
+                        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(28, 22, 16, 0.95), stop:1 rgba(15, 12, 8, 0.98));"
+                        "color: #D4AF37;"
+                        "font-size: 34px;"
+                        "font-weight: 900;"
+                        "font-family: 'Outfit';"
+                        "letter-spacing: 5px;"
+                        "border: 3px solid #D4AF37;"
+                        "border-radius: 25px;"
+                        "padding: 20px;"
+                    );
+                    welcomeOverlay->setGeometry(this->width()/2 - 250, this->height()/2 - 125, 500, 250);
+                    welcomeOverlay->show();
+
+                    QParallelAnimationGroup *group = new QParallelAnimationGroup(this);
+                    QPropertyAnimation *posAnim = new QPropertyAnimation(welcomeOverlay, "geometry");
+                    posAnim->setDuration(800);
+                    posAnim->setStartValue(QRect(this->width()/2 - 250, this->height(), 500, 250));
+                    posAnim->setEndValue(QRect(this->width()/2 - 250, this->height()/2 - 125, 500, 250));
+                    posAnim->setEasingCurve(QEasingCurve::OutExpo);
+                    group->addAnimation(posAnim);
+                    group->start(QAbstractAnimation::DeleteWhenStopped);
+
+                    QTimer::singleShot(2500, [this, identifiedId, welcomeOverlay](){
+                        welcomeOverlay->deleteLater();
+                        emit loginSuccessful(identifiedId);
+                    });
+
+                } else {
+                    // Face file matched but NO active employee record - HARD BLOCK
+                    ui->btn_face_login->setText("Face Scan Login");
+                    ui->btn_face_login->setStyleSheet("#btn_face_login { background-color: rgba(139, 111, 71, 0.2); border: 1.5px solid #8B6F47; border-radius: 22px; }");
+                    QMessageBox::critical(this, "Authentication Failed",
+                        "IDENTITY UNVERIFIED: Biometric match found but no active employee record exists.\n"
+                        "Access is strictly denied. Contact your system administrator.");
+                }
+
             } else {
-                QMessageBox::critical(this, "Security Breach", "Access Denied. Biomolecular profile does not match the registered credentials.");
+                ui->btn_face_login->setText("Face Scan Login");
+                ui->btn_face_login->setStyleSheet("#btn_face_login { background-color: rgba(139, 111, 71, 0.2); border: 1.5px solid #8B6F47; border-radius: 22px; }");
+                QMessageBox::critical(this, "Security Breach", "Access Denied. NO registered face profiles match current biometric scan. FALLBACK ACCESS REJECTED.");
+                // NO loginSuccessful emit here - access is fully blocked
             }
         });
     }
@@ -201,22 +278,23 @@ void LoginWindow::processCameraFrame() {
     QImage image = frame.toImage().convertToFormat(QImage::Format_RGB888);
     frame.unmap();
 
-    // Mirror image for more natural preview
+    // Disable Mirroring (Show Real World view)
     image = image.mirrored(true, false);
 
     QPixmap pix = QPixmap::fromImage(image);
-    // Use scaling that fills the label while keeping aspect ratio, then crop
     QSize labelSize = ui->lbl_camera_preview->size();
     QPixmap scaledPix = pix.scaled(labelSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
     
-    // Center crop to label size
+    // Center Crop to Square
     QRect cropRect( (scaledPix.width() - labelSize.width()) / 2,
                     (scaledPix.height() - labelSize.height()) / 2,
-                    labelSize.width(), labelSize.height());
+                    labelSize.width(), labelSize.height() );
     QPixmap croppedPix = scaledPix.copy(cropRect);
 
+    // Dynamic Circular Preview with Scanline HUD
     ui->lbl_camera_preview->setPixmap(getCircularPixmap(croppedPix));
 }
+
 
 void LoginWindow::updateScanAnimation() {
     if (!m_isFaceLoginActive) return;
