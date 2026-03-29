@@ -81,6 +81,10 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
+#include <QLocale>
+#include <QFileInfo>
+#include <QProcess>
+#include <QTemporaryFile>
 #include <functional>
 // =============================================================================
 // ANIMATED DONUT CHART WIDGET
@@ -688,6 +692,7 @@ MainWindow::MainWindow(QWidget *parent)
     setupOrderMapTab();
     
     // Order Input Validation
+    ui_order->le_id->setValidator(new QIntValidator(1, 999999999, this));
     ui_order->le_stock->setValidator(new QIntValidator(1, 999999, this));
     ui_order->le_buyer->setValidator(new QIntValidator(1, 999999999, this));
     QDoubleValidator *priceValidator = new QDoubleValidator(0.01, 9999999.99, 2, this);
@@ -696,10 +701,10 @@ MainWindow::MainWindow(QWidget *parent)
     
     ui_order->table_catalog->setEditTriggers(QAbstractItemView::NoEditTriggers);
     ui_order->table_catalog->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    ui_order->table_catalog->setAlternatingRowColors(true);
+    ui_order->table_catalog->setAlternatingRowColors(false);
     ui_order->table_catalog->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui_order->table_catalog->setSelectionMode(QAbstractItemView::SingleSelection);
-    ui_order->table_catalog->setShowGrid(false);
+    ui_order->table_catalog->setShowGrid(true);
     ui_order->table_catalog->setFocusPolicy(Qt::NoFocus);
     ui_order->table_catalog->setIconSize(QSize(54, 54));
     ui_order->table_catalog->verticalHeader()->setVisible(false);
@@ -707,25 +712,29 @@ MainWindow::MainWindow(QWidget *parent)
     ui_order->table_catalog->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
     ui_order->table_catalog->setStyleSheet(
         "QTableWidget {"
-        "  background: rgba(255, 255, 255, 0.95);"
+        "  background: rgba(255, 255, 255, 0.94);"
         "  border: 1px solid #8B6F47;"
-        "  border-radius: 10px;"
-        "  alternate-background-color: rgba(248, 242, 232, 0.95);"
-        "  color: #2E261C;"
-        "  gridline-color: transparent;"
-        "  selection-background-color: rgba(139, 111, 71, 0.25);"
-        "  selection-color: #1F160D;"
+        "  border-radius: 0px;"
+        "  color: #1D1D1D;"
+        "  gridline-color: #8B6F47;"
+        "  selection-background-color: #E0E0E0;"
+        "  selection-color: #1D1D1D;"
         "}"
         "QTableWidget::item {"
-        "  padding: 6px 10px;"
-        "  border-bottom: 1px solid rgba(139, 111, 71, 0.35);"
+        "  padding: 5px 8px;"
+        "  border-right: 1px solid #8B6F47;"
+        "  border-bottom: 1px solid #8B6F47;"
         "}"
         "QHeaderView::section {"
         "  background: #8B6F47;"
-        "  color: white;"
-        "  border: none;"
-        "  padding: 8px;"
+        "  color: #1F2A44;"
+        "  border: 1px solid #705a39;"
+        "  padding: 6px;"
         "  font-weight: bold;"
+        "}"
+        "QTableCornerButton::section {"
+        "  background: #8B6F47;"
+        "  border: 1px solid #705a39;"
         "}"
     );
 
@@ -1034,7 +1043,7 @@ MainWindow::MainWindow(QWidget *parent)
             }
         }
     });
-    setupTabNavigation(orderPage, ui_order->tabWidget, {"Manage", "QR Code", "Catalog", "3D Modeling", "Map"}, 250, 85);           // 60+25
+    setupTabNavigation(orderPage, ui_order->tabWidget, {"Manage", "QR Code", "Catalog", "3D Modeling", "Map"}, 250, 85, {}, 125);   // 60+25
 
     // Standardize UI Styling
     setupGlobalStyles();
@@ -1944,8 +1953,8 @@ void MainWindow::onOrderRefreshCatalog()
         row++;
     }
     
-    // Resize columns to fit content
-    ui_order->table_catalog->resizeColumnsToContents();
+    // Keep columns stretched so the table always fills available width.
+    ui_order->table_catalog->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 }
 
 void MainWindow::onOrderSearchCatalog()
@@ -2023,7 +2032,7 @@ void MainWindow::onOrderSearchCatalog()
         row++;
     }
     
-    ui_order->table_catalog->resizeColumnsToContents();
+    ui_order->table_catalog->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 }
 
 void MainWindow::onOrderExportCatalog()
@@ -2367,8 +2376,10 @@ void MainWindow::onOrderImportCatalog()
         }
         
         QTextStream out(&file);
-        out << "Type,Quantity,Price,BuyerID\n";
-        out << "Other,10,15.50,1\n";
+        const QChar delimiter = ';';
+        out << "sep=" << delimiter << "\n";
+        out << "Type" << delimiter << "Quantity" << delimiter << "Price" << delimiter << "BuyerID\n";
+        out << "Other" << delimiter << "10" << delimiter << "15.50" << delimiter << "1\n";
         file.close();
         
         QMessageBox::information(this, "Template Created",
@@ -2379,10 +2390,63 @@ void MainWindow::onOrderImportCatalog()
         
     } else if (msgBox.clickedButton() == btnImport) {
         // Option 2: Import Filled File — smart parsing
-        QString fileName = QFileDialog::getOpenFileName(this, "Import Orders", QDir::homePath(), "CSV Files (*.csv);;Text Files (*.txt);;All Files (*)");
+        QString fileName = QFileDialog::getOpenFileName(this, "Import Orders", QDir::homePath(), "CSV Files (*.csv);;Text Files (*.txt);;Excel Files (*.xlsx *.xls);;All Files (*)");
         if (fileName.isEmpty()) return;
-        
-        QFile file(fileName);
+
+        const QFileInfo fi(fileName);
+        const QString suffix = fi.suffix().toLower();
+        const bool isWorkbookExtension = (suffix == "xlsx" || suffix == "xls" || suffix == "xlsm" || suffix == "xlsb");
+
+        QTemporaryFile tempCsv;
+        QString importPath = fileName;
+
+        if (isWorkbookExtension) {
+            tempCsv.setFileTemplate(QDir::tempPath() + "/orders_import_XXXXXX.csv");
+            if (!tempCsv.open()) {
+                QMessageBox::critical(this, "Import Error", "Could not create a temporary CSV file for Excel import.");
+                return;
+            }
+
+            const QString tempPath = QDir::toNativeSeparators(tempCsv.fileName());
+            tempCsv.close();
+            tempCsv.setAutoRemove(true);
+
+            auto psEscape = [](QString s) {
+                s.replace("'", "''");
+                return s;
+            };
+
+            const QString sourcePath = QDir::toNativeSeparators(fileName);
+            const QString psScript = QString(
+                "$ErrorActionPreference='Stop'; "
+                "$excel=$null; $wb=$null; "
+                "try { "
+                "  $excel=New-Object -ComObject Excel.Application; "
+                "  $excel.Visible=$false; "
+                "  $excel.DisplayAlerts=$false; "
+                "  $wb=$excel.Workbooks.Open('%1'); "
+                "  $wb.SaveAs('%2', 62); "
+                "  $wb.Close($false); "
+                "} finally { "
+                "  if ($wb -ne $null) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($wb) } "
+                "  if ($excel -ne $null) { $excel.Quit(); [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) } "
+                "}"
+            ).arg(psEscape(sourcePath), psEscape(tempPath));
+
+            QProcess ps;
+            ps.start("powershell", QStringList() << "-NoProfile" << "-ExecutionPolicy" << "Bypass" << "-Command" << psScript);
+            if (!ps.waitForFinished(120000) || ps.exitStatus() != QProcess::NormalExit || ps.exitCode() != 0) {
+                const QString err = QString::fromLocal8Bit(ps.readAllStandardError()).trimmed();
+                QMessageBox::critical(this, "Excel Import Error",
+                    "Failed to read the Excel workbook directly.\n\n" +
+                    (err.isEmpty() ? "Make sure Microsoft Excel is installed and the file is not open in edit mode." : err));
+                return;
+            }
+
+            importPath = tempCsv.fileName();
+        }
+
+        QFile file(importPath);
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QMessageBox::critical(this, "File Error", "Could not open the file for reading.");
             return;
@@ -2400,10 +2464,26 @@ void MainWindow::onOrderImportCatalog()
             QString line = in.readLine().trimmed();
             line.remove('\r');
             lineNumber++;
+
+            if (isFirstLine && !line.isEmpty() && line.front() == QChar(0xFEFF)) {
+                line.remove(0, 1);
+            }
             
             if (line.isEmpty()) continue;
-            
-            QStringList parts = line.split(",");
+
+            // Excel CSV separator hint (for example: "sep=;")
+            if (isFirstLine && line.startsWith("sep=", Qt::CaseInsensitive)) {
+                continue;
+            }
+
+            QChar delimiter = ',';
+            if (line.contains(';')) {
+                delimiter = ';';
+            } else if (line.contains('\t')) {
+                delimiter = '\t';
+            }
+
+            QStringList parts = line.split(delimiter);
             
             // Smart header detection: skip any first line that looks like a header
             if (isFirstLine && parts.size() > 0 &&

@@ -957,7 +957,7 @@ void GLViewport::drawStatsOverlay()
           << QString("Yaw/Pitch: %1 / %2").arg(m_camYaw, 0, 'f', 1).arg(m_camPitch, 0, 'f', 1)
           << QString("FPS: %1").arg(m_fps, 0, 'f', 1);
 
-    int y = 18;
+    int y = 48;
     for (const QString &line : lines) {
         p.drawText(10, y, line);
         y += 14;
@@ -968,7 +968,9 @@ void GLViewport::drawOrientationCube()
 {
     const int size = 80;
     const int pad = 10;
-    int x = width() - size - pad;
+    const int sideLabelGap = 4;
+    const int sideLabelWidth = 34;
+    int x = width() - size - pad - sideLabelGap - sideLabelWidth;
     int y = pad;
     QRect rect(x, y, size, size);
 
@@ -1033,22 +1035,70 @@ void GLViewport::drawOrientationCube()
     glMatrixMode(GL_MODELVIEW);
     glViewport(0, 0, width(), height());
 
+    QVector3D camPos = computeViewMatrix().inverted().map(QVector3D(0, 0, 0));
+    QVector3D viewDir = (m_camTarget - camPos).normalized();
+
+    ViewPreset activePreset = ViewPreset::Front;
+    const float ax = qAbs(viewDir.x());
+    const float ay = qAbs(viewDir.y());
+    const float az = qAbs(viewDir.z());
+    if (ay >= ax && ay >= az) {
+        activePreset = (viewDir.y() < 0.0f) ? ViewPreset::Top : ViewPreset::Bottom;
+    } else if (ax >= ay && ax >= az) {
+        activePreset = (viewDir.x() < 0.0f) ? ViewPreset::Right : ViewPreset::Left;
+    } else {
+        activePreset = (viewDir.z() < 0.0f) ? ViewPreset::Front : ViewPreset::Back;
+    }
+
+    QRect topRect(rect.left(), rect.top() - 14, rect.width(), 14);
+    QRect bottomRect(rect.left(), rect.bottom() + 1, rect.width(), 14);
+    QRect leftRect(rect.left() - sideLabelWidth, rect.top(), sideLabelWidth - 4, rect.height());
+    QRect rightRect(rect.right() + sideLabelGap, rect.top(), sideLabelWidth, rect.height());
+    QRect backRect(rect.right() - 36, rect.bottom() - 14, 36, 14);
+
+    QRect markerAnchor = rect;
+    switch (activePreset) {
+    case ViewPreset::Top: markerAnchor = topRect; break;
+    case ViewPreset::Bottom: markerAnchor = bottomRect; break;
+    case ViewPreset::Left: markerAnchor = leftRect; break;
+    case ViewPreset::Right: markerAnchor = rightRect; break;
+    case ViewPreset::Back: markerAnchor = backRect; break;
+    case ViewPreset::Front:
+    case ViewPreset::Perspective:
+    default:
+        markerAnchor = rect;
+        break;
+    }
+
     QPainter p(this);
-    p.setPen(QColor(240, 240, 240));
     p.setFont(QFont("Segoe UI", 8, QFont::Bold));
-    p.drawText(rect.adjusted(0, 0, 0, 0), Qt::AlignCenter, "Front");
-    p.drawText(QRect(rect.left(), rect.top() - 12, rect.width(), 12), Qt::AlignCenter, "Top");
-    p.drawText(QRect(rect.left(), rect.bottom(), rect.width(), 12), Qt::AlignCenter, "Bottom");
-    p.drawText(QRect(rect.left() - 28, rect.top(), 28, rect.height()), Qt::AlignVCenter | Qt::AlignRight, "Left");
-    p.drawText(QRect(rect.right(), rect.top(), 28, rect.height()), Qt::AlignVCenter | Qt::AlignLeft, "Right");
-    p.drawText(QRect(rect.right() - 36, rect.bottom() - 14, 36, 14), Qt::AlignRight | Qt::AlignBottom, "Back");
+
+    const QPoint markerCenter = markerAnchor.center();
+    const QRect markerRect(markerCenter.x() - 10, markerCenter.y() - 10, 20, 20);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(190, 190, 190, 210));
+    p.drawRoundedRect(markerRect, 3, 3);
+
+    auto drawLabel = [&](const QRect &r, const QString &text, Qt::Alignment align, ViewPreset preset) {
+        p.setPen((activePreset == preset) ? QColor(255, 255, 255) : QColor(240, 240, 240));
+        p.drawText(r, align, text);
+    };
+
+    drawLabel(rect, "Front", Qt::AlignCenter, ViewPreset::Front);
+    drawLabel(topRect, "Top", Qt::AlignCenter, ViewPreset::Top);
+    drawLabel(bottomRect, "Bottom", Qt::AlignCenter, ViewPreset::Bottom);
+    drawLabel(leftRect, "Left", Qt::AlignVCenter | Qt::AlignRight, ViewPreset::Left);
+    drawLabel(rightRect, "Right", Qt::AlignVCenter | Qt::AlignLeft, ViewPreset::Right);
+    drawLabel(backRect, "Back", Qt::AlignRight | Qt::AlignBottom, ViewPreset::Back);
 }
 
 bool GLViewport::pickOrientationCube(const QPoint &pos, ViewPreset &outPreset) const
 {
     const int size = 80;
     const int pad = 10;
-    QRect rect(width() - size - pad, pad, size, size);
+    const int sideLabelGap = 4;
+    const int sideLabelWidth = 34;
+    QRect rect(width() - size - pad - sideLabelGap - sideLabelWidth, pad, size, size);
     if (!rect.contains(pos)) return false;
 
     QPoint local = pos - rect.topLeft();
@@ -2478,14 +2528,6 @@ void ModelingWidget::buildPresetTable()
         m_objects.append(leg);
     }
 
-    // Crossbar
-    SceneObject bar;
-    bar.type = PrimitiveType::Cube;
-    bar.name = QString("Crossbar_%1").arg(m_nextId++);
-    bar.position = {0, 0.6f, 0};
-    bar.scale = {3.6f, 0.12f, 0.12f};
-    bar.color = darkWood;
-    m_objects.append(bar);
 }
 
 void ModelingWidget::buildPresetCabinet()
