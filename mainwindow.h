@@ -61,6 +61,7 @@
 #include <QRandomGenerator>
 #include <QHash>
 #include <QSet>
+#include <QTableView>
 
 // --- Voice Waveform Widget ---
 class VoiceWaveformWidget : public QWidget {
@@ -209,6 +210,7 @@ public:
     ~MainWindow();
     void setupClientStats();
     void setupClientManagement();
+    void setupClientDataMatrix();
     void setupEquipmentStats();
     void setupSupplierStats();
     void setupEmployeeStats();
@@ -274,6 +276,7 @@ private slots:
     void onClientSearch();
     void onClientExportPDF();
     void onClientRowSelected(const QModelIndex &index);
+    void onClientCyberTraceRefresh();
     
     // --- Employee Management ---
     void onEmployeeClearFields();
@@ -546,6 +549,10 @@ private:
     
     // AI Summarization network manager
     QNetworkAccessManager *chatSummaryNetManager = nullptr;
+
+    // Client Management Dynamic UIs
+    QTableView *m_clientCyberTable = nullptr;
+    QFrame *m_clientMatrixFrame = nullptr;
     
     // Presentation Mode
     bool m_isPresentationMode = false;

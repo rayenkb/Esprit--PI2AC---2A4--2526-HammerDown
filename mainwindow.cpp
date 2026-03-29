@@ -84,7 +84,7 @@
 #include <QLocale>
 #include <QFileInfo>
 #include <QProcess>
-#include <QTemporaryFile>
+#include <QUuid>
 #include <functional>
 // =============================================================================
 // ANIMATED DONUT CHART WIDGET
@@ -2396,20 +2396,15 @@ void MainWindow::onOrderImportCatalog()
         const QFileInfo fi(fileName);
         const QString suffix = fi.suffix().toLower();
         const bool isWorkbookExtension = (suffix == "xlsx" || suffix == "xls" || suffix == "xlsm" || suffix == "xlsb");
+        const bool isXlsxExtension = (suffix == "xlsx");
 
-        QTemporaryFile tempCsv;
+        QString tempCsvPath;
         QString importPath = fileName;
 
         if (isWorkbookExtension) {
-            tempCsv.setFileTemplate(QDir::tempPath() + "/orders_import_XXXXXX.csv");
-            if (!tempCsv.open()) {
-                QMessageBox::critical(this, "Import Error", "Could not create a temporary CSV file for Excel import.");
-                return;
-            }
-
-            const QString tempPath = QDir::toNativeSeparators(tempCsv.fileName());
-            tempCsv.close();
-            tempCsv.setAutoRemove(true);
+            tempCsvPath = QDir::tempPath() + "/orders_import_" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".csv";
+            QFile::remove(tempCsvPath);
+            const QString tempPath = QDir::toNativeSeparators(tempCsvPath);
 
             auto psEscape = [](QString s) {
                 s.replace("'", "''");
@@ -2417,33 +2412,247 @@ void MainWindow::onOrderImportCatalog()
             };
 
             const QString sourcePath = QDir::toNativeSeparators(fileName);
-            const QString psScript = QString(
-                "$ErrorActionPreference='Stop'; "
-                "$excel=$null; $wb=$null; "
-                "try { "
-                "  $excel=New-Object -ComObject Excel.Application; "
-                "  $excel.Visible=$false; "
-                "  $excel.DisplayAlerts=$false; "
-                "  $wb=$excel.Workbooks.Open('%1'); "
-                "  $wb.SaveAs('%2', 62); "
-                "  $wb.Close($false); "
-                "} finally { "
-                "  if ($wb -ne $null) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($wb) } "
-                "  if ($excel -ne $null) { $excel.Quit(); [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) } "
-                "}"
-            ).arg(psEscape(sourcePath), psEscape(tempPath));
 
-            QProcess ps;
-            ps.start("powershell", QStringList() << "-NoProfile" << "-ExecutionPolicy" << "Bypass" << "-Command" << psScript);
-            if (!ps.waitForFinished(120000) || ps.exitStatus() != QProcess::NormalExit || ps.exitCode() != 0) {
-                const QString err = QString::fromLocal8Bit(ps.readAllStandardError()).trimmed();
+            auto runExcelComConversion = [&](QString *outError) {
+                const QString psScript = QString(
+                    "$ErrorActionPreference='Stop'; "
+                    "$excel=$null; $wb=$null; "
+                    "try { "
+                    "  $excel=New-Object -ComObject Excel.Application; "
+                    "  $excel.Visible=$false; "
+                    "  $excel.DisplayAlerts=$false; "
+                    "  $wb=$excel.Workbooks.Open('%1'); "
+                    "  $wb.SaveAs('%2', 62); "
+                    "  $wb.Close($false); "
+                    "} finally { "
+                    "  if ($wb -ne $null) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($wb) } "
+                    "  if ($excel -ne $null) { $excel.Quit(); [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) } "
+                    "}"
+                ).arg(psEscape(sourcePath), psEscape(tempPath));
+
+                QProcess ps;
+                ps.start("powershell", QStringList() << "-NoProfile" << "-ExecutionPolicy" << "Bypass" << "-Command" << psScript);
+                const bool finished = ps.waitForFinished(120000);
+                const bool ok = finished && ps.exitStatus() == QProcess::NormalExit && ps.exitCode() == 0;
+                if (!ok && outError) {
+                    *outError = QString::fromLocal8Bit(ps.readAllStandardError()).trimmed();
+                    if (outError->isEmpty()) {
+                        *outError = QString::fromLocal8Bit(ps.readAllStandardOutput()).trimmed();
+                    }
+                }
+                return ok;
+            };
+
+            auto runOpenXmlPowerShellConversion = [&](QString *outError) {
+                const QString psScript = QString(
+                    "$ErrorActionPreference='Stop'; "
+                    "$src='%1'; $dst='%2'; "
+                    "Add-Type -AssemblyName System.IO.Compression.FileSystem; "
+                    "$zip=[System.IO.Compression.ZipFile]::OpenRead($src); "
+                    "try { "
+                    "  function Get-EntryText($z,$name) { "
+                    "    $entry=$z.GetEntry($name); if ($null -eq $entry) { return $null }; "
+                    "    $sr=New-Object System.IO.StreamReader($entry.Open()); "
+                    "    try { return $sr.ReadToEnd() } finally { $sr.Close() } "
+                    "  }; "
+                    "  $shared=@(); "
+                    "  $sharedXml=Get-EntryText $zip 'xl/sharedStrings.xml'; "
+                    "  if ($sharedXml) { "
+                    "    [xml]$sx=$sharedXml; "
+                    "    foreach($si in $sx.SelectNodes(\"//*[local-name()='si']\")) { "
+                    "      $txt=''; foreach($t in $si.SelectNodes(\".//*[local-name()='t']\")) { $txt += [string]$t.InnerText }; $shared += $txt "
+                    "    } "
+                    "  }; "
+                    "  [xml]$wb=(Get-EntryText $zip 'xl/workbook.xml'); "
+                    "  [xml]$rels=(Get-EntryText $zip 'xl/_rels/workbook.xml.rels'); "
+                    "  $sheet=$wb.SelectSingleNode(\"/*[local-name()='workbook']/*[local-name()='sheets']/*[local-name()='sheet']\"); "
+                    "  if ($null -eq $sheet) { throw 'No worksheet found in workbook.' }; "
+                    "  $rid=$sheet.GetAttribute('id','http://schemas.openxmlformats.org/officeDocument/2006/relationships'); "
+                    "  $relNode=$rels.SelectSingleNode(\"/*[local-name()='Relationships']/*[local-name()='Relationship'][@Id='\" + $rid + \"']\"); "
+                    "  $target=if($relNode){[string]$relNode.Attributes['Target'].Value}else{''}; "
+                    "  if ([string]::IsNullOrWhiteSpace($target)) { throw 'Cannot resolve first worksheet relationship.' }; "
+                    "  if ($target.StartsWith('/')) { $sheetPath=$target.TrimStart('/') } "
+                    "  elseif ($target.StartsWith('xl/')) { $sheetPath=$target } "
+                    "  else { $sheetPath='xl/' + $target }; "
+                    "  [xml]$sh=(Get-EntryText $zip $sheetPath); "
+                    "  $sw=New-Object System.IO.StreamWriter($dst,$false,[System.Text.UTF8Encoding]::new($false)); "
+                    "  try { "
+                    "    foreach($row in @($sh.SelectNodes(\"/*[local-name()='worksheet']/*[local-name()='sheetData']/*[local-name()='row']\"))) { "
+                    "      $map=@{}; $max=-1; "
+                    "      foreach($c in @($row.SelectNodes(\"*[local-name()='c']\"))) { "
+                    "        $ref=[string]$c.GetAttribute('r'); $letters=''; "
+                    "        for($i=0; $i -lt $ref.Length; $i++) { $ch=$ref[$i]; if ($ch -ge 'A' -and $ch -le 'Z') { $letters += $ch } else { break } }; "
+                    "        $idx=0; foreach($ch in $letters.ToCharArray()) { $idx = ($idx * 26) + ([int][char]$ch - 64) }; $idx=$idx-1; "
+                    "        if ($idx -lt 0) { $idx = 0 }; if ($idx -gt $max) { $max=$idx }; "
+                    "        $t=[string]$c.GetAttribute('t'); $value=''; "
+                    "        if ($t -eq 's') { "
+                    "          $vNode=$c.SelectSingleNode(\"*[local-name()='v']\"); $raw=if($vNode){[string]$vNode.InnerText}else{''}; if ($raw -match '^\\d+$') { $si=[int]$raw; if ($si -ge 0 -and $si -lt $shared.Count) { $value=$shared[$si] } } "
+                    "        } elseif ($t -eq 'inlineStr') { "
+                    "          $isNode=$c.SelectSingleNode(\"*[local-name()='is']\"); if($isNode){ foreach($n in @($isNode.SelectNodes(\".//*[local-name()='t']\"))){ $value += [string]$n.InnerText } } "
+                    "        } else { "
+                    "          $vNode=$c.SelectSingleNode(\"*[local-name()='v']\"); if($vNode){ $value=[string]$vNode.InnerText } "
+                    "        }; "
+                    "        $map[$idx]=$value; "
+                    "      }; "
+                    "      if ($max -lt 0) { continue }; "
+                    "      $vals=New-Object System.Collections.Generic.List[string]; "
+                    "      for($i=0; $i -le $max; $i++) { if ($map.ContainsKey($i)) { [void]$vals.Add([string]$map[$i]) } else { [void]$vals.Add('') } }; "
+                    "      while($vals.Count -gt 0 -and [string]::IsNullOrEmpty($vals[$vals.Count-1])) { $vals.RemoveAt($vals.Count-1) }; "
+                    "      $escaped=@(); foreach($v in $vals) { $escaped += ('\"' + ($v -replace '\"','\"\"') + '\"') }; "
+                    "      $sw.WriteLine(($escaped -join ',')); "
+                    "    } "
+                    "  } finally { $sw.Close() } "
+                    "} finally { $zip.Dispose() }"
+                ).arg(psEscape(sourcePath), psEscape(tempPath));
+
+                QProcess ps;
+                ps.start("powershell", QStringList() << "-NoProfile" << "-ExecutionPolicy" << "Bypass" << "-Command" << psScript);
+                const bool finished = ps.waitForFinished(120000);
+                const bool ok = finished && ps.exitStatus() == QProcess::NormalExit && ps.exitCode() == 0;
+                if (!ok && outError) {
+                    *outError = QString::fromLocal8Bit(ps.readAllStandardError()).trimmed();
+                    if (outError->isEmpty()) {
+                        *outError = QString::fromLocal8Bit(ps.readAllStandardOutput()).trimmed();
+                    }
+                }
+                return ok;
+            };
+
+            auto runPythonXlsxConversion = [&](QString *outError) {
+                const QString pyScript =
+                    "import csv, re, sys, zipfile, xml.etree.ElementTree as ET\n"
+                    "src, dst = sys.argv[1], sys.argv[2]\n"
+                    "NS_MAIN='http://schemas.openxmlformats.org/spreadsheetml/2006/main'\n"
+                    "NS_REL_DOC='http://schemas.openxmlformats.org/officeDocument/2006/relationships'\n"
+                    "NS_REL_PKG='http://schemas.openxmlformats.org/package/2006/relationships'\n"
+                    "def col_to_idx(ref):\n"
+                    "    m = re.match(r'([A-Z]+)', ref or '')\n"
+                    "    if not m: return 0\n"
+                    "    idx = 0\n"
+                    "    for ch in m.group(1): idx = idx * 26 + (ord(ch) - 64)\n"
+                    "    return idx - 1\n"
+                    "with zipfile.ZipFile(src) as z:\n"
+                    "    shared = []\n"
+                    "    if 'xl/sharedStrings.xml' in z.namelist():\n"
+                    "        sroot = ET.fromstring(z.read('xl/sharedStrings.xml'))\n"
+                    "        for si in sroot.findall('{%s}si' % NS_MAIN):\n"
+                    "            txt = ''.join(t.text or '' for t in si.findall('.//{%s}t' % NS_MAIN))\n"
+                    "            shared.append(txt)\n"
+                    "    wb = ET.fromstring(z.read('xl/workbook.xml'))\n"
+                    "    rels = ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))\n"
+                    "    rel_map = {}\n"
+                    "    for rel in rels.findall('{%s}Relationship' % NS_REL_PKG):\n"
+                    "        rel_map[rel.get('Id')] = rel.get('Target', '')\n"
+                    "    first_sheet = wb.find('.//{%s}sheets/{%s}sheet' % (NS_MAIN, NS_MAIN))\n"
+                    "    if first_sheet is None:\n"
+                    "        raise RuntimeError('No worksheet found in workbook.')\n"
+                    "    rid = first_sheet.get('{%s}id' % NS_REL_DOC)\n"
+                    "    target = rel_map.get(rid, '')\n"
+                    "    if not target:\n"
+                    "        raise RuntimeError('Cannot resolve first worksheet relationship.')\n"
+                    "    if target.startswith('/'):\n"
+                    "        sheet_path = target.lstrip('/')\n"
+                    "    elif target.startswith('xl/'):\n"
+                    "        sheet_path = target\n"
+                    "    else:\n"
+                    "        sheet_path = 'xl/' + target\n"
+                    "    sheet = ET.fromstring(z.read(sheet_path))\n"
+                    "    with open(dst, 'w', newline='', encoding='utf-8') as f:\n"
+                    "        writer = csv.writer(f)\n"
+                    "        for row in sheet.findall('.//{%s}sheetData/{%s}row' % (NS_MAIN, NS_MAIN)):\n"
+                    "            data = {}\n"
+                    "            max_col = -1\n"
+                    "            for cell in row.findall('{%s}c' % NS_MAIN):\n"
+                    "                ref = cell.get('r', '')\n"
+                    "                col = col_to_idx(ref)\n"
+                    "                max_col = max(max_col, col)\n"
+                    "                ctype = cell.get('t', '')\n"
+                    "                value = ''\n"
+                    "                if ctype == 'inlineStr':\n"
+                    "                    is_elem = cell.find('{%s}is' % NS_MAIN)\n"
+                    "                    if is_elem is not None:\n"
+                    "                        value = ''.join(t.text or '' for t in is_elem.findall('.//{%s}t' % NS_MAIN))\n"
+                    "                else:\n"
+                    "                    v = cell.find('{%s}v' % NS_MAIN)\n"
+                    "                    raw = v.text if v is not None and v.text is not None else ''\n"
+                    "                    if ctype == 's':\n"
+                    "                        try:\n"
+                    "                            value = shared[int(raw)]\n"
+                    "                        except Exception:\n"
+                    "                            value = ''\n"
+                    "                    else:\n"
+                    "                        value = raw\n"
+                    "                data[col] = value\n"
+                    "            if max_col < 0:\n"
+                    "                continue\n"
+                    "            out = [data.get(i, '') for i in range(max_col + 1)]\n"
+                    "            while out and out[-1] == '':\n"
+                    "                out.pop()\n"
+                    "            writer.writerow(out)\n";
+
+                QProcess py;
+                py.start("python", QStringList() << "-c" << pyScript << sourcePath << tempPath);
+                bool finished = py.waitForFinished(120000);
+                bool ok = finished && py.exitStatus() == QProcess::NormalExit && py.exitCode() == 0;
+
+                if (!ok) {
+                    QProcess pyLauncher;
+                    pyLauncher.start("py", QStringList() << "-3" << "-c" << pyScript << sourcePath << tempPath);
+                    finished = pyLauncher.waitForFinished(120000);
+                    ok = finished && pyLauncher.exitStatus() == QProcess::NormalExit && pyLauncher.exitCode() == 0;
+
+                    if (!ok && outError) {
+                        *outError = QString::fromLocal8Bit(py.readAllStandardError()).trimmed();
+                        if (outError->isEmpty()) {
+                            *outError = QString::fromLocal8Bit(pyLauncher.readAllStandardError()).trimmed();
+                        }
+                        if (outError->isEmpty()) {
+                            *outError = "Python-based .xlsx conversion failed.";
+                        }
+                    }
+                }
+
+                return ok;
+            };
+
+            QString importError;
+            bool converted = false;
+            if (isXlsxExtension) {
+                QStringList conversionErrors;
+                QString stepError;
+
+                converted = runOpenXmlPowerShellConversion(&stepError);
+                if (!converted && !stepError.isEmpty()) {
+                    conversionErrors << ("OpenXML parser: " + stepError);
+                }
+                if (!converted) {
+                    stepError.clear();
+                    converted = runPythonXlsxConversion(&stepError);
+                    if (!converted && !stepError.isEmpty()) {
+                        conversionErrors << ("Python parser: " + stepError);
+                    }
+                }
+
+                if (!converted) {
+                    importError = conversionErrors.join("\n\n");
+                    if (importError.isEmpty()) {
+                        importError = "Unable to read .xlsx workbook. Install Python 3 or use CSV import.";
+                    }
+                }
+            } else {
+                converted = runExcelComConversion(&importError);
+            }
+
+            if (!converted) {
                 QMessageBox::critical(this, "Excel Import Error",
-                    "Failed to read the Excel workbook directly.\n\n" +
-                    (err.isEmpty() ? "Make sure Microsoft Excel is installed and the file is not open in edit mode." : err));
+                    "Failed to import workbook.\n\n" +
+                    (importError.isEmpty()
+                        ? "For .xlsx files, install Python 3 (or Microsoft Excel). For .xls/.xlsm/.xlsb files, Microsoft Excel is required."
+                        : importError));
                 return;
             }
 
-            importPath = tempCsv.fileName();
+            importPath = tempCsvPath;
         }
 
         QFile file(importPath);
@@ -2505,11 +2714,20 @@ void MainWindow::onOrderImportCatalog()
                 errorMessages << QString("Line %1: Too many fields (%2). Expected exactly 4 columns: Type, Quantity, Price, BuyerID.").arg(lineNumber).arg(parts.size());
                 continue;
             }
+
+            auto normalizeCsvField = [](QString value) {
+                value = value.trimmed();
+                if (value.size() >= 2 && value.startsWith('"') && value.endsWith('"')) {
+                    value = value.mid(1, value.size() - 2);
+                }
+                value.replace("\"\"", "\"");
+                return value.trimmed();
+            };
             
-            QString typeStr   = parts[0].trimmed();
-            QString qtyStr    = parts[1].trimmed();
-            QString priceStr  = parts[2].trimmed();
-            QString buyerStr  = parts[3].trimmed();
+            QString typeStr   = normalizeCsvField(parts[0]);
+            QString qtyStr    = normalizeCsvField(parts[1]);
+            QString priceStr  = normalizeCsvField(parts[2]);
+            QString buyerStr  = normalizeCsvField(parts[3]);
             
             QString lineErrors;
             
@@ -3960,6 +4178,136 @@ void MainWindow::setupClientManagement()
     if (modifyTabIndex != -1) {
         ui_client->tabWidget->removeTab(modifyTabIndex);
     }
+    
+    // 6. Cyberpunk Input Validations
+    QRegularExpression nameRegex("^[a-zA-Z\\s\\-']+$");
+    QValidator *nameVal = new QRegularExpressionValidator(nameRegex, this);
+    ui_client->le_nom->setValidator(nameVal);
+    ui_client->le_prenom->setValidator(nameVal);
+    ui_client->le_nom_mod->setValidator(nameVal);
+    ui_client->le_prenom_mod->setValidator(nameVal);
+
+    QRegularExpression phoneRegex("^\\+?\\d{8,15}$");
+    QValidator *phoneVal = new QRegularExpressionValidator(phoneRegex, this);
+    ui_client->le_tel->setValidator(phoneVal);
+    ui_client->le_tel_mod->setValidator(phoneVal);
+
+    QRegularExpression emailRegex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    QValidator *emailVal = new QRegularExpressionValidator(emailRegex, this);
+    ui_client->le_email->setValidator(emailVal);
+    ui_client->le_email_mod->setValidator(emailVal);
+
+    QRegularExpression idRegex("^[1-9]\\d*$");
+    QValidator *idVal = new QRegularExpressionValidator(idRegex, this);
+    ui_client->le_id->setValidator(idVal);
+    ui_client->le_id_mod->setValidator(idVal);
+
+    // 7. Inject Cyber Tabs Dynamically to bypass ui cache
+    QWidget *traceTab = new QWidget();
+    ui_client->tabWidget->addTab(traceTab, "Cyber Trace");
+    m_clientCyberTable = new QTableView(traceTab);
+    m_clientCyberTable->setGeometry(20, 20, 1200, 660);
+    m_clientCyberTable->setStyleSheet("QTableView { background: rgba(0,0,0,0.6); gridline-color: #5A4A32; border: 1px solid #8B6F47; color: #D4AF37; font-family: 'Consolas'; } QHeaderView::section { background: rgba(139,111,71,0.3); border: 1px solid #8B6F47; color: #D4AF37; font-weight: bold; } QTableView::item:selected { background: rgba(139,111,71,0.5); border: 1px solid #D4AF37; }");
+
+    QPushButton *btn_refresh_trace = new QPushButton("UPDATE LOG", traceTab);
+    btn_refresh_trace->setGeometry(1070, 690, 150, 40);
+    btn_refresh_trace->setStyleSheet("QPushButton { background: rgba(139, 111, 71, 0.4); border: 1px solid #8B6F47; border-radius: 5px; color: #D4AF37; font-weight: bold; font-family: 'Consolas'; } QPushButton:hover { background: rgba(139, 111, 71, 0.8); border: 1px solid #D4AF37; }");
+
+    QWidget *matrixTab = new QWidget();
+    ui_client->tabWidget->addTab(matrixTab, "Data Matrix");
+    m_clientMatrixFrame = new QFrame(matrixTab);
+    m_clientMatrixFrame->setGeometry(100, 100, 1040, 550);
+    m_clientMatrixFrame->setStyleSheet("background: rgba(10, 10, 10, 0.7); border: 2px solid #8B6F47; border-radius: 10px;");
+
+    connect(btn_refresh_trace, &QPushButton::clicked, this, &MainWindow::onClientCyberTraceRefresh);
+    
+    // Call data matrix initialization
+    setupClientDataMatrix();
+}
+
+void MainWindow::onClientCyberTraceRefresh()
+{
+    QString queryStr = "SELECT TO_CHAR(LOG_DATE, 'DD/MM/YYYY HH24:MI') AS \"Timestamp\", "
+                       "EMPLOYEE_NAME AS \"Operative\", "
+                       "ACTION_DETAILS AS \"Action Sequence\" "
+                       "FROM APP_HISTORY WHERE MODULE_NAME = 'Clients' ORDER BY LOG_DATE DESC";
+
+    QSqlQueryModel *model = new QSqlQueryModel(this);
+    model->setQuery(queryStr);
+    
+    if (model->lastError().isValid()) {
+        QMessageBox::warning(this, "Trace Error", "Failed to retrieve Cyber Trace:\n" + model->lastError().text());
+        return;
+    }
+
+    m_clientCyberTable->setModel(model);
+    m_clientCyberTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_clientCyberTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_clientCyberTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    
+    // Grid cyber animation on refresh
+    QGraphicsOpacityEffect *traceEff = new QGraphicsOpacityEffect(this);
+    m_clientCyberTable->setGraphicsEffect(traceEff);
+    QPropertyAnimation *traceAnim = new QPropertyAnimation(traceEff, "opacity");
+    traceAnim->setDuration(600);
+    traceAnim->setStartValue(0.1);
+    traceAnim->setEndValue(1.0);
+    traceAnim->setEasingCurve(QEasingCurve::InBack);
+    traceAnim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void MainWindow::setupClientDataMatrix()
+{
+    // Clean old layout
+    if (m_clientMatrixFrame->layout()) {
+        QLayoutItem* item;
+        while ((item = m_clientMatrixFrame->layout()->takeAt(0)) != nullptr) {
+            delete item->widget();
+            delete item;
+        }
+        delete m_clientMatrixFrame->layout();
+    }
+
+    QVBoxLayout *layout = new QVBoxLayout(m_clientMatrixFrame);
+    
+    QSqlQuery q;
+    int total = 0, male = 0, female = 0;
+    if (q.exec("SELECT COUNT(*), SUM(CASE WHEN GENDER='Male' THEN 1 ELSE 0 END), SUM(CASE WHEN GENDER='Female' THEN 1 ELSE 0 END) FROM CLIENTS")) {
+        if (q.next()) {
+            total = q.value(0).toInt();
+            male = q.value(1).toInt();
+            female = q.value(2).toInt();
+        }
+    }
+
+    QLabel *statsLabel = new QLabel(m_clientMatrixFrame);
+    statsLabel->setStyleSheet("color: #00FF41; font-family: 'Consolas'; font-size: 20px; text-align: left; background: transparent;");
+    statsLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(statsLabel);
+    
+    QString fullText = QString(
+        "NETWORK TARGETS IDENTIFIED: %1\n\n"
+        "[+] MALE OPERATIVES: %2\n"
+        "[+] FEMALE OPERATIVES: %3\n\n"
+        "DATABASE LINK ... ACTIVE"
+    ).arg(total).arg(male).arg(female);
+
+    // Typing effect via Lambda and Timer
+    for (int i = 1; i <= fullText.length(); ++i) {
+        QTimer::singleShot(i * 25, statsLabel, [statsLabel, fullText, i]() {
+            statsLabel->setText(fullText.left(i));
+        });
+    }
+    
+    // Cool Cyberpunk Animation Effect
+    QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(this);
+    m_clientMatrixFrame->setGraphicsEffect(eff);
+    QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity");
+    a->setDuration(1200);
+    a->setStartValue(0.0);
+    a->setEndValue(1.0);
+    a->setEasingCurve(QEasingCurve::InExpo);
+    a->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void MainWindow::setupEquipmentStats()
@@ -5502,6 +5850,17 @@ void MainWindow::onClientAdd()
         QMessageBox::warning(this, "Validation", "ID, Last Name, and First Name are required.");
         return;
     }
+    if (nom.length() < 2 || nom.length() > 12 || prenom.length() < 2 || prenom.length() > 12) {
+        QMessageBox::warning(this, "Validation", "[ACCESS DENIED] First and Last Name must be between 2 and 12 letters.");
+        return;
+    }
+
+    QRegularExpression emailRegex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    if (!email.isEmpty() && !emailRegex.match(email).hasMatch()) {
+        QMessageBox::warning(this, "Validation", "[ACCESS DENIED] Invalid email structure detected. Requires standard format.");
+        return;
+    }
+
     bool idOk;
     int clientId = id.toInt(&idOk);
     if (!idOk || clientId <= 0) {
@@ -5554,6 +5913,27 @@ void MainWindow::onClientModify()
     if (id.isEmpty()) {
         QMessageBox::warning(this, "Validation", "Please enter the Client ID to modify.");
         return;
+    }
+
+    if (nom.length() < 2 || nom.length() > 12 || prenom.length() < 2 || prenom.length() > 12) {
+        QMessageBox::warning(this, "Validation", "[ACCESS DENIED] First and Last Name must be between 2 and 12 letters.");
+        return;
+    }
+
+    QRegularExpression emailRegex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    if (!email.isEmpty() && !emailRegex.match(email).hasMatch()) {
+        QMessageBox::warning(this, "Validation", "[ACCESS DENIED] Invalid email structure detected. Requires standard format.");
+        return;
+    }
+
+    QSqlQuery checkQuery;
+    checkQuery.prepare("SELECT COUNT(*) FROM CLIENTS WHERE CLIENT_ID = :id");
+    checkQuery.bindValue(":id", id.toInt());
+    if (checkQuery.exec() && checkQuery.next()) {
+        if (checkQuery.value(0).toInt() == 0) {
+            QMessageBox::warning(this, "Not Found", "ERROR: The specified Client ID does not exist in the database.");
+            return;
+        }
     }
 
     QSqlQuery q;
