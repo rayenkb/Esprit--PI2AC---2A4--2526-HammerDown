@@ -11,6 +11,7 @@
 #include <QSqlError>
 #include <QDebug>
 #include <QRandomGenerator>
+#include <QMessageBox>
 #include <algorithm>
 
 #ifndef M_PI
@@ -71,7 +72,9 @@ static int computeSeverity(const QList<OrganismSense> &senses, const QString &st
 // MAINTENANCE ORGANISM WIDGET — CONSTRUCTOR (THE FULL 900-LINE ORIGINAL)
 // ============================================================================
 MaintenanceOrganismWidget::MaintenanceOrganismWidget(QWidget *parent)
-    : QWidget(parent), m_engine(nullptr), m_globalPulsePhase(0), m_hoveredOrganism(-1), m_calendarOffset(0)
+    : QWidget(parent), m_engine(nullptr), m_globalPulsePhase(0), m_hoveredOrganism(-1), m_calendarOffset(0),
+      m_calendarMonth(QDate::currentDate().addDays(1 - QDate::currentDate().day())),
+      m_prevCalendarMonth(m_calendarMonth), m_calendarSlideDir(0), m_calendarSlideProgress(1.0), m_calendarAnimTimer(nullptr)
 {
     setMouseTracking(true);
 
@@ -165,11 +168,6 @@ MaintenanceOrganismWidget::MaintenanceOrganismWidget(QWidget *parent)
     hLay->addLayout(titleRow);
     maLay->addWidget(header);
 
-    // Hide tabs to match the unified biological ring UI from the screenshot
-    m_btnColony->hide();
-    m_btnCalendar->hide();
-    m_btnHistory->hide();
-
     // STACKED WIDGET containing the 3 Views
     m_viewStack = new QStackedWidget(mainArea);
     
@@ -202,6 +200,17 @@ MaintenanceOrganismWidget::MaintenanceOrganismWidget(QWidget *parent)
     connect(m_btnHistory, &QPushButton::clicked, this, [this](){
         m_btnColony->setChecked(false); m_btnCalendar->setChecked(false); m_btnHistory->setChecked(true);
         m_viewStack->setCurrentIndex(2);
+    });
+
+    m_calendarAnimTimer = new QTimer(this);
+    m_calendarAnimTimer->setInterval(16);
+    connect(m_calendarAnimTimer, &QTimer::timeout, this, [this]() {
+        m_calendarSlideProgress = qMin<qreal>(1.0, m_calendarSlideProgress + (16.0 / 300.0));
+        if (m_calendarSlideProgress >= 1.0) {
+            m_calendarAnimTimer->stop();
+            m_calendarSlideDir = 0;
+        }
+        if (m_calendarArea) m_calendarArea->update();
     });
 
     // Speech Box (The Organism Speaks)
@@ -250,12 +259,92 @@ MaintenanceOrganismWidget::MaintenanceOrganismWidget(QWidget *parent)
     m_healNotes->setStyleSheet("background: rgba(30,22,12,0.8); color: white; border: 1px solid #5A4A32; border-radius: 6px;");
     m_healNotes->setMaximumHeight(150);
     m_scheduleLayout->addWidget(m_healNotes);
+
+    QLabel *lblChecklist = new QLabel("Repair Checklist:");
+    lblChecklist->setStyleSheet("color: #B8925A; font-weight: bold; margin-top: 6px;");
+    m_scheduleLayout->addWidget(lblChecklist);
+
+    const QStringList checklistItems = {
+        "Safety isolate equipment",
+        "Inspect damaged parts",
+        "Replace / repair components",
+        "Functional test before release"
+    };
+    for (const QString &item : checklistItems) {
+        QCheckBox *cb = new QCheckBox(item, schedPanel);
+        cb->setStyleSheet("QCheckBox { color: #E0D0B0; font-size: 12px; } QCheckBox::indicator { width: 14px; height: 14px; }");
+        m_scheduleLayout->addWidget(cb);
+        m_healChecklist.append(cb);
+    }
+
+    QLabel *lblDeadline = new QLabel("Deadline:");
+    lblDeadline->setStyleSheet("color: #B8925A; font-weight: bold; margin-top: 4px;");
+    m_scheduleLayout->addWidget(lblDeadline);
+
+    m_healDeadline = new QDateEdit(QDate::currentDate().addDays(7), schedPanel);
+    m_healDeadline->setCalendarPopup(true);
+    m_healDeadline->setDisplayFormat("dd/MM/yyyy");
+    m_healDeadline->setStyleSheet("background: white; border-radius: 4px; padding: 4px;");
+    m_scheduleLayout->addWidget(m_healDeadline);
     
     m_healBtn = new QPushButton("Initiate Healing", schedPanel);
     m_healBtn->setFixedHeight(40);
     m_healBtn->setStyleSheet("QPushButton { background: #4CAF50; color: white; font-weight: bold; border-radius: 8px; font-size: 14px; } "
                              "QPushButton:hover { background: #45a049; }");
     m_scheduleLayout->addWidget(m_healBtn);
+    connect(m_healBtn, &QPushButton::clicked, this, [this]() {
+        const int equipId = m_healEquipCombo->currentData().toInt();
+        if (equipId <= 0) {
+            QMessageBox::warning(this, "Maintenance", "Please select equipment first.");
+            return;
+        }
+
+        QStringList checkedTasks;
+        for (QCheckBox *cb : m_healChecklist) {
+            if (cb && cb->isChecked()) {
+                checkedTasks << cb->text();
+            }
+        }
+
+        const QString notes = m_healNotes ? m_healNotes->toPlainText().trimmed() : QString();
+        const QDate deadline = m_healDeadline ? m_healDeadline->date() : QDate::currentDate().addDays(7);
+
+        QSqlQuery q;
+        q.prepare("UPDATE EQUIPMENT SET STATUS = 'Under Maintenance', NEXT_MAINTENANCE = TO_DATE(:d,'YYYY-MM-DD') WHERE EQUIPMENT_ID = :id");
+        q.bindValue(":d", deadline.toString("yyyy-MM-dd"));
+        q.bindValue(":id", equipId);
+
+        if (!q.exec()) {
+            QMessageBox::critical(this, "Maintenance", "Failed to update equipment:\n" + q.lastError().text());
+            return;
+        }
+
+        QString detail;
+        if (!checkedTasks.isEmpty()) {
+            detail += "Checklist:\n- " + checkedTasks.join("\n- ") + "\n";
+        }
+        if (!notes.isEmpty()) {
+            detail += "\nNotes: " + notes;
+        }
+        if (m_speechBubble) {
+            m_speechBubble->setText(QString("Healing protocol applied to equipment ID %1. Deadline: %2.\n%3")
+                                    .arg(equipId)
+                                    .arg(deadline.toString("dd/MM/yyyy"))
+                                    .arg(detail));
+        }
+
+        for (QCheckBox *cb : m_healChecklist) {
+            if (cb) cb->setChecked(false);
+        }
+        if (m_healNotes) m_healNotes->clear();
+
+        if (m_engine) {
+            loadData(m_engine);
+        }
+        if (m_ringArea) m_ringArea->update();
+        if (m_calendarArea) m_calendarArea->update();
+        if (m_historyArea) m_historyArea->update();
+    });
     m_scheduleLayout->addStretch();
     
     splitter->addWidget(schedPanel);
@@ -541,40 +630,238 @@ void MaintenanceOrganismWidget::drawOrganism(QPainter &p, const MaintenanceOrgan
 // CALENDAR VIEW PAINTER
 // ============================================================================
 void MaintenanceOrganismWidget::drawCalendarPainter(QPainter &p) {
-    double cw = m_calendarArea->width(), ch = m_calendarArea->height();
-    
+    const QRectF viewport(0, 0, m_calendarArea->width(), m_calendarArea->height());
     p.save();
-    p.fillRect(0, 0, cw, ch, QColor(20, 15, 10)); // Deep dark 
-    
-    // Draw the central timeline nerve
-    p.setPen(QPen(QColor(184, 146, 90, 80), 4));
-    p.drawLine(50, ch/2, cw-50, ch/2);
-    
-    int numPoints = 6;
-    double spacing = (cw - 200) / numPoints;
-    
-    for (int i=0; i<numPoints; i++) {
-        double x = 100 + i * spacing;
-        double y = ch/2;
-        
-        QDate d = QDate::currentDate().addDays(i * 15);
-        p.setPen(QColor(212, 175, 55));
-        p.setFont(QFont("Arial", 10, QFont::Bold));
-        p.drawText(x - 30, y + 30, d.toString("MMM dd"));
-        
-        // Draw calendar cell
-        double pulse = 5 * sin(m_globalPulsePhase + i);
-        p.setBrush(QColor(139, 111, 71, 150));
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(QPointF(x, y), 8 + pulse, 8 + pulse);
+    p.fillRect(viewport, QColor("#0D0805"));
+
+    const QRectF content = viewport.adjusted(10, 8, -10, -8);
+    if (m_calendarSlideDir != 0) {
+        const qreal ease = QEasingCurve(QEasingCurve::OutCubic).valueForProgress(m_calendarSlideProgress);
+        const qreal w = content.width();
+        const qreal oldX = (m_calendarSlideDir > 0) ? -w * ease : w * ease;
+        const qreal newX = (m_calendarSlideDir > 0) ? (w - w * ease) : (-w + w * ease);
+
+        drawCalendarMonth(p, content.translated(oldX, 0), m_prevCalendarMonth);
+        drawCalendarMonth(p, content.translated(newX, 0), m_calendarMonth);
+    } else {
+        drawCalendarMonth(p, content, m_calendarMonth);
     }
-    
-    p.setPen(Qt::white);
-    QFont f("Georgia", 16);
-    f.setItalic(true);
-    p.setFont(f);
-    p.drawText(cw/2 - 150, 50, "The Organism Timeline (Predictive Pulse)");
     p.restore();
+}
+
+QList<MaintenanceOrganismWidget::CalendarEvent> MaintenanceOrganismWidget::buildCalendarEvents(const QDate &month) const {
+    QList<CalendarEvent> events;
+    QSqlQuery q;
+    q.prepare("SELECT EQUIPMENT_TYPE, STATUS, PURCHASE_DATE, NEXT_MAINTENANCE FROM EQUIPMENT WHERE STATUS != 'Retired'");
+    if (!q.exec()) {
+        return events;
+    }
+
+    while (q.next()) {
+        const QString equipment = q.value(0).toString();
+        const QString status = q.value(1).toString();
+
+        QDate purchaseDate = q.value(2).toDate();
+        if (!purchaseDate.isValid()) {
+            purchaseDate = q.value(2).toDateTime().date();
+        }
+
+        QDate nextMaintenance = q.value(3).toDate();
+        if (!nextMaintenance.isValid()) {
+            nextMaintenance = q.value(3).toDateTime().date();
+        }
+
+        if (purchaseDate.isValid() && purchaseDate.year() == month.year() && purchaseDate.month() == month.month()) {
+            events.append({purchaseDate, equipment, "Scheduled", QColor("#3B82F6")});
+        }
+
+        if (nextMaintenance.isValid() && nextMaintenance.year() == month.year() && nextMaintenance.month() == month.month()) {
+            if (status.compare("Under Maintenance", Qt::CaseInsensitive) == 0) {
+                events.append({nextMaintenance, equipment, "Critical", QColor("#CC2200")});
+            } else {
+                events.append({nextMaintenance, equipment, "Routine", QColor("#4CAF7D")});
+            }
+        }
+
+        if (!nextMaintenance.isValid() && status.compare("Under Maintenance", Qt::CaseInsensitive) == 0) {
+            const QDate today = QDate::currentDate();
+            if (today.year() == month.year() && today.month() == month.month()) {
+                events.append({today, equipment, "Critical", QColor("#CC2200")});
+            }
+        }
+    }
+    return events;
+}
+
+void MaintenanceOrganismWidget::drawCalendarMonth(QPainter &p, const QRectF &rect, const QDate &month) {
+    const QRectF panel = rect.adjusted(2, 2, -2, -2);
+
+    const QRectF monthHeader(panel.left(), panel.top(), panel.width(), 52);
+    const QRectF prevRect(monthHeader.left() + 8, monthHeader.top() + 4, 40, 36);
+    const QRectF nextRect(monthHeader.right() - 48, monthHeader.top() + 4, 40, 36);
+
+    p.setPen(QPen(QColor("#C17F3E"), 2));
+    QFont arrowFont("Segoe UI", 24, QFont::Bold);
+    p.setFont(arrowFont);
+    p.drawText(prevRect, Qt::AlignCenter, "<");
+    p.drawText(nextRect, Qt::AlignCenter, ">");
+
+    QFont monthFont("Segoe UI", 22, QFont::Bold);
+    monthFont.setLetterSpacing(QFont::AbsoluteSpacing, 3.0);
+    p.setFont(monthFont);
+    p.setPen(QColor("#C17F3E"));
+    p.drawText(monthHeader, Qt::AlignCenter, month.toString("MMMM yyyy").toUpper());
+
+    const QList<CalendarEvent> events = buildCalendarEvents(month);
+    int routineCount = 0;
+    int criticalCount = 0;
+    int scheduledCount = 0;
+    for (const auto &ev : events) {
+        if (ev.kind == "Critical") criticalCount++;
+        else if (ev.kind == "Scheduled") scheduledCount++;
+        else routineCount++;
+    }
+
+    qreal pillX = panel.left() + 18;
+    const qreal pillY = monthHeader.bottom() + 4;
+    auto drawSummaryPill = [&](int count, const QString &label, const QColor &color) {
+        if (count <= 0) return;
+        const QString txt = QString("%1 %2").arg(count).arg(label);
+        QFont f("Segoe UI", 9, QFont::Bold);
+        p.setFont(f);
+        const int w = QFontMetrics(f).horizontalAdvance(txt) + 20;
+        QRectF r(pillX, pillY, w, 20);
+        p.setPen(QPen(color, 1));
+        QColor bg = color;
+        bg.setAlpha(51);  // exactly 20% opacity
+        p.setBrush(bg);
+        p.drawRoundedRect(r, 10, 10);
+        p.setPen(color);
+        p.drawText(r, Qt::AlignCenter, txt);
+        pillX += w + 8;
+    };
+    drawSummaryPill(routineCount, "Routine", QColor("#4CAF7D"));
+    drawSummaryPill(criticalCount, "Critical", QColor("#CC2200"));
+    drawSummaryPill(scheduledCount, "Scheduled", QColor("#3B82F6"));
+
+    const qreal gridTop = monthHeader.bottom() + 30;
+    const qreal gridBottom = panel.bottom() - 6;
+    const qreal dayHeaderH = 26;
+    const qreal gridY = gridTop + dayHeaderH;
+    const qreal gridH = qMax<qreal>(120, gridBottom - gridY);
+    const qreal cellW = panel.width() / 7.0;
+    const qreal cellH = qMin<qreal>(80.0, gridH / 6.0);
+
+    QStringList headers = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
+    QFont dayHeaderFont("Segoe UI", 10, QFont::Bold);
+    dayHeaderFont.setLetterSpacing(QFont::AbsoluteSpacing, 1.5);
+    p.setFont(dayHeaderFont);
+    p.setPen(QColor(245, 230, 211, 153));  // exactly 60% opacity
+    for (int c = 0; c < 7; ++c) {
+        QRectF hRect(panel.left() + c * cellW, gridTop, cellW, dayHeaderH);
+        p.drawText(hRect, Qt::AlignCenter, headers[c]);
+    }
+
+    QHash<int, QList<CalendarEvent>> byDay;
+    for (const auto &ev : events) byDay[ev.date.day()].append(ev);
+
+    const QDate first(month.year(), month.month(), 1);
+    const int daysInMonth = month.daysInMonth();
+    const int startCol = (first.dayOfWeek() + 6) % 7;
+    const QDate today = QDate::currentDate();
+
+    int day = 1;
+    for (int r = 0; r < 6; ++r) {
+        for (int c = 0; c < 7; ++c) {
+            const int idx = r * 7 + c;
+            QRectF cell(panel.left() + c * cellW + 2, gridY + r * cellH + 2, cellW - 4, cellH - 4);
+
+            if (idx < startCol || day > daysInMonth) {
+                // Empty cells: completely transparent, no border, no background
+                continue;
+            }
+
+            p.setPen(QPen(QColor(26, 18, 8, 80), 1));
+            p.setBrush(QColor(13, 8, 5, 120));
+
+            const bool isToday = (today.year() == month.year() && today.month() == month.month() && today.day() == day);
+            if (isToday) {
+                p.setPen(QPen(QColor("#C17F3E"), 1.5));
+                p.setBrush(QColor(26, 18, 8, 180));
+            }
+            p.drawRoundedRect(cell, 4, 4);
+
+            QFont dayNumFont("Segoe UI", 12, QFont::Bold);
+            p.setFont(dayNumFont);
+            QRectF dayBadge(cell.left() + 6, cell.top() + 4, 30, 18);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(0, 0, 0, 85));
+            p.drawRoundedRect(dayBadge, 3, 3);
+            p.setPen(isToday ? QColor("#C17F3E") : QColor("#FFF4E5"));
+            p.drawText(dayBadge, Qt::AlignCenter, QString::number(day));
+
+            if (isToday) {
+                QRectF badge(cell.right() - 52, cell.top() + 6, 46, 16);
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor("#C17F3E"));
+                p.drawRoundedRect(badge, 4, 4);
+                p.setPen(Qt::white);
+                p.setFont(QFont("Segoe UI", 8, QFont::Bold));
+                p.drawText(badge, Qt::AlignCenter, "TODAY");
+            }
+
+            const auto list = byDay.value(day);
+            const int maxVisible = qMin(3, list.size());
+            const qreal pillH = 18;
+            qreal pillY = cell.bottom() - (maxVisible * (pillH + 2)) - 4;
+            for (int i = 0; i < maxVisible; ++i) {
+                const CalendarEvent &ev = list[i];
+                QRectF pr(cell.left() + 4, pillY, cell.width() - 8, pillH);
+                p.setPen(Qt::NoPen);
+                p.setBrush(ev.color);
+                p.drawRoundedRect(pr, 4, 4);
+                p.setPen(Qt::white);
+                p.setFont(QFont("Segoe UI", 9, QFont::Bold));
+                const QString txt = QString::fromUtf8("🔧 ") + ev.equipment.left(14);
+                p.drawText(pr.adjusted(4, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft, txt);
+                pillY += pillH + 2;
+            }
+
+            if (list.size() > maxVisible) {
+                p.setPen(QColor("#F5E6D3"));
+                p.setFont(QFont("Segoe UI", 8, QFont::Bold));
+                p.drawText(cell.adjusted(6, 0, -6, -2), Qt::AlignLeft | Qt::AlignBottom,
+                           QString("+%1").arg(list.size() - maxVisible));
+            }
+
+            // Draw day number last so pills never hide it.
+            QFont dayNumTopFont("Segoe UI", 12, QFont::Bold);
+            p.setFont(dayNumTopFont);
+            QRectF dayTopBadge(cell.left() + 6, cell.top() + 4, 30, 18);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(0, 0, 0, 95));
+            p.drawRoundedRect(dayTopBadge, 3, 3);
+            p.setPen(isToday ? QColor("#C17F3E") : QColor("#FFF4E5"));
+            p.drawText(dayTopBadge, Qt::AlignCenter, QString::number(day));
+
+            day++;
+        }
+    }
+}
+
+void MaintenanceOrganismWidget::navigateCalendarMonth(int delta) {
+    if (delta == 0 || (m_calendarAnimTimer && m_calendarAnimTimer->isActive())) {
+        return;
+    }
+    m_prevCalendarMonth = m_calendarMonth;
+    m_calendarMonth = m_calendarMonth.addMonths(delta);
+    m_calendarSlideDir = (delta > 0) ? 1 : -1;
+    m_calendarSlideProgress = 0.0;
+    if (m_calendarAnimTimer) {
+        m_calendarAnimTimer->start();
+    } else if (m_calendarArea) {
+        m_calendarArea->update();
+    }
 }
 
 // ============================================================================
@@ -584,28 +871,31 @@ void MaintenanceOrganismWidget::drawHistoryPainter(QPainter &p) {
     double cw = m_historyArea->width(), ch = m_historyArea->height();
     
     p.save();
-    p.fillRect(0, 0, cw, ch, QColor(15, 12, 8)); // Archival darkness
-    
-    p.setPen(QColor(212, 175, 55));
-    QFont f("Georgia", 16);
-    f.setItalic(true);
-    p.setFont(f);
-    p.drawText(50, 50, "Genetic Memory Archive (History)");
+    p.fillRect(0, 0, cw, ch, QColor(15, 12, 8));
 
-    int yOffset = 100;
+    p.setPen(QColor(212, 175, 55));
+    p.setFont(QFont("Segoe UI", 18, QFont::Bold));
+    p.drawText(36, 44, "GENETIC MEMORY ARCHIVE");
+
+    int yOffset = 78;
     for (const auto &org : m_organisms) {
         for (const auto &rec : org.geneticMemory) {
-            drawHistoryNode(p, rec, QPointF(50, yOffset));
+            QRectF card(30, yOffset - 18, cw - 60, 58);
+            p.setPen(QPen(QColor("#5A4A32"), 1.2));
+            p.setBrush(QColor(20, 15, 10, 205));
+            p.drawRoundedRect(card, 10, 10);
+
+            drawHistoryNode(p, rec, QPointF(56, yOffset + 10));
             
-            p.setPen(Qt::white);
-            p.setFont(QFont("Segoe UI", 12, QFont::Bold));
-            p.drawText(120, yOffset + 5, org.equipmentName + " — " + rec.actionTaken);
+            p.setPen(QColor("#F5E6D3"));
+            p.setFont(QFont("Segoe UI", 11, QFont::Bold));
+            p.drawText(90, yOffset + 4, org.equipmentName + " — " + rec.actionTaken);
             
-            p.setPen(QColor(184, 146, 90));
-            p.setFont(QFont("Segoe UI", 10));
+            p.setPen(QColor("#B8925A"));
+            p.setFont(QFont("Segoe UI", 9));
             p.drawText(120, yOffset + 25, "Event Date: " + rec.datePerformed.toString("yyyy-MM-dd") + " | Status: " + rec.status);
             
-            yOffset += 70;
+            yOffset += 68;
         }
     }
     
@@ -661,6 +951,11 @@ bool MaintenanceOrganismWidget::eventFilter(QObject *obj, QEvent *event) {
                 
                 for (const auto &org : m_organisms) {
                     if (org.equipmentId == m_hoveredOrganism) {
+                        if (m_healDeadline) {
+                            // Auto-suggest deadline by severity: critical sooner, warning later.
+                            const int days = (org.severity >= 3) ? 2 : (org.severity == 2 ? 7 : 14);
+                            m_healDeadline->setDate(QDate::currentDate().addDays(days));
+                        }
                         m_speechBubble->setText(QString("\"I am %1. I have grown large inside your workshop. My strongest signal: %2. If nobody acts soon, I will spread further. I am not threatening you. I am telling you what I am.\"").arg(org.equipmentName, org.senses.first().name));
                         break;
                     }
@@ -674,6 +969,22 @@ bool MaintenanceOrganismWidget::eventFilter(QObject *obj, QEvent *event) {
         QPainter p(m_calendarArea); p.setRenderHint(QPainter::Antialiasing);
         drawCalendarPainter(p);
         return true;
+    } else if (obj == m_calendarArea && event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent *me = static_cast<QMouseEvent*>(event);
+        const QRectF viewport(0, 0, m_calendarArea->width(), m_calendarArea->height());
+        const QRectF content = viewport.adjusted(10, 8, -10, -8);
+        const QRectF monthHeader(content.left(), content.top(), content.width(), 52);
+        const QRectF prevRect(monthHeader.left() + 8, monthHeader.top() + 4, 40, 36);
+        const QRectF nextRect(monthHeader.right() - 48, monthHeader.top() + 4, 40, 36);
+
+        if (prevRect.contains(me->position())) {
+            navigateCalendarMonth(-1);
+            return true;
+        }
+        if (nextRect.contains(me->position())) {
+            navigateCalendarMonth(1);
+            return true;
+        }
     } else if (obj == m_historyArea && event->type() == QEvent::Paint) {
         QPainter p(m_historyArea); p.setRenderHint(QPainter::Antialiasing);
         drawHistoryPainter(p);

@@ -536,17 +536,17 @@ void WeatherAssistant::drawSkyBackground(QPainter &p)
 {
     QLinearGradient sky(0, 0, 0, height());
     if (m_kind == Clear) {
-        sky.setColorAt(0.0, QColor("#0A1628"));
-        sky.setColorAt(1.0, QColor("#4A90D9"));
+        sky.setColorAt(0.0, QColor("#2B1B10"));
+        sky.setColorAt(1.0, QColor("#6B4428"));
     } else if (m_kind == Cloudy) {
-        sky.setColorAt(0.0, QColor("#1A1A2E"));
-        sky.setColorAt(1.0, QColor("#4A4A6A"));
+        sky.setColorAt(0.0, QColor("#24170F"));
+        sky.setColorAt(1.0, QColor("#5A3A24"));
     } else if (m_kind == Snowy) {
-        sky.setColorAt(0.0, QColor("#E8EAF6"));
-        sky.setColorAt(1.0, QColor("#9FA8DA"));
+        sky.setColorAt(0.0, QColor("#3A281A"));
+        sky.setColorAt(1.0, QColor("#7A5A3D"));
     } else {
-        sky.setColorAt(0.0, QColor("#0D1117"));
-        sky.setColorAt(1.0, QColor("#21262D"));
+        sky.setColorAt(0.0, QColor("#20140D"));
+        sky.setColorAt(1.0, QColor("#4A2F1E"));
     }
     p.fillRect(rect(), sky);
 
@@ -623,10 +623,10 @@ void WeatherAssistant::drawSkyBackground(QPainter &p)
 void WeatherAssistant::drawGlassOverlay(QPainter &p)
 {
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0, 0, 0, 153));
+    p.setBrush(QColor(45, 28, 17, 168));
     p.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 20, 20);
 
-    p.setPen(QPen(QColor(255, 255, 255, 38), 1.5));
+    p.setPen(QPen(QColor(212, 175, 120, 52), 1.5));
     p.setBrush(Qt::NoBrush);
     p.drawRoundedRect(rect().adjusted(1, 1, -2, -2), 20, 20);
 }

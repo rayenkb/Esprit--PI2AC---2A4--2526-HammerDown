@@ -75,6 +75,7 @@ private:
     QString imageModel;
     bool m_isWeatherBot;
     int retryCount;
+    int rateLimitRetries;
     QString pendingUserMessage;
     QStringList modelList;
 };
