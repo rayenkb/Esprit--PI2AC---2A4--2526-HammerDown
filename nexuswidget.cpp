@@ -24,7 +24,8 @@ QList<NexusEquipment> loadAllEquipment() {
     QList<NexusEquipment> list;
     QSqlQuery q("SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, QUANTITY, UNIT_PRICE, STATUS, DESCRIPTION, "
                 "EMPLOYEE_ID, PURCHASE_DATE, LOCATION, NOTES, NEXT_MAINTENANCE, "
-                "COUT_ACQUISITION, RESPONSABLE FROM EQUIPMENT ORDER BY EQUIPMENT_ID");
+                "COUT_ACQUISITION, RESPONSABLE FROM EQUIPMENT "
+                "WHERE STATUS != 'Retired' ORDER BY EQUIPMENT_ID");
     while (q.next()) {
         NexusEquipment e;
         e.id = q.value(0).toInt();

@@ -612,7 +612,7 @@ MainWindow::MainWindow(QWidget *parent)
                 "QListWidget::item:hover { background: rgba(139,111,71,0.25); }");
             
             // Populate from database
-            QSqlQuery q("SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, STATUS, QUANTITY, UNIT_PRICE FROM EQUIPMENT ORDER BY EQUIPMENT_ID");
+            QSqlQuery q("SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, STATUS, QUANTITY, UNIT_PRICE FROM EQUIPMENT WHERE STATUS != 'Retired' ORDER BY EQUIPMENT_ID");
             while (q.next()) {
                 int eId = q.value(0).toInt();
                 QString eType = q.value(1).toString();
@@ -3942,7 +3942,7 @@ void MainWindow::onSupplierPopulateRatingCombos()
     // 3. Populate Equipment
     ui_supplier->cb_equipment_rating->clear();
     ui_supplier->cb_equipment_rating->addItem("-- Select Equipment --", 0);
-    QSqlQuery qEquip("SELECT EQUIPMENT_ID, DESCRIPTION FROM EQUIPMENT ORDER BY DESCRIPTION");
+    QSqlQuery qEquip("SELECT EQUIPMENT_ID, DESCRIPTION FROM EQUIPMENT WHERE STATUS != 'Retired' ORDER BY DESCRIPTION");
     if (qEquip.exec()) {
         while (qEquip.next()) {
             ui_supplier->cb_equipment_rating->addItem(qEquip.value(1).toString(), qEquip.value(0));
@@ -4003,7 +4003,7 @@ void MainWindow::onSupplierReviewLoad()
     }
 
     QMap<int, QString> eqMap;
-    QSqlQuery qEq("SELECT EQUIPMENT_ID, DESCRIPTION FROM EQUIPMENT");
+    QSqlQuery qEq("SELECT EQUIPMENT_ID, DESCRIPTION FROM EQUIPMENT WHERE STATUS != 'Retired'");
     if (qEq.exec()) {
         while (qEq.next()) eqMap[qEq.value(0).toInt()] = qEq.value(1).toString();
     }
@@ -4390,7 +4390,7 @@ void MainWindow::setupEquipmentStats()
     int lastMonthTotal = 0;
     QString lm = QDate::currentDate().addMonths(-1).toString("yyyy-MM");
 
-    QSqlQuery qSt("SELECT STATUS, COUNT(*), SUM(UNIT_PRICE) FROM EQUIPMENT GROUP BY STATUS");
+    QSqlQuery qSt("SELECT STATUS, COUNT(*), SUM(UNIT_PRICE) FROM EQUIPMENT WHERE STATUS != 'Retired' GROUP BY STATUS");
     while (qSt.next()) {
         QString s = qSt.value(0).toString();
         int c = qSt.value(1).toInt();
@@ -4403,7 +4403,7 @@ void MainWindow::setupEquipmentStats()
     }
     
     QSqlQuery qTrend;
-    qTrend.prepare("SELECT * FROM (SELECT COUNT(*), SUM(UNIT_PRICE) FROM EQUIPMENT WHERE TO_CHAR(PURCHASE_DATE, 'YYYY-MM') = :m) WHERE ROWNUM <= 1");
+    qTrend.prepare("SELECT * FROM (SELECT COUNT(*), SUM(UNIT_PRICE) FROM EQUIPMENT WHERE STATUS != 'Retired' AND TO_CHAR(PURCHASE_DATE, 'YYYY-MM') = :m) WHERE ROWNUM <= 1");
     qTrend.bindValue(":m", lm);
     if (qTrend.exec() && qTrend.next()) {
         lastMonthTotal = qTrend.value(0).toInt();
@@ -4472,7 +4472,7 @@ void MainWindow::setupEquipmentStats()
     QVBoxLayout *rL = new QVBoxLayout(rankB);
     rL->setContentsMargins(15, 30, 15, 15);
     
-    QSqlQuery rq("SELECT EQUIPMENT_TYPE, COUNT(*) as cnt FROM EQUIPMENT GROUP BY EQUIPMENT_TYPE ORDER BY cnt DESC");
+    QSqlQuery rq("SELECT EQUIPMENT_TYPE, COUNT(*) as cnt FROM EQUIPMENT WHERE STATUS != 'Retired' GROUP BY EQUIPMENT_TYPE ORDER BY cnt DESC");
     int ri = 1;
     bool hasData = false;
     while(rq.next() && ri <= 5) {
@@ -5282,16 +5282,20 @@ void MainWindow::setupEquipmentModes()
         }
     });
 
-    // Disable Add button if inputs invalid
+    // Keep Add button clickable so explicit validation alerts can be shown on click.
     auto validateForm = [=](){
         bool isValid = !ui_equipment->le_type->text().trimmed().isEmpty() &&
                        !ui_equipment->te_desc->toPlainText().trimmed().isEmpty() &&
-                       ui_equipment->dsb_unit_price->value() > 0;
-        ui_equipment->btn_add->setEnabled(isValid);
+                       ui_equipment->dsb_unit_price->value() > 0 &&
+                       ui_equipment->sb_quantity->value() > 0;
+
+        ui_equipment->btn_add->setEnabled(true);
+        ui_equipment->btn_add->setToolTip(isValid ? "" : "Click Ajouter to see input error details.");
     };
     connect(ui_equipment->le_type, &QLineEdit::textChanged, validateForm);
     connect(ui_equipment->te_desc, &QTextEdit::textChanged, validateForm);
     connect(ui_equipment->dsb_unit_price, QOverload<double>::of(&QDoubleSpinBox::valueChanged), validateForm);
+    connect(ui_equipment->sb_quantity, QOverload<int>::of(&QSpinBox::valueChanged), validateForm);
     
     validateForm();
 
@@ -7092,7 +7096,17 @@ void MainWindow::onEquipmentAdd()
     double  price= ui_equipment->dsb_unit_price->value();
 
     if (type.isEmpty() || desc.isEmpty()) {
-        QMessageBox::warning(this, "Validation", "Type and Description are required.");
+        QMessageBox::warning(this, "Input Error", "All fields are required!");
+        return;
+    }
+
+    if (qty <= 0) {
+        QMessageBox::warning(this, "Input Error", "Quantity must be not null.");
+        return;
+    }
+
+    if (price <= 0.0) {
+        QMessageBox::warning(this, "Input Error", "Unit price must be not null.");
         return;
     }
 
@@ -7830,7 +7844,7 @@ void MainWindow::onEquipmentExportPDF()
     QSqlQuery q(
         "SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, DESCRIPTION, STATUS, UNIT_PRICE, "
         "TO_CHAR(PURCHASE_DATE,'YYYY-MM-DD'), RESPONSABLE "
-        "FROM EQUIPMENT ORDER BY EQUIPMENT_ID DESC"
+        "FROM EQUIPMENT WHERE STATUS != 'Retired' ORDER BY EQUIPMENT_ID DESC"
     );
     while (q.next()) {
         if (y > printer.height() - 60) {
@@ -7920,9 +7934,9 @@ void MainWindow::onEquipmentExportStatsPDF()
 
     QSqlQuery qStats("SELECT COUNT(*), "
                      "SUM(CASE WHEN STATUS = 'Available' OR STATUS = 'In Use' THEN 1 ELSE 0 END), "
-                     "SUM(CASE WHEN STATUS = 'Under Maintenance' OR STATUS = 'Retired' THEN 1 ELSE 0 END), "
+                     "SUM(CASE WHEN STATUS = 'Under Maintenance' THEN 1 ELSE 0 END), "
                      "SUM(UNIT_PRICE) "
-                     "FROM EQUIPMENT");
+                     "FROM EQUIPMENT WHERE STATUS != 'Retired'");
     if (qStats.next()) {
         total = qStats.value(0).toInt();
         intactCount = qStats.value(1).toInt();
@@ -7994,8 +8008,8 @@ void MainWindow::onEquipmentExportStatsPDF()
     QSqlQuery qBreakdown(
         "SELECT EQUIPMENT_TYPE, COUNT(*), "
         "SUM(CASE WHEN STATUS = 'Available' OR STATUS = 'In Use' THEN 1 ELSE 0 END), "
-        "SUM(CASE WHEN STATUS = 'Under Maintenance' OR STATUS = 'Retired' THEN 1 ELSE 0 END) "
-        "FROM EQUIPMENT GROUP BY EQUIPMENT_TYPE ORDER BY COUNT(*) DESC"
+        "SUM(CASE WHEN STATUS = 'Under Maintenance' THEN 1 ELSE 0 END) "
+        "FROM EQUIPMENT WHERE STATUS != 'Retired' GROUP BY EQUIPMENT_TYPE ORDER BY COUNT(*) DESC"
     );
 
     bool alternate = false;

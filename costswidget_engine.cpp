@@ -22,7 +22,8 @@ void CostCalculationEngine::calculate() {
 
     // First pass: load equipment and find max price
     QSqlQuery q("SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, QUANTITY, UNIT_PRICE, STATUS, "
-                "DESCRIPTION, PURCHASE_DATE, NEXT_MAINTENANCE FROM EQUIPMENT ORDER BY EQUIPMENT_ID");
+                "DESCRIPTION, PURCHASE_DATE, NEXT_MAINTENANCE FROM EQUIPMENT "
+                "WHERE STATUS != 'Retired' ORDER BY EQUIPMENT_ID");
     QList<EquipmentFinancials> tempList;
     while (q.next()) {
         EquipmentFinancials ef;
@@ -55,7 +56,7 @@ void CostCalculationEngine::calculate() {
     for (auto &ef : tempList) {
         // Maintenance events: equipment with NEXT_MAINTENANCE set or status Under Maintenance
         QSqlQuery mq;
-        mq.prepare("SELECT COUNT(*) FROM EQUIPMENT WHERE EQUIPMENT_ID = :id "
+        mq.prepare("SELECT COUNT(*) FROM EQUIPMENT WHERE EQUIPMENT_ID = :id AND STATUS != 'Retired' "
                     "AND (NEXT_MAINTENANCE IS NOT NULL OR STATUS = 'Under Maintenance')");
         mq.bindValue(":id", ef.id);
         if (mq.exec() && mq.next()) {

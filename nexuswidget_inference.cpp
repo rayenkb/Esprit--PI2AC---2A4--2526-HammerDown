@@ -12,7 +12,8 @@ InferenceEngine::InferenceEngine(QObject *parent) : QObject(parent),
 }
 
 void InferenceEngine::loadData() {
-    QSqlQuery q("SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, QUANTITY, UNIT_PRICE, STATUS, DESCRIPTION, PURCHASE_DATE FROM EQUIPMENT");
+    QSqlQuery q("SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, QUANTITY, UNIT_PRICE, STATUS, DESCRIPTION, PURCHASE_DATE "
+                "FROM EQUIPMENT WHERE STATUS != 'Retired'");
     m_equipment.clear();
     while (q.next()) {
         NexusEquipment e;
