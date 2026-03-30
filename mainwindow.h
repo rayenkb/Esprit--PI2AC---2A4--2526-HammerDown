@@ -143,6 +143,7 @@ private:
 #include "weatherassistant.h"
 #include "nexuswidget.h"
 #include "costswidget.h"
+#include "voicecommandengine.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { 
@@ -278,7 +279,12 @@ private slots:
     void onClientExportPDF();
     void onClientRowSelected(const QModelIndex &index);
     void onClientCyberTraceRefresh();
-    
+    void onClientSendMail();
+    void onClientBrowseMail();
+    // --- Voice Commands ---
+    void onVoiceCommand(const QString &text);
+    void onVoiceListeningChanged(bool active);
+
     // --- Employee Management ---
     void onEmployeeClearFields();
     void onEmployeeAdd();
@@ -400,6 +406,8 @@ private:
     WeatherAssistant *weatherAssistant;
     NexusWidget *m_nexusWidget = nullptr;
     CostsWidget *m_costsWidget = nullptr;
+    VoiceCommandEngine *m_voiceEngine = nullptr;
+    QPushButton        *m_micBtn      = nullptr;
     
     QTranslator *translator;
     QString currentLanguage;

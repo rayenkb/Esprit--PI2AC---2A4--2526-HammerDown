@@ -26,6 +26,10 @@
 #include <QtMath>
 
 #include "mainwindow.h"
+#include "smtpsender.h"
+#include <QtConcurrent/QtConcurrent>
+#include <QFutureWatcher>
+#include <QStatusBar>
 #include "welcomenotificationbar.h"
 #include "ui_mainwindow.h"
 #include "ui_client_management.h"
@@ -408,11 +412,36 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui_client->btn_search, &QPushButton::clicked, this, &MainWindow::onClientSearch);
     connect(ui_client->tableView, &QAbstractItemView::clicked, this, &MainWindow::onClientRowSelected);
 
-    // Hide global delete button
-    ui_client->btn_delete->hide();
+    // Add explict View Tab buttons for Edit
+    connect(ui_client->btn_edit_view, &QPushButton::clicked, this, [this]() {
+        QModelIndex idx = ui_client->tableView->currentIndex();
+        if (idx.isValid()) {
+            // First run row prepopulation logic
+            onClientRowSelected(idx);
+            // Switch to unified Manage tab (which contains add/modify forms)
+            ui_client->tabWidget->setCurrentWidget(ui_client->tab_add);
+            // Programmatically click the "Modify Mode" radio button inside that tab
+            if (auto *rb = ui_client->tab_add->findChild<QRadioButton*>("rb_client_mod_mode")) {
+                rb->setChecked(true);
+            }
+        } else {
+            QMessageBox::warning(this, "Selection", "Please select a client to edit.");
+        }
+    });
+
     // Also search on Enter in the search box
     connect(ui_client->le_recherche, &QLineEdit::returnPressed, this, &MainWindow::onClientSearch);
     connect(ui_client->btn_pdf,    &QPushButton::clicked, this, &MainWindow::onClientExportPDF);
+    // Mail tab buttons
+    connect(ui_client->btn_send,   &QPushButton::clicked, this, &MainWindow::onClientSendMail);
+    connect(ui_client->btn_browse, &QPushButton::clicked, this, &MainWindow::onClientBrowseMail);
+
+    // Hide SMTP config fields — credentials are hardcoded in onClientSendMail
+    ui_client->l_smtp->hide();  ui_client->le_smtp->hide();
+    ui_client->l_port->hide();  ui_client->le_port->hide();
+    ui_client->l_user->hide();  ui_client->le_user->hide();
+    ui_client->l_pass->hide();  ui_client->le_pass->hide();
+
     // Auto-refresh client view when switching to view tab
     connect(ui_client->tabWidget, &QTabWidget::currentChanged, this, [this](int idx){
         if (ui_client->tabWidget->widget(idx) == ui_client->tab_view)
@@ -1079,6 +1108,65 @@ MainWindow::MainWindow(QWidget *parent)
     ui_equipment->tabWidget->setCurrentIndex(ui_equipment->tabWidget->currentIndex());
     setupTabNavigation(orderPage, ui_order->tabWidget, {"Manage", "QR Code", "Catalog", "3D Modeling", "Map"}, 250, 85, {}, 125, 40);   // 60+25
 
+    // ---- Voice Command Engine ------------------------------------------------
+    {
+        // Walk up from the exe to find vosk/vosk-model/ in the project tree
+        auto findUpward = [](const QString &startDir, const QString &relPath) -> QString {
+            QDir dir(startDir);
+            for (int i = 0; i < 8; ++i) {
+                const QString c = dir.absoluteFilePath(relPath);
+                if (QDir(c).exists()) return c;
+                if (!dir.cdUp()) break;
+            }
+            return startDir + "/" + relPath; // fallback keeps original error message
+        };
+        const QString modelPath = findUpward(
+            QCoreApplication::applicationDirPath(), "vosk/vosk-model");
+        m_voiceEngine = new VoiceCommandEngine(modelPath, this);
+        connect(m_voiceEngine, &VoiceCommandEngine::commandDetected,
+                this, &MainWindow::onVoiceCommand);
+        connect(m_voiceEngine, &VoiceCommandEngine::listeningChanged,
+                this, &MainWindow::onVoiceListeningChanged);
+        // initFailed must be connected BEFORE init() is ever called
+        connect(m_voiceEngine, &VoiceCommandEngine::initFailed, this,
+                [this](const QString &msg) {
+            QMessageBox::warning(this, "Voice Commands", msg);
+            if (m_micBtn) m_micBtn->setChecked(false);
+        });
+
+        // Mic toggle button — sits in the status bar, visible on every page
+        m_micBtn = new QPushButton("  Mic: OFF");
+        m_micBtn->setCheckable(true);
+        m_micBtn->setFixedHeight(28);
+        m_micBtn->setCursor(Qt::PointingHandCursor);
+        m_micBtn->setStyleSheet(R"(
+            QPushButton {
+                background: #2C2418; color: #806050;
+                border: 1px solid #4A3728; border-radius: 6px;
+                padding: 0 14px; font-size: 12px; font-weight: bold;
+            }
+            QPushButton:hover  { background: #3C3020; color: #A08060; }
+            QPushButton:checked {
+                background: #8B6F47; color: white;
+                border: 1px solid #D4AF37;
+            }
+        )");
+        statusBar()->addPermanentWidget(m_micBtn);
+        statusBar()->setStyleSheet("background: #1C1610; border-top: 1px solid #3A2A1A;");
+
+        connect(m_micBtn, &QPushButton::clicked, this, [this]() {
+            if (!m_voiceEngine->isReady()) {
+                // init() will emit initFailed if something is missing
+                if (!m_voiceEngine->init()) {
+                    m_micBtn->setChecked(false);
+                    return;
+                }
+            }
+            m_voiceEngine->toggleListening();
+        });
+    }
+    // --------------------------------------------------------------------------
+
     // Standardize UI Styling
     setupGlobalStyles();
     
@@ -1241,80 +1329,168 @@ void MainWindow::showTutorialOverlay(const QString &text)
 
 void MainWindow::setupClientStats()
 {
-    // 1. Create Layout for the stats container (widget_chart)
+    // 1. Create/Clear Layout for the stats container
     if (!ui_client->widget_chart->layout()) {
         QHBoxLayout *layout = new QHBoxLayout(ui_client->widget_chart);
         ui_client->widget_chart->setLayout(layout);
+    } else {
+        QLayoutItem *child;
+        while ((child = ui_client->widget_chart->layout()->takeAt(0)) != nullptr) {
+            delete child->widget();
+            delete child;
+        }
     }
 
-    // --- CHART 1: PIE CHART (Gender Distribution) ---
+    // --- CYBERPUNK THEME HELPERS ---
+    QColor bgTrans(10, 10, 10, 180);
+    QColor goldColor("#D4AF37");
+    QColor silverColor("#C0C0C0");
+    QFont chartFont("Consolas", 11, QFont::Bold);
+    QFont titleFont("Outfit", 14, QFont::Bold);
+
+    QSqlQuery q;
+    
+    // --- 1. Total Clients Widget ---
+    int totalClients = 0;
+    if (q.exec("SELECT COUNT(*) FROM CLIENTS") && q.next()) {
+        totalClients = q.value(0).toInt();
+    }
+    
+    QFrame *summaryBox = new QFrame();
+    summaryBox->setMinimumWidth(250);
+    summaryBox->setStyleSheet("QFrame { background: rgba(10, 10, 10, 0.7); border: 2px solid #D4AF37; border-radius: 10px; }");
+    QVBoxLayout *sumLayout = new QVBoxLayout(summaryBox);
+    
+    QLabel *lblTitle = new QLabel(trKey("TOTAL CLIENTS"));
+    lblTitle->setStyleSheet("color: #D4AF37; border: none; font-family: 'Outfit'; font-size: 16px; font-weight: bold;");
+    lblTitle->setAlignment(Qt::AlignCenter);
+    
+    QLabel *lblCount = new QLabel(QString::number(totalClients));
+    lblCount->setStyleSheet("color: #FFFFFF; border: none; font-family: 'Consolas'; font-size: 52px; font-weight: bold;");
+    lblCount->setAlignment(Qt::AlignCenter);
+    
+    sumLayout->addStretch();
+    sumLayout->addWidget(lblTitle);
+    sumLayout->addWidget(lblCount);
+    sumLayout->addStretch();
+
+    // --- 2. CHART 1: PIE CHART (Gender Matrix) ---
     QPieSeries *series = new QPieSeries();
-    series->append(trKey("Male"), 60);
-    series->append(trKey("Female"), 40);
-    series->setProperty("trSliceNames", QStringList{ "Male", "Female" });
+    int maleCount = 0, femaleCount = 0;
+    
+    if (q.exec("SELECT GENDER, COUNT(*) FROM CLIENTS GROUP BY GENDER")) {
+        while (q.next()) {
+            QString g = q.value(0).toString().trimmed();
+            int c = q.value(1).toInt();
+            if (g.compare("Male", Qt::CaseInsensitive) == 0) maleCount = c;
+            else if (g.compare("Female", Qt::CaseInsensitive) == 0) femaleCount = c;
+        }
+    }
+    
+    if (maleCount == 0 && femaleCount == 0) {
+        series->append("No Data", 1);
+    } else {
+        series->append(trKey("Male"), maleCount);
+        series->append(trKey("Female"), femaleCount);
+        
+        QPieSlice *sliceMale = series->slices().at(0);
+        sliceMale->setBrush(goldColor);
+        sliceMale->setLabelVisible(maleCount > 0);
+        sliceMale->setLabelColor(Qt::white);
+        sliceMale->setLabelFont(chartFont);
 
-    // Add colors
-    QPieSlice *sliceMale = series->slices().at(0);
-    sliceMale->setBrush(QColor("#8B6F47")); // Gold/Brown
-    sliceMale->setLabelVisible();
-
-    QPieSlice *sliceFemale = series->slices().at(1);
-    sliceFemale->setBrush(QColor("#C0C0C0")); // Silver/Grey
-    sliceFemale->setLabelVisible();
-    sliceFemale->setExploded(); // Highlight one slice
+        QPieSlice *sliceFemale = series->slices().at(1);
+        sliceFemale->setBrush(silverColor);
+        sliceFemale->setLabelVisible(femaleCount > 0);
+        sliceFemale->setLabelColor(Qt::white);
+        sliceFemale->setLabelFont(chartFont);
+        if(femaleCount > 0) sliceFemale->setExploded();
+    }
 
     QChart *chartPie = new QChart();
     chartPie->addSeries(series);
-    chartPie->setTitle(trKey("Clients by Gender"));
-    chartPie->setProperty("trTitleKey", "Clients by Gender");
+    chartPie->setTitle(trKey("Gender Distribution"));
+    chartPie->setProperty("trTitleKey", "Gender Distribution");
+    chartPie->setTitleFont(titleFont);
+    chartPie->setTitleBrush(goldColor);
+    chartPie->setBackgroundBrush(bgTrans);
+    chartPie->legend()->setLabelBrush(Qt::white);
+    chartPie->legend()->setFont(chartFont);
     chartPie->setAnimationOptions(QChart::SeriesAnimations);
 
     QChartView *chartViewPie = new QChartView(chartPie);
     chartViewPie->setRenderHint(QPainter::Antialiasing);
+    chartViewPie->setStyleSheet("background: transparent; border: 2px solid #8B6F47; border-radius: 10px;");
 
-
-    // --- CHART 2: BAR CHART (Clients Activity) ---
-    QBarSet *set0 = new QBarSet(trKey("Active"));
-    QBarSet *set1 = new QBarSet(trKey("Inactive"));
-    set0->setProperty("trNameKey", "Active");
-    set1->setProperty("trNameKey", "Inactive");
-
-    *set0 << 10 << 20 << 30 << 40 << 50 << 60;
-    *set1 << 5 << 10 << 15 << 20 << 25 << 30;
-
-    set0->setColor(QColor("#8B6F47"));
-    set1->setColor(QColor("#A9A9A9"));
-
+    // --- 3. CHART 2: BAR CHART (Contact Vectors) ---
     QBarSeries *seriesBar = new QBarSeries();
-    seriesBar->append(set0);
-    seriesBar->append(set1);
+    QBarSet *domainSet = new QBarSet(trKey("Clients"));
+    domainSet->setColor(goldColor);
+    
+    QStringList categories;
+    int maxVal = 0;
+    
+    QString domainQuery = "SELECT SUBSTR(EMAIL, INSTR(EMAIL, '@') + 1) AS DOMAIN, COUNT(*) AS C "
+                          "FROM CLIENTS WHERE EMAIL LIKE '%@%' "
+                          "GROUP BY SUBSTR(EMAIL, INSTR(EMAIL, '@') + 1) "
+                          "ORDER BY C DESC";
+                          
+    if (q.exec(domainQuery)) {
+        int count = 0;
+        while (q.next() && count < 5) { // Top 5 limits
+            QString dom = q.value(0).toString().trimmed();
+            int c = q.value(1).toInt();
+            if(dom.isEmpty()) continue;
+            
+            // Extract just the provider name
+            dom = dom.split('.').first().toUpper();
+            
+            *domainSet << c;
+            categories << dom;
+            if(c > maxVal) maxVal = c;
+            count++;
+        }
+    }
+    
+    // Fallback if no valid emails found
+    if (categories.isEmpty()) {
+       *domainSet << 0;
+       categories << "NONE";
+    }
 
+    seriesBar->append(domainSet);
+    
     QChart *chartBar = new QChart();
     chartBar->addSeries(seriesBar);
-    chartBar->setTitle(trKey("Client Activity (Last 6 Months)"));
-    chartBar->setProperty("trTitleKey", "Client Activity (Last 6 Months)");
+    chartBar->setTitle(trKey("Top Email Providers"));
+    chartBar->setProperty("trTitleKey", "Top Email Providers");
+    chartBar->setTitleFont(titleFont);
+    chartBar->setTitleBrush(goldColor);
+    chartBar->setBackgroundBrush(bgTrans);
+    chartBar->legend()->hide();
     chartBar->setAnimationOptions(QChart::SeriesAnimations);
 
-    QStringList categories;
-    const QStringList categoryKeys = { "Jan", "Feb", "Mar", "Apr", "May", "Jun" };
-    for (const auto &key : categoryKeys) {
-        categories << trKey(key);
-    }
     QBarCategoryAxis *axisX = new QBarCategoryAxis();
     axisX->append(categories);
-    axisX->setProperty("trCategories", categoryKeys);
+    axisX->setLabelsBrush(Qt::white);
+    axisX->setLabelsFont(chartFont);
     chartBar->addAxis(axisX, Qt::AlignBottom);
     seriesBar->attachAxis(axisX);
 
     QValueAxis *axisY = new QValueAxis();
-    axisY->setRange(0, 70);
+    axisY->setRange(0, maxVal + 1);
+    axisY->setLabelsBrush(Qt::white);
+    axisY->setLabelsFont(chartFont);
+    axisY->setGridLineColor(QColor(212, 175, 55, 40));
     chartBar->addAxis(axisY, Qt::AlignLeft);
     seriesBar->attachAxis(axisY);
 
     QChartView *chartViewBar = new QChartView(chartBar);
     chartViewBar->setRenderHint(QPainter::Antialiasing);
-
-    // Add charts to the layout
+    chartViewBar->setStyleSheet("background: transparent; border: 2px solid #8B6F47; border-radius: 10px;");
+    
+    // Add dynamically mapped visuals to layout
+    ui_client->widget_chart->layout()->addWidget(summaryBox);
     ui_client->widget_chart->layout()->addWidget(chartViewPie);
     ui_client->widget_chart->layout()->addWidget(chartViewBar);
 }
@@ -1331,6 +1507,86 @@ MainWindow::~MainWindow()
     delete ui_equipment;
     delete ui_order;
     delete ui_supplier;
+}
+
+// =============================================================================
+// VOICE COMMANDS
+// =============================================================================
+
+// Helper: returns true if 'text' contains any of the given keywords
+static bool hasAny(const QString &text, const QStringList &kw) {
+    for (const QString &w : kw)
+        if (text.contains(w)) return true;
+    return false;
+}
+
+void MainWindow::onVoiceCommand(const QString &text)
+{
+    // ── Module navigation ────────────────────────────────────────────────────
+    if (hasAny(text, {"client", "clients"})) {
+        on_nav_clients_clicked();
+    } else if (hasAny(text, {"employee", "employees", "staff"})) {
+        on_nav_employees_clicked();
+    } else if (hasAny(text, {"supplier", "suppliers"})) {
+        on_nav_suppliers_clicked();
+    } else if (hasAny(text, {"equipment"})) {
+        on_nav_equipments_clicked();
+    } else if (hasAny(text, {"order", "orders"})) {
+        on_nav_orders_clicked();
+    } else if (hasAny(text, {"home", "dashboard", "back"})) {
+        on_btn_home_clicked();
+
+    // ── Client tabs ──────────────────────────────────────────────────────────
+    } else if (hasAny(text, {"manage", "management", "add"})) {
+        if (ui_client) ui_client->tabWidget->setCurrentIndex(0);
+        if (ui_employee) ui_employee->tabWidget->setCurrentIndex(0);
+        if (ui_supplier) ui_supplier->tabWidget->setCurrentIndex(0);
+        if (ui_equipment) ui_equipment->tabWidget->setCurrentIndex(0);
+        if (ui_order) ui_order->tabWidget->setCurrentIndex(0);
+    } else if (hasAny(text, {"view", "list", "show all"})) {
+        if (ui_client) ui_client->tabWidget->setCurrentIndex(1);
+        if (ui_employee) ui_employee->tabWidget->setCurrentIndex(1);
+        if (ui_supplier) ui_supplier->tabWidget->setCurrentIndex(2);
+        if (ui_equipment) ui_equipment->tabWidget->setCurrentIndex(1);
+    } else if (hasAny(text, {"stats", "statistics", "chart", "analytics"})) {
+        if (ui_client) ui_client->tabWidget->setCurrentIndex(2);
+        if (ui_employee) ui_employee->tabWidget->setCurrentIndex(2);
+        if (ui_supplier) ui_supplier->tabWidget->setCurrentIndex(1);
+        if (ui_equipment) ui_equipment->tabWidget->setCurrentIndex(3);
+    } else if (hasAny(text, {"mail", "email", "message", "send"})) {
+        if (ui_client) ui_client->tabWidget->setCurrentIndex(3);
+    } else if (hasAny(text, {"calendar", "schedule", "events"})) {
+        if (ui_client) ui_client->tabWidget->setCurrentIndex(4);
+    } else if (hasAny(text, {"history", "log", "audit"})) {
+        if (ui_employee) ui_employee->tabWidget->setCurrentIndex(3);
+        if (ui_equipment) ui_equipment->tabWidget->setCurrentIndex(2);
+    } else if (hasAny(text, {"catalog"})) {
+        if (ui_order) ui_order->tabWidget->setCurrentIndex(2);
+    } else if (hasAny(text, {"map", "location"})) {
+        if (ui_supplier) ui_supplier->tabWidget->setCurrentIndex(4);
+        if (ui_order) ui_order->tabWidget->setCurrentIndex(4);
+    } else if (hasAny(text, {"review", "rating"})) {
+        if (ui_supplier) ui_supplier->tabWidget->setCurrentIndex(3);
+    } else if (hasAny(text, {"nexus", "ai", "intelligence"})) {
+        if (ui_equipment) ui_equipment->tabWidget->setCurrentIndex(5);
+    } else if (hasAny(text, {"cost", "costs", "budget"})) {
+        if (ui_equipment) ui_equipment->tabWidget->setCurrentIndex(6);
+    }
+
+    // Show a brief status hint
+    statusBar()->showMessage("Voice: \"" + text + "\"", 3000);
+}
+
+void MainWindow::onVoiceListeningChanged(bool active)
+{
+    if (m_micBtn) {
+        m_micBtn->setChecked(active);
+        m_micBtn->setText(active ? "  Mic: ON" : "  Mic: OFF");
+    }
+    if (active)
+        statusBar()->showMessage("Listening...", 0);
+    else
+        statusBar()->clearMessage();
 }
 
 void MainWindow::setAudioVolume(qreal volume)
@@ -4188,6 +4444,7 @@ void MainWindow::setupClientManagement()
     // 3. Create Toggle Radio Buttons
     QRadioButton *rbAdd = new QRadioButton(trKey("Add Mode"), ui_client->tab_add);
     QRadioButton *rbMod = new QRadioButton(trKey("Modify Mode"), ui_client->tab_add);
+    rbMod->setObjectName("rb_client_mod_mode");
     setTrKey(rbAdd, "Add Mode");
     setTrKey(rbMod, "Modify Mode");
 
@@ -4243,7 +4500,6 @@ void MainWindow::setupClientManagement()
 
     QRegularExpression idRegex("^[1-9]\\d*$");
     QValidator *idVal = new QRegularExpressionValidator(idRegex, this);
-    ui_client->le_id->setValidator(idVal);
     ui_client->le_id_mod->setValidator(idVal);
 
     // 7. Inject Cyber Tabs Dynamically to bypass ui cache
@@ -4683,168 +4939,377 @@ void MainWindow::setupSupplierStats()
 
 void MainWindow::setupClientCalendar()
 {
-    // 1. Create the Tab Widget if it doesn't exist (it should, 'tabWidget')
-    // We will add a new tab to it.
-    QWidget *calendarTab = new QWidget();
-    
-    // Layout for the new tab
+    // Replace the contents of the existing tab_calendar widget in-place
+    QWidget *calendarTab = ui_client->tab_calendar;
+
+    // Hide existing UI-file children (do NOT delete — ui_client still holds those pointers)
+    for (QWidget *child : calendarTab->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly))
+        child->hide();
+
     QHBoxLayout *mainLayout = new QHBoxLayout(calendarTab);
-    
-    // --- Left Side: Calendar ---
-    QCalendarWidget *calendar = new QCalendarWidget();
-    calendar->setGridVisible(true);
-    calendar->setVerticalHeaderFormat(QCalendarWidget::NoVerticalHeader);
-    
-    // Professional Styling
-    calendar->setStyleSheet(R"(
-        QCalendarWidget QToolButton {
-            color: #333;
-            icon-size: 24px;
-            font-weight: bold;
-            background-color: #E0E0E0;
-            border-radius: 5px;
-            margin: 5px;
+    mainLayout->setContentsMargins(16, 16, 16, 16);
+    mainLayout->setSpacing(14);
+
+    // =========================================================================
+    // LEFT — styled calendar frame
+    // =========================================================================
+    QFrame *calFrame = new QFrame();
+    calFrame->setStyleSheet(R"(
+        QFrame {
+            background: rgba(28, 22, 16, 0.88);
+            border-radius: 14px;
+            border: 1px solid #4A3728;
         }
+    )");
+    QVBoxLayout *calFrameLayout = new QVBoxLayout(calFrame);
+    calFrameLayout->setContentsMargins(0, 0, 0, 10);
+    calFrameLayout->setSpacing(0);
+
+    QCalendarWidget *calendar = new QCalendarWidget();
+    calendar->setGridVisible(false);
+    calendar->setVerticalHeaderFormat(QCalendarWidget::NoVerticalHeader);
+    calendar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    calendar->setStyleSheet(R"(
+        QCalendarWidget { background: transparent; }
+        QCalendarWidget QWidget#qt_calendar_navigationbar {
+            background: #1C1610;
+            border-radius: 14px 14px 0 0;
+            padding: 8px 12px;
+            min-height: 46px;
+        }
+        QCalendarWidget QToolButton {
+            color: #D4AF37;
+            font-size: 13px;
+            font-weight: bold;
+            background: transparent;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 8px;
+        }
+        QCalendarWidget QToolButton:hover { background: rgba(212,175,55,0.18); }
+        QCalendarWidget QToolButton::menu-indicator { image: none; }
         QCalendarWidget QMenu {
-            width: 150px;
-            left: 20px;
-            color: white;
-            font-size: 14px;
-            background-color: #8B6F47;
+            background: #2C2418;
+            color: #D4AF37;
+            border: 1px solid #8B6F47;
+            border-radius: 6px;
         }
         QCalendarWidget QSpinBox {
-            width: 80px;
-            font-size: 14px;
-            color: #8B6F47;
-            font-weight: bold;
-        }
-        QCalendarWidget QWidget#qt_calendar_navigationbar { 
-            background-color: white; 
-            border: 1px solid #C4C4C4;
-            border-top-left-radius: 10px;
-            border-top-right-radius: 10px;
-            padding: 5px;
-        }
-        QCalendarWidget QAbstractItemView:enabled {
-            font-size: 14px;
-            color: #333;
-            background-color: white;
-            selection-background-color: #8B6F47;
-            selection-color: white;
-        }
-    )");
-
-    // --- Right Side: Events Panel ---
-    QGroupBox *eventGroup = new QGroupBox(trKey("Upcoming Events"));
-    eventGroup->setProperty("trTitleKey", "Upcoming Events");
-    eventGroup->setStyleSheet(R"(
-        QGroupBox {
-            border: 1px solid #D0D0D0;
-            border-radius: 8px;
-            margin-top: 20px;
-            background: rgba(255, 255, 255, 0.9);
-            font-weight: bold;
-            color: #8B6F47;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin;
-            subcontrol-position: top center;
-            padding: 0 10px;
-            background-color: white;
-        }
-    )");
-    
-    QVBoxLayout *eventLayout = new QVBoxLayout(eventGroup);
-    
-    QLabel *lblDate = new QLabel(trKey("Select a date..."));
-    setTrKey(lblDate, "Select a date...");
-    lblDate->setStyleSheet("font-size: 16px; font-weight: bold; color: #555; margin-bottom: 10px;");
-    lblDate->setAlignment(Qt::AlignCenter);
-    
-    QListWidget *eventList = new QListWidget();
-    eventList->setStyleSheet(R"(
-        QListWidget {
-            border: none;
+            color: #D4AF37;
             background: transparent;
             font-size: 14px;
+            font-weight: bold;
+            border: none;
+            selection-background-color: #8B6F47;
         }
-        QListWidget::item {
-            padding: 10px;
-            border-bottom: 1px solid #EEE;
+        QCalendarWidget QAbstractItemView {
+            background: transparent;
+            color: #D8C9B0;
+            font-size: 13px;
+            selection-background-color: #8B6F47;
+            selection-color: white;
+            alternate-background-color: transparent;
+            outline: none;
+            gridline-color: transparent;
         }
-        QListWidget::item:selected {
-            background-color: rgba(139, 111, 71, 0.1);
-            color: #333;
+        QCalendarWidget QAbstractItemView:disabled { color: #3D3020; }
+        QCalendarWidget QWidget { alternate-background-color: transparent; background: transparent; }
+    )");
+    calFrameLayout->addWidget(calendar);
+
+    // Legend strip
+    QWidget *legend = new QWidget();
+    legend->setStyleSheet("background: transparent; border: none;");
+    QHBoxLayout *legendLayout = new QHBoxLayout(legend);
+    legendLayout->setContentsMargins(16, 2, 16, 4);
+    legendLayout->setSpacing(6);
+    auto addDot = [&](const QString &lbl, const QString &hex) {
+        QLabel *dot = new QLabel();
+        dot->setFixedSize(10, 10);
+        dot->setStyleSheet(QString("background:%1; border-radius:5px; border:none;").arg(hex));
+        QLabel *txt = new QLabel(lbl);
+        txt->setStyleSheet("color:#806050; font-size:11px; background:transparent; border:none;");
+        legendLayout->addWidget(dot);
+        legendLayout->addWidget(txt);
+        legendLayout->addSpacing(8);
+    };
+    addDot("Order",       "#D4AF37");
+    addDot("Client",      "#78C878");
+    addDot("Employee",    "#60B4D8");
+    addDot("Equipment",   "#C080E0");
+    addDot("Maintenance", "#FF8060");
+    addDot("Supplier",    "#E8C040");
+    legendLayout->addStretch();
+    calFrameLayout->addWidget(legend);
+
+    // =========================================================================
+    // Fetch ALL date-bearing events from every module
+    // =========================================================================
+    // eventMap: "yyyy-MM-dd" -> list of (type, display text)
+    QMap<QString, QList<QPair<QString,QString>>> eventMap;
+
+    // 1. Orders — order_date
+    {
+        QSqlQuery q;
+        if (q.exec("SELECT TO_CHAR(o.order_date,'YYYY-MM-DD'), o.order_type, o.order_status, "
+                   "NVL(c.FIRST_NAME||' '||c.LAST_NAME,'Unknown') "
+                   "FROM ORDERS o LEFT JOIN CLIENTS c ON o.client_id=c.CLIENT_ID "
+                   "WHERE o.order_date IS NOT NULL ORDER BY o.order_date")) {
+            while (q.next())
+                eventMap[q.value(0).toString()].append(
+                    {"order", q.value(1).toString() + "  —  " + q.value(3).toString()
+                              + "  [" + q.value(2).toString() + "]"});
+        }
+    }
+
+    // 2. Clients — REGISTRATION_DATE
+    {
+        QSqlQuery q;
+        if (q.exec("SELECT TO_CHAR(REGISTRATION_DATE,'YYYY-MM-DD'), "
+                   "FIRST_NAME||' '||LAST_NAME FROM CLIENTS WHERE REGISTRATION_DATE IS NOT NULL")) {
+            while (q.next())
+                eventMap[q.value(0).toString()].append(
+                    {"client", "Client joined:  " + q.value(1).toString()});
+        }
+    }
+
+    // 3. Employees — HIRE_DATE
+    {
+        QSqlQuery q;
+        if (q.exec("SELECT TO_CHAR(HIRE_DATE,'YYYY-MM-DD'), "
+                   "FIRST_NAME||' '||LAST_NAME, JOB_TITLE "
+                   "FROM EMPLOYEES WHERE HIRE_DATE IS NOT NULL")) {
+            while (q.next())
+                eventMap[q.value(0).toString()].append(
+                    {"employee", "Hired:  " + q.value(1).toString()
+                                 + "  (" + q.value(2).toString() + ")"});
+        }
+    }
+
+    // 4. Equipment — PURCHASE_DATE
+    {
+        QSqlQuery q;
+        if (q.exec("SELECT TO_CHAR(PURCHASE_DATE,'YYYY-MM-DD'), EQUIPMENT_TYPE, STATUS "
+                   "FROM EQUIPMENT WHERE PURCHASE_DATE IS NOT NULL")) {
+            while (q.next())
+                eventMap[q.value(0).toString()].append(
+                    {"equipment", "Purchased:  " + q.value(1).toString()
+                                  + "  [" + q.value(2).toString() + "]"});
+        }
+    }
+
+    // 5. Equipment — NEXT_MAINTENANCE
+    {
+        QSqlQuery q;
+        if (q.exec("SELECT TO_CHAR(NEXT_MAINTENANCE,'YYYY-MM-DD'), EQUIPMENT_TYPE "
+                   "FROM EQUIPMENT WHERE NEXT_MAINTENANCE IS NOT NULL AND STATUS != 'Retired'")) {
+            while (q.next())
+                eventMap[q.value(0).toString()].append(
+                    {"maintenance", "Maintenance due:  " + q.value(1).toString()});
+        }
+    }
+
+    // 6. Suppliers — REGISTRATION_DATE
+    {
+        QSqlQuery q;
+        if (q.exec("SELECT TO_CHAR(REGISTRATION_DATE,'YYYY-MM-DD'), SUPPLIER_NAME "
+                   "FROM SUPPLIERS WHERE REGISTRATION_DATE IS NOT NULL")) {
+            while (q.next())
+                eventMap[q.value(0).toString()].append(
+                    {"supplier", "Supplier registered:  " + q.value(1).toString()});
+        }
+    }
+
+    // Colour-code dates — priority: maintenance > order > equipment > employee > client > supplier
+    struct TypeInfo { QString type; QColor bg; QColor fg; };
+    const QList<TypeInfo> typePriority = {
+        {"maintenance", QColor(200,80,60,70),  QColor("#FF8060")},
+        {"order",       QColor(139,111,71,70), QColor("#D4AF37")},
+        {"equipment",   QColor(140,80,200,60), QColor("#C080E0")},
+        {"employee",    QColor(60,140,190,60), QColor("#60B4D8")},
+        {"client",      QColor(80,160,80,60),  QColor("#78C878")},
+        {"supplier",    QColor(180,160,40,60), QColor("#E8C040")},
+    };
+
+    for (auto it = eventMap.cbegin(); it != eventMap.cend(); ++it) {
+        QDate d = QDate::fromString(it.key(), "yyyy-MM-dd");
+        if (!d.isValid()) continue;
+        QSet<QString> types;
+        for (const auto &ev : it.value()) types.insert(ev.first);
+
+        for (const auto &ti : typePriority) {
+            if (!types.contains(ti.type)) continue;
+            QTextCharFormat fmt;
+            fmt.setBackground(ti.bg);
+            fmt.setForeground(ti.fg);
+            fmt.setFontWeight(QFont::Bold);
+            calendar->setDateTextFormat(d, fmt);
+            break; // highest-priority type wins
+        }
+    }
+
+    // Today highlight (always override so it stays visible)
+    {
+        QTextCharFormat todayFmt;
+        todayFmt.setBackground(QColor("#8B6F47"));
+        todayFmt.setForeground(QColor("#FFEFCF"));
+        todayFmt.setFontWeight(QFont::Bold);
+        calendar->setDateTextFormat(QDate::currentDate(), todayFmt);
+    }
+
+    // =========================================================================
+    // RIGHT — event detail panel
+    // =========================================================================
+    QFrame *rightPanel = new QFrame();
+    rightPanel->setMinimumWidth(270);
+    rightPanel->setMaximumWidth(330);
+    rightPanel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    rightPanel->setStyleSheet(R"(
+        QFrame {
+            background: rgba(28, 22, 16, 0.88);
+            border-radius: 14px;
+            border: 1px solid #4A3728;
         }
     )");
-    
-    // Initial Mock Events
-    {
-        auto *item = new QListWidgetItem();
-        setItemTrKey(item, "📅  09:00 AM - Team Sync");
-        eventList->addItem(item);
+    QVBoxLayout *rightLayout = new QVBoxLayout(rightPanel);
+    rightLayout->setContentsMargins(14, 14, 14, 14);
+    rightLayout->setSpacing(8);
+
+    QLabel *lblDate = new QLabel("Select a date");
+    lblDate->setAlignment(Qt::AlignCenter);
+    lblDate->setWordWrap(true);
+    lblDate->setStyleSheet(R"(
+        font-size: 14px; font-weight: bold; color: #D4AF37;
+        background: rgba(139,111,71,0.12); border-radius: 8px;
+        border: 1px solid #3A2A1A; padding: 10px 6px;
+    )");
+
+    QLabel *lblCount = new QLabel("");
+    lblCount->setAlignment(Qt::AlignCenter);
+    lblCount->setStyleSheet("font-size: 11px; color: #6A5040; background: transparent; border: none;");
+
+    auto makeSep = [&]() -> QFrame* {
+        QFrame *sep = new QFrame();
+        sep->setFrameShape(QFrame::HLine);
+        sep->setStyleSheet("background: #3A2A1A; border: none; max-height: 1px;");
+        return sep;
+    };
+
+    QString listStyle = R"(
+        QListWidget {
+            background: transparent; border: none;
+            color: #D8C9B0; font-size: 12px; outline: none;
+        }
+        QListWidget::item {
+            padding: 7px 10px; border-radius: 6px; margin: 2px 0;
+            background: rgba(255,255,255,0.03);
+        }
+        QListWidget::item:hover { background: rgba(139,111,71,0.15); }
+        QListWidget::item:selected { background: rgba(139,111,71,0.30); color: #D4AF37; }
+    )";
+
+    QListWidget *eventList = new QListWidget();
+    eventList->setStyleSheet(listStyle);
+
+    QLabel *lblUpHdr = new QLabel("Upcoming — Next 7 Days");
+    lblUpHdr->setStyleSheet("font-size: 11px; font-weight: bold; color: #8B6F47; "
+                             "background: transparent; border: none; padding: 2px 0;");
+
+    QListWidget *upcomingList = new QListWidget();
+    upcomingList->setMaximumHeight(180);
+    upcomingList->setStyleSheet(listStyle);
+
+    // Populate upcoming list
+    QDate today = QDate::currentDate();
+    bool anyUpcoming = false;
+    for (int i = 0; i <= 7; ++i) {
+        QDate d = today.addDays(i);
+        const QString key = d.toString("yyyy-MM-dd");
+        if (!eventMap.contains(key)) continue;
+        for (const auto &ev : eventMap[key]) {
+            QString dayLbl = (i == 0) ? "Today" : (i == 1) ? "Tomorrow"
+                                                 : d.toString("ddd d MMM");
+            auto *item = new QListWidgetItem(dayLbl + ":  " + ev.second);
+            if      (ev.first == "maintenance") item->setForeground(QColor("#FF8060"));
+            else if (ev.first == "client")      item->setForeground(QColor("#78C878"));
+            else if (ev.first == "employee")    item->setForeground(QColor("#60B4D8"));
+            else if (ev.first == "equipment")   item->setForeground(QColor("#C080E0"));
+            else if (ev.first == "supplier")    item->setForeground(QColor("#E8C040"));
+            else                                item->setForeground(QColor("#D4AF37"));
+            upcomingList->addItem(item);
+            anyUpcoming = true;
+        }
     }
-    {
-        auto *item = new QListWidgetItem();
-        setItemTrKey(item, "💼  11:30 AM - Client Meeting (John Doe)");
-        eventList->addItem(item);
+    if (!anyUpcoming) {
+        auto *item = new QListWidgetItem("No events in the next 7 days.");
+        item->setForeground(QColor("#444"));
+        upcomingList->addItem(item);
     }
-    {
-        auto *item = new QListWidgetItem();
-        setItemTrKey(item, "📊  02:00 PM - Quarterly Review");
-        eventList->addItem(item);
-    }
-    
-    eventLayout->addWidget(lblDate);
-    eventLayout->addWidget(eventList);
-    
-    // --- Connect Interaction ---
-    connect(calendar, &QCalendarWidget::clicked, [lblDate, eventList](const QDate &date){
-        lblDate->setText(date.toString("dddd, MMMM d, yyyy"));
-        
-        // Mocking dynamic events based on day logic
+
+    QPushButton *btnToday = new QPushButton("Go to Today");
+    btnToday->setCursor(Qt::PointingHandCursor);
+    btnToday->setStyleSheet(R"(
+        QPushButton {
+            background: #8B6F47; color: white;
+            border-radius: 8px; padding: 9px 0;
+            font-weight: bold; font-size: 13px; border: none;
+        }
+        QPushButton:hover { background: #D4AF37; color: #1C1610; }
+        QPushButton:pressed { background: #6B4F2F; }
+    )");
+
+    rightLayout->addWidget(lblDate);
+    rightLayout->addWidget(lblCount);
+    rightLayout->addWidget(makeSep());
+    rightLayout->addWidget(eventList, 1);
+    rightLayout->addWidget(makeSep());
+    rightLayout->addWidget(lblUpHdr);
+    rightLayout->addWidget(upcomingList);
+    rightLayout->addWidget(btnToday);
+
+    // =========================================================================
+    // Connections
+    // =========================================================================
+    connect(btnToday, &QPushButton::clicked, calendar, [calendar]() {
+        calendar->setSelectedDate(QDate::currentDate());
+        emit calendar->clicked(QDate::currentDate());
+    });
+
+    connect(calendar, &QCalendarWidget::clicked, this,
+            [lblDate, lblCount, eventList, eventMap](const QDate &date) {
+        lblDate->setText(date.toString("dddd, MMMM d yyyy"));
         eventList->clear();
-        if (date.day() % 3 == 0) {
-            auto *item = new QListWidgetItem();
-            setItemTrKey(item, "✅  No events scheduled.");
+        const QString key = date.toString("yyyy-MM-dd");
+        const auto &evs = eventMap.value(key);
+        if (evs.isEmpty()) {
+            lblCount->setText("No events");
+            auto *item = new QListWidgetItem("No events scheduled.");
+            item->setForeground(QColor("#444"));
             eventList->addItem(item);
-        } else if (date.day() % 2 == 0) {
-            auto *item1 = new QListWidgetItem();
-            setItemTrKey(item1, "📞  10:00 AM - Call with Supplier");
-            eventList->addItem(item1);
-
-            auto *item2 = new QListWidgetItem();
-            setItemTrKey(item2, "🛒  01:00 PM - Order #1234 Delivery");
-            eventList->addItem(item2);
-
-            auto *item3 = new QListWidgetItem();
-            setItemTrKey(item3, "📝  04:00 PM - Sign Contract");
-            eventList->addItem(item3);
         } else {
-            auto *item1 = new QListWidgetItem();
-            setItemTrKey(item1, "📅  09:00 AM - Team Sync");
-            eventList->addItem(item1);
-
-            auto *item2 = new QListWidgetItem();
-            setItemTrKey(item2, "💼  11:30 AM - Client Meeting");
-            eventList->addItem(item2);
-
-            auto *item3 = new QListWidgetItem();
-            setItemTrKey(item3, "📊  03:00 PM - Strategy Workshop");
-            eventList->addItem(item3);
+            lblCount->setText(QString::number(evs.size())
+                              + (evs.size() == 1 ? " event" : " events"));
+            for (const auto &ev : evs) {
+                QString prefix;
+                QColor  color;
+                if      (ev.first == "order")       { prefix = "Order      "; color = QColor("#D4AF37"); }
+                else if (ev.first == "client")      { prefix = "Client     "; color = QColor("#78C878"); }
+                else if (ev.first == "employee")    { prefix = "Employee   "; color = QColor("#60B4D8"); }
+                else if (ev.first == "equipment")   { prefix = "Equipment  "; color = QColor("#C080E0"); }
+                else if (ev.first == "maintenance") { prefix = "Maint.     "; color = QColor("#FF8060"); }
+                else                                { prefix = "Supplier   "; color = QColor("#E8C040"); }
+                auto *item = new QListWidgetItem(prefix + ev.second);
+                item->setForeground(color);
+                eventList->addItem(item);
+            }
         }
     });
 
-    // Add widgets to main layout
-    mainLayout->addWidget(calendar, 70); // 70% width
-    mainLayout->addWidget(eventGroup, 30); // 30% width
-    
-    // Add the new tab
-    ui_client->tabWidget->addTab(calendarTab, trKey("Smart Calendar"));
-    setTabTextTr(ui_client->tabWidget, calendarTab, "Smart Calendar");
-    
-    // Set an icon if available, or just text
-    // ui_client->tabWidget->setTabIcon(..., QIcon(":/assets/icon_calendar.png"));
+    // =========================================================================
+    // Assemble main layout
+    // =========================================================================
+    mainLayout->addWidget(calFrame, 60);
+    mainLayout->addWidget(rightPanel, 40);
 }
 
 void MainWindow::setupEmployeeModes()
@@ -5923,7 +6388,7 @@ void MainWindow::onClientRefreshView()
 {
     QSqlQueryModel *model = new QSqlQueryModel(this);
     model->setQuery(
-        "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", CLIENT_ID AS \"ID\", "
+        "SELECT CLIENT_ID AS \"ID\", "
         "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
         " ADDRESS AS \"Address\", PHONE_NUMBER AS \"Phone\", EMAIL AS \"Email\", GENDER AS \"Gender\""
         " FROM CLIENTS ORDER BY CLIENT_ID"
@@ -5933,23 +6398,97 @@ void MainWindow::onClientRefreshView()
         return;
     }
     ui_client->tableView->setModel(model);
-    ui_client->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    ui_client->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    ui_client->tableView->horizontalHeader()->setMinimumSectionSize(120);
+    ui_client->tableView->horizontalHeader()->setStretchLastSection(true);
+    ui_client->tableView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    ui_client->tableView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    ui_client->tableView->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    ui_client->tableView->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     ui_client->tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui_client->tableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ui_client->tableView->verticalHeader()->setDefaultSectionSize(55);
+    
+    // Modern Glassmorphism Design
+    ui_client->tableView->setStyleSheet(
+        "QTableView {"
+        "  background-color: rgba(15, 12, 8, 0.85);"
+        "  border: 1px solid rgba(212, 175, 55, 0.3);"
+        "  border-radius: 20px;"
+        "  gridline-color: rgba(212, 175, 55, 0.05);"
+        "  color: #F0E6D2;"
+        "  font-family: 'Outfit', 'Segoe UI';"
+        "  font-size: 13px;"
+        "  selection-background-color: rgba(212, 175, 55, 0.25);"
+        "  selection-color: #FFFFFF;"
+        "}"
+        "QHeaderView::section {"
+        "  background-color: rgba(40, 32, 20, 0.9);"
+        "  color: #D4AF37;"
+        "  padding: 15px;"
+        "  border-bottom: 2px solid #D4AF37;"
+        "  border-right: 1px solid rgba(212, 175, 55, 0.1);"
+        "  font-weight: 800;"
+        "  text-transform: uppercase;"
+        "  letter-spacing: 1px;"
+        "}"
+        "QTableView::item {"
+        "  padding: 12px;"
+        "  border-bottom: 1px solid rgba(212, 175, 0, 0.03);"
+        "}"
+        "QScrollBar:vertical {"
+        "  background: rgba(15, 12, 8, 0.85);"
+        "  width: 12px;"
+        "  border-radius: 6px;"
+        "}"
+        "QScrollBar::handle:vertical {"
+        "  background: #D4AF37;"
+        "  border-radius: 6px;"
+        "  min-height: 20px;"
+        "}"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { border: none; background: none; }"
+        "QScrollBar:horizontal {"
+        "  background: rgba(15, 12, 8, 0.85);"
+        "  height: 12px;"
+        "  border-radius: 6px;"
+        "}"
+        "QScrollBar::handle:horizontal {"
+        "  background: #D4AF37;"
+        "  border-radius: 6px;"
+        "  min-width: 20px;"
+        "}"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { border: none; background: none; }"
+    );
 }
 
 void MainWindow::onClientAdd()
 {
-    QString id      = ui_client->le_id->text().trimmed();
+    // Calculate auto-increment ID (MEX)
+    int clientId = 1;
+    QSqlQuery qMex("SELECT CLIENT_ID FROM CLIENTS ORDER BY CLIENT_ID ASC");
+    while(qMex.next()) {
+        if(qMex.value(0).toInt() == clientId) {
+            clientId++;
+        } else if(qMex.value(0).toInt() > clientId) {
+            break;
+        }
+    }
+    QString id = QString::number(clientId);
+
     QString nom     = ui_client->le_nom->text().trimmed();
     QString prenom  = ui_client->le_prenom->text().trimmed();
     QString adresse = ui_client->le_adresse->text().trimmed();
     QString tel     = ui_client->le_tel->text().trimmed();
     QString email   = ui_client->le_email->text().trimmed();
+
+    if (!ui_client->rb_homme->isChecked() && !ui_client->rb_femme->isChecked()) {
+        QMessageBox::warning(this, "Validation", "Please select a gender (Male or Female).");
+        return;
+    }
     QString gender  = ui_client->rb_homme->isChecked() ? "Male" : "Female";
 
-    if (id.isEmpty() || nom.isEmpty() || prenom.isEmpty()) {
-        QMessageBox::warning(this, "Validation", "ID, Last Name, and First Name are required.");
+    if (nom.isEmpty() || prenom.isEmpty()) {
+        QMessageBox::warning(this, "Validation", "Last Name and First Name are required.");
         return;
     }
     if (nom.length() < 2 || nom.length() > 12 || prenom.length() < 2 || prenom.length() > 12) {
@@ -5960,22 +6499,6 @@ void MainWindow::onClientAdd()
     QRegularExpression emailRegex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
     if (!email.isEmpty() && !emailRegex.match(email).hasMatch()) {
         QMessageBox::warning(this, "Validation", "[ACCESS DENIED] Invalid email structure detected. Requires standard format.");
-        return;
-    }
-
-    bool idOk;
-    int clientId = id.toInt(&idOk);
-    if (!idOk || clientId <= 0) {
-        QMessageBox::warning(this, "Validation", "Client ID must be a positive number.");
-        return;
-    }
-
-    // Check for duplicates
-    QSqlQuery chk;
-    chk.prepare("SELECT COUNT(*) FROM CLIENTS WHERE CLIENT_ID = :id");
-    chk.bindValue(":id", clientId);
-    if (chk.exec() && chk.next() && chk.value(0).toInt() > 0) {
-        QMessageBox::warning(this, "Duplicate", "A client with this ID already exists.");
         return;
     }
 
@@ -6075,9 +6598,9 @@ void MainWindow::onClientDelete()
     }
     QSqlQueryModel *model = qobject_cast<QSqlQueryModel*>(ui_client->tableView->model());
     if (!model) return;
-    QString clientId = model->data(model->index(idx.row(), 2)).toString();
-    QString name     = model->data(model->index(idx.row(), 3)).toString()
-                     + " " + model->data(model->index(idx.row(), 4)).toString();
+    QString clientId = model->data(model->index(idx.row(), 0)).toString();
+    QString name     = model->data(model->index(idx.row(), 1)).toString()
+                     + " " + model->data(model->index(idx.row(), 2)).toString();
 
     int ret = QMessageBox::question(this, "Confirm Delete",
         "Delete client: " + name + " (ID: " + clientId + ")?",
@@ -6102,7 +6625,7 @@ void MainWindow::onClientSearch()
     QSqlQueryModel *model = new QSqlQueryModel(this);
     if (search.isEmpty()) {
         model->setQuery(
-            "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", CLIENT_ID AS \"ID\", "
+            "SELECT CLIENT_ID AS \"ID\", "
             "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
             " ADDRESS AS \"Address\", PHONE_NUMBER AS \"Phone\", EMAIL AS \"Email\", GENDER AS \"Gender\""
             " FROM CLIENTS ORDER BY CLIENT_ID"
@@ -6110,7 +6633,7 @@ void MainWindow::onClientSearch()
     } else {
         QSqlQuery q;
         q.prepare(
-            "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", CLIENT_ID AS \"ID\", "
+            "SELECT CLIENT_ID AS \"ID\", "
             "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
             " ADDRESS AS \"Address\", PHONE_NUMBER AS \"Phone\", EMAIL AS \"Email\", GENDER AS \"Gender\""
             " FROM CLIENTS WHERE UPPER(LAST_NAME) LIKE :s OR UPPER(FIRST_NAME) LIKE :s"
@@ -6122,9 +6645,67 @@ void MainWindow::onClientSearch()
         model->setQuery(std::move(q));
     }
     ui_client->tableView->setModel(model);
-    ui_client->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    ui_client->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    ui_client->tableView->horizontalHeader()->setMinimumSectionSize(120);
+    ui_client->tableView->horizontalHeader()->setStretchLastSection(true);
+    ui_client->tableView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    ui_client->tableView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    ui_client->tableView->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    ui_client->tableView->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     ui_client->tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui_client->tableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ui_client->tableView->verticalHeader()->setDefaultSectionSize(55);
+    
+    // Modern Glassmorphism Design
+    ui_client->tableView->setStyleSheet(
+        "QTableView {"
+        "  background-color: rgba(15, 12, 8, 0.85);"
+        "  border: 1px solid rgba(212, 175, 55, 0.3);"
+        "  border-radius: 20px;"
+        "  gridline-color: rgba(212, 175, 55, 0.05);"
+        "  color: #F0E6D2;"
+        "  font-family: 'Outfit', 'Segoe UI';"
+        "  font-size: 13px;"
+        "  selection-background-color: rgba(212, 175, 55, 0.25);"
+        "  selection-color: #FFFFFF;"
+        "}"
+        "QHeaderView::section {"
+        "  background-color: rgba(40, 32, 20, 0.9);"
+        "  color: #D4AF37;"
+        "  padding: 15px;"
+        "  border-bottom: 2px solid #D4AF37;"
+        "  border-right: 1px solid rgba(212, 175, 55, 0.1);"
+        "  font-weight: 800;"
+        "  text-transform: uppercase;"
+        "  letter-spacing: 1px;"
+        "}"
+        "QTableView::item {"
+        "  padding: 12px;"
+        "  border-bottom: 1px solid rgba(212, 175, 0, 0.03);"
+        "}"
+        "QScrollBar:vertical {"
+        "  background: rgba(15, 12, 8, 0.85);"
+        "  width: 12px;"
+        "  border-radius: 6px;"
+        "}"
+        "QScrollBar::handle:vertical {"
+        "  background: #D4AF37;"
+        "  border-radius: 6px;"
+        "  min-height: 20px;"
+        "}"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { border: none; background: none; }"
+        "QScrollBar:horizontal {"
+        "  background: rgba(15, 12, 8, 0.85);"
+        "  height: 12px;"
+        "  border-radius: 6px;"
+        "}"
+        "QScrollBar::handle:horizontal {"
+        "  background: #D4AF37;"
+        "  border-radius: 6px;"
+        "  min-width: 20px;"
+        "}"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { border: none; background: none; }"
+    );
 }
 
 void MainWindow::onClientRowSelected(const QModelIndex &index)
@@ -6132,22 +6713,21 @@ void MainWindow::onClientRowSelected(const QModelIndex &index)
     QSqlQueryModel *model = qobject_cast<QSqlQueryModel*>(ui_client->tableView->model());
     if (!model) return;
     int row = index.row();
-    // Col order: Action, Delete, ID, Last Name, First Name, Address, Phone, Email, Gender
-    ui_client->le_id_mod->setText(model->data(model->index(row, 2)).toString());
-    ui_client->le_nom_mod->setText(model->data(model->index(row, 3)).toString());
-    ui_client->le_prenom_mod->setText(model->data(model->index(row, 4)).toString());
-    ui_client->le_adresse_mod->setText(model->data(model->index(row, 5)).toString());
-    ui_client->le_tel_mod->setText(model->data(model->index(row, 6)).toString());
-    ui_client->le_email_mod->setText(model->data(model->index(row, 7)).toString());
-    QString gender = model->data(model->index(row, 8)).toString();
+    int col = index.column();
+
+    // ALWAYS prepopulate the modify fields
+    ui_client->le_id_mod->setText(model->data(model->index(row, 0)).toString());
+    ui_client->le_nom_mod->setText(model->data(model->index(row, 1)).toString());
+    ui_client->le_prenom_mod->setText(model->data(model->index(row, 2)).toString());
+    ui_client->le_adresse_mod->setText(model->data(model->index(row, 3)).toString());
+    ui_client->le_tel_mod->setText(model->data(model->index(row, 4)).toString());
+    ui_client->le_email_mod->setText(model->data(model->index(row, 5)).toString());
+    QString gender = model->data(model->index(row, 6)).toString();
     if (gender == "Male") {
         ui_client->rb_homme_mod->setChecked(true);
     } else if (gender == "Female") {
         ui_client->rb_femme_mod->setChecked(true);
     }
-
-    // Switch to modify tab
-    ui_client->tabWidget->setCurrentWidget(ui_client->tab_modify);
 }
 
 void MainWindow::toggleEmployeeFields(bool active)
@@ -7330,6 +7910,99 @@ void MainWindow::onClientExportPDF()
     QMessageBox::information(this, "Success", "Client list successfully exported to:\n" + fileName);
 }
 
+// ---------------------------------------------------------------------------
+// Client Mail tab — Send
+// ---------------------------------------------------------------------------
+void MainWindow::onClientSendMail()
+{
+    if (!ui_client) return;
+
+    const QString to         = ui_client->le_to->text().trimmed();
+    const QString subject    = ui_client->le_subject->text().trimmed();
+    const QString attachment = ui_client->le_attachment->text().trimmed();
+    const QString body       = ui_client->te_message->toPlainText().trimmed();
+
+    // --- Validation ---
+    if (to.isEmpty()) {
+        QMessageBox::warning(this, "Email Error",
+            "Please enter a recipient email address.");
+        ui_client->le_to->setFocus();
+        return;
+    }
+
+    static const QRegularExpression emailRe(
+        R"(^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$)");
+    if (!emailRe.match(to).hasMatch()) {
+        QMessageBox::warning(this, "Email Error",
+            "Invalid email address.\nMust contain '@' and a valid domain (e.g. user@example.com).");
+        ui_client->le_to->setFocus();
+        return;
+    }
+
+    if (body.isEmpty()) {
+        QMessageBox::warning(this, "Email Error",
+            "Please enter a message.");
+        ui_client->te_message->setFocus();
+        return;
+    }
+
+    if (body.length() < 5) {
+        QMessageBox::warning(this, "Email Error",
+            "Message is too short — minimum 5 characters required.");
+        ui_client->te_message->setFocus();
+        return;
+    }
+
+    // --- Hardcoded SMTP credentials ---
+    const QString host     = "smtp.mailersend.net";
+    const quint16 port     = 587;
+    const QString username = "MS_jsamBQ@test-zkq340er2v6gd796.mlsender.net";
+    const QString password = "mssp.9eMDqAS.ynrw7gy2pqr42k8e.TxccD9w";
+
+    // Disable the button while sending
+    ui_client->btn_send->setEnabled(false);
+    ui_client->btn_send->setText("Sending...");
+
+    // Run SMTP in a background thread so the UI stays responsive
+    QFutureWatcher<SmtpResult> *watcher = new QFutureWatcher<SmtpResult>(this);
+    connect(watcher, &QFutureWatcher<SmtpResult>::finished, this, [this, watcher]() {
+        const SmtpResult result = watcher->result();
+        watcher->deleteLater();
+
+        ui_client->btn_send->setEnabled(true);
+        ui_client->btn_send->setText("Send");
+
+        if (result.success) {
+            QMessageBox::information(this, "Email Sent",
+                "Your email was sent successfully.");
+            ui_client->le_to->clear();
+            ui_client->le_subject->clear();
+            ui_client->le_attachment->clear();
+            ui_client->te_message->clear();
+        } else {
+            QMessageBox::critical(this, "Email Failed",
+                "Failed to send email:\n" + result.errorMessage);
+        }
+    });
+
+    QFuture<SmtpResult> future = QtConcurrent::run([=]() {
+        return SmtpSender::send(host, port, username, password,
+                                to, subject, body, attachment);
+    });
+    watcher->setFuture(future);
+}
+
+// ---------------------------------------------------------------------------
+// Client Mail tab — Browse attachment
+// ---------------------------------------------------------------------------
+void MainWindow::onClientBrowseMail()
+{
+    if (!ui_client) return;
+    const QString path = QFileDialog::getOpenFileName(
+        this, "Select Attachment", QDir::homePath(), "All Files (*)");
+    if (!path.isEmpty())
+        ui_client->le_attachment->setText(path);
+}
 
 
 

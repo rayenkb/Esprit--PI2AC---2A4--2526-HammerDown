@@ -5,7 +5,7 @@
 #
 #-------------------------------------------------
 
-QT       += core gui widgets charts sql multimedia multimediawidgets printsupport network svg openglwidgets
+QT       += core gui widgets charts sql multimedia multimediawidgets printsupport network svg openglwidgets concurrent
 
 win32: LIBS += -lopengl32
 
@@ -27,10 +27,20 @@ DEFINES += QT_DEPRECATED_WARNINGS
 
 CONFIG += c++17
 
+# ---- Vosk offline speech recognition ----------------------------------------
+# Vosk is loaded at RUNTIME via QLibrary — no compile-time linking needed.
+# The app walks up from the exe directory to find libvosk.dll and vosk-model/.
+# 1. Place libvosk.dll inside the vosk/ subfolder of this project
+# 2. Download vosk-model-small-en-us from https://alphacephei.com/vosk/models
+# 3. Place the model folder inside vosk/ as "vosk-model/"
+# ------------------------------------------------------------------------------
+
 # Source files
 SOURCES += \
     main.cpp \
     mainwindow.cpp \
+    smtpsender.cpp \
+    voicecommandengine.cpp \
     loginwindow.cpp \
     homewindow.cpp \
     chatbotdialog.cpp \
@@ -54,6 +64,8 @@ SOURCES += \
 HEADERS += \
     connection.h \
     mainwindow.h \
+    smtpsender.h \
+    voicecommandengine.h \
     loginwindow.h \
     homewindow.h \
     chatbotdialog.h \

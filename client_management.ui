@@ -119,23 +119,7 @@ QLineEdit:focus {
      <property name="title">
       <string>Add Client</string>
      </property>
-     <widget class="QLabel" name="label_id">
-      <property name="geometry">
-       <rect>
-        <x>200</x>
-        <y>60</y>
-        <width>150</width>
-        <height>30</height>
-       </rect>
-      </property>
-      <property name="styleSheet">
-       <string notr="true">color: white; font-size: 16px; font-weight: bold;
-</string>
-      </property>
-      <property name="text">
-       <string>Client ID:</string>
-      </property>
-     </widget>
+
      <widget class="QLabel" name="label_nom">
       <property name="geometry">
        <rect>
@@ -238,17 +222,7 @@ QLineEdit:focus {
        <string>Gender:</string>
       </property>
      </widget>
-     <widget class="QLineEdit" name="le_id">
-      <property name="geometry">
-       <rect>
-        <x>400</x>
-        <y>60</y>
-        <width>250</width>
-        <height>30</height>
-       </rect>
-      </property>
 
-     </widget>
      <widget class="QLineEdit" name="le_nom">
       <property name="geometry">
        <rect>
@@ -533,10 +507,60 @@ QLineEdit:focus {
       </rect>
      </property>
      <property name="styleSheet">
-      <string notr="true">
-       QHeaderView::section { background-color: #8B6F47; color: white; font-weight: bold; border: none; padding: 5px; }
-       QTableView { border: 1px solid #8B6F47; selection-background-color: #E0E0E0; selection-color: white; }
-      </string>
+      <string notr="true">QTableView {
+  background-color: rgba(15, 12, 8, 0.85);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 20px;
+  gridline-color: rgba(212, 175, 55, 0.05);
+  color: #F0E6D2;
+  font-family: 'Outfit', 'Segoe UI';
+  font-size: 13px;
+  selection-background-color: rgba(212, 175, 55, 0.25);
+  selection-color: #FFFFFF;
+}
+QHeaderView::section {
+  background-color: rgba(40, 32, 20, 0.9);
+  color: #D4AF37;
+  padding: 15px;
+  border-bottom: 2px solid #D4AF37;
+  border-right: 1px solid rgba(212, 175, 55, 0.1);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+QTableView::item {
+  padding: 12px;
+  border-bottom: 1px solid rgba(212, 175, 0, 0.03);
+}
+QScrollBar:vertical {
+  background: rgba(15, 12, 8, 0.85);
+  width: 12px;
+  border-radius: 6px;
+}
+QScrollBar::handle:vertical {
+  background: #D4AF37;
+  border-radius: 6px;
+  min-height: 20px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { border: none; background: none; }
+QScrollBar:horizontal {
+  background: rgba(15, 12, 8, 0.85);
+  height: 12px;
+  border-radius: 6px;
+}
+QScrollBar::handle:horizontal {
+  background: #D4AF37;
+  border-radius: 6px;
+  min-width: 20px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { border: none; background: none; }
+</string>
+     </property>
+     <property name="horizontalScrollBarPolicy">
+      <enum>Qt::ScrollBarAsNeeded</enum>
+     </property>
+     <property name="verticalScrollBarPolicy">
+      <enum>Qt::ScrollBarAsNeeded</enum>
      </property>
     </widget>
     <widget class="QPushButton" name="btn_pdf">
@@ -566,15 +590,32 @@ QLineEdit:focus {
       </rect>
      </property>
      <property name="styleSheet">
+      <string notr="true">QPushButton { background-color: #5A1A1A; border: 1px solid #FF3333; border-radius: 10px; color: #FF9999; font-weight: bold; } QPushButton:hover { background-color: #FF3333; color: white; }
+</string>
+     </property>
+     <property name="text">
+      <string>❌ Delete</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="btn_edit_view">
+     <property name="geometry">
+      <rect>
+       <x>1060</x>
+       <y>70</y>
+       <width>120</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
       <string notr="true">QPushButton { background-color: #8B6F47; border-radius: 10px; color: white; font-weight: bold; } QPushButton:hover { background-color: #FFF; border: 2px solid #8B6F47; color: #8B6F47; }
 </string>
      </property>
      <property name="text">
-      <string>Delete</string>
+      <string>Edit</string>
      </property>
      <property name="icon">
       <iconset resource="resources.qrc">
-       <normaloff>:/assets/delete.png</normaloff>:/assets/delete.png</iconset>
+       <normaloff>:/assets/modify.png</normaloff>:/assets/modify.png</iconset>
      </property>
      <property name="iconSize">
       <size>
