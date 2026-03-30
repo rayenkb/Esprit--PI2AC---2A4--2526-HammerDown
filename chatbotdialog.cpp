@@ -632,7 +632,7 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
         return "Cannot add orders: CLIENTS or EMPLOYEES table is empty.";
     }
 
-    const QStringList orderTypes = {"Custom Furniture", "Repair", "Installation", "Design", "Consulting"};
+    const QStringList orderTypes = {"Chair", "Table", "Cabinet", "Wardrobe", "Other"};
     const QStringList orderStatuses = getAllowedColumnValues("ORDERS", "ORDER_STATUS");
     const QStringList paymentStatuses = getAllowedColumnValues("ORDERS", "PAYMENT_STATUS");
     if (orderStatuses.isEmpty() || paymentStatuses.isEmpty()) {
@@ -879,7 +879,7 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
         int age = QRandomGenerator::global()->bounded(20, 56);
         double salary = 1200.0 + (QRandomGenerator::global()->generateDouble() * 3800.0);
         QString email = QString("%1.%2%3@hammerdown.tn").arg(first.toLower().remove(' '), last.toLower().remove(' '), QString::number(nextId));
-        QString phone = QString("+216%1").arg(QRandomGenerator::global()->bounded(20000000, 99999999));
+        QString phone = QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -951,7 +951,7 @@ QString ChatBotDialog::handleAddRandomClients(int count)
         int age = QRandomGenerator::global()->bounded(21, 66);
         double balance = QRandomGenerator::global()->generateDouble() * 10000.0;
         QString email = QString("%1.%2%3@client.tn").arg(first.toLower().remove(' '), last.toLower().remove(' '), QString::number(nextId));
-        QString phone = QString("+216%1").arg(QRandomGenerator::global()->bounded(20000000, 99999999));
+        QString phone = QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -1018,7 +1018,7 @@ QString ChatBotDialog::handleAddRandomSuppliers(int count)
         QString normalizedName = name.toLower();
         normalizedName.replace(' ', '.');
         QString email = QString("contact%1@%2.tn").arg(nextId).arg(normalizedName);
-        QString phone = QString("+216%1").arg(QRandomGenerator::global()->bounded(20000000, 99999999));
+        QString phone = QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
         QString address = QString("Zone Industrielle %1, Tunis").arg(QRandomGenerator::global()->bounded(1, 25));
         QString postal = QString::number(QRandomGenerator::global()->bounded(1000, 9999));
         double delivery = 2.5 + (QRandomGenerator::global()->generateDouble() * 2.5);
@@ -1226,6 +1226,9 @@ You can INSERT, UPDATE, DELETE, or SELECT data. When the user asks you to add, m
 - Multiline formatting is allowed; line breaks do not make it multiple statements.
 - Prefer one [EXECUTE_SQL] block that fully solves the user request.
 - Only operate on these tables: EMPLOYEES, CLIENTS, ORDERS, EQUIPMENT, SUPPLIERS.
+- For INSERT: respect DB constraints (NOT NULL, CHECK, FK, UNIQUE), include all required columns, and never set required columns to NULL.
+- For ORDERS.ORDER_TYPE: use only these exact values: Chair, Table, Cabinet, Wardrobe, Other.
+- For SUPPLIERS.PHONE_NUMBER: store exactly 8 digits (e.g. '12345678'), without country code prefix like +216.
 - For INSERT: use the next available ID or let the sequence/trigger handle it.
 - Always keep SQL valid and directly executable.
 - For requests like deleting/updating N random rows, do it in one statement with a subquery, e.g. [EXECUTE_SQL]DELETE FROM ORDERS WHERE ORDER_ID IN (SELECT ORDER_ID FROM (SELECT ORDER_ID FROM ORDERS ORDER BY DBMS_RANDOM.VALUE) WHERE ROWNUM <= 5)[/EXECUTE_SQL]
@@ -1855,6 +1858,149 @@ QString ChatBotDialog::executeSqlCommand(const QString &sql)
 
         if (!targetTable.isEmpty() && !allowedTables.contains(targetTable)) {
             return "[Blocked: target table is outside allowed management tables]";
+        }
+    }
+
+    // Constraint-aware guard for AI-generated INSERT statements.
+    if (isInsert && !isPlSqlBlock) {
+        QRegularExpression insertValuesRx(
+            R"(^\s*INSERT\s+INTO\s+([A-Z0-9_]+)\s*\((.*?)\)\s*VALUES\s*\((.*)\)\s*$)",
+            QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+        QRegularExpressionMatch insertMatch = insertValuesRx.match(trimmedSql);
+        if (!insertMatch.hasMatch()) {
+            return "[Blocked: INSERT must use explicit column list and VALUES(...) so constraints can be validated]";
+        }
+
+        QString insertTableName = insertMatch.captured(1).toUpper();
+        QString columnsChunk = insertMatch.captured(2).trimmed();
+        QString valuesChunk = insertMatch.captured(3).trimmed();
+
+        auto splitTopLevelCsv = [](const QString &input) {
+            QStringList out;
+            QString current;
+            current.reserve(input.size());
+            bool inLiteral = false;
+            int parenDepth = 0;
+
+            for (int i = 0; i < input.size(); ++i) {
+                const QChar ch = input.at(i);
+
+                if (ch == '\'') {
+                    current.append(ch);
+                    if (inLiteral && i + 1 < input.size() && input.at(i + 1) == '\'') {
+                        current.append('\'');
+                        ++i;
+                        continue;
+                    }
+                    inLiteral = !inLiteral;
+                    continue;
+                }
+
+                if (!inLiteral) {
+                    if (ch == '(') {
+                        ++parenDepth;
+                    } else if (ch == ')') {
+                        if (parenDepth > 0) --parenDepth;
+                    } else if (ch == ',' && parenDepth == 0) {
+                        out << current.trimmed();
+                        current.clear();
+                        continue;
+                    }
+                }
+
+                current.append(ch);
+            }
+
+            if (!current.trimmed().isEmpty()) {
+                out << current.trimmed();
+            }
+            return out;
+        };
+
+        QStringList insertColumns = splitTopLevelCsv(columnsChunk);
+        QStringList insertValues = splitTopLevelCsv(valuesChunk);
+
+        if (insertColumns.isEmpty() || insertValues.isEmpty() || insertColumns.size() != insertValues.size()) {
+            return "[Blocked: invalid INSERT column/value mapping]";
+        }
+
+        for (int i = 0; i < insertColumns.size(); ++i) {
+            QString col = insertColumns.at(i).trimmed().toUpper();
+            if (col.startsWith('"') && col.endsWith('"') && col.size() >= 2) {
+                col = col.mid(1, col.size() - 2);
+            }
+            insertColumns[i] = col;
+        }
+
+        QSqlQuery requiredCols;
+        requiredCols.prepare(
+            "SELECT COLUMN_NAME, DATA_DEFAULT "
+            "FROM USER_TAB_COLUMNS "
+            "WHERE TABLE_NAME = :table AND NULLABLE = 'N'");
+        requiredCols.bindValue(":table", insertTableName);
+
+        if (!requiredCols.exec()) {
+            return "[Error: failed to read table constraints before INSERT: " + requiredCols.lastError().text() + "]";
+        }
+
+        while (requiredCols.next()) {
+            const QString requiredCol = requiredCols.value(0).toString().toUpper();
+            const QString defaultExpr = requiredCols.value(1).toString().trimmed();
+
+            const int idx = insertColumns.indexOf(requiredCol);
+            const bool hasDefault = !defaultExpr.isEmpty();
+
+            if (idx < 0) {
+                if (!hasDefault) {
+                    return "[Blocked: INSERT missing required column " + requiredCol + " on table " + insertTableName + "]";
+                }
+                continue;
+            }
+
+            const QString valueExpr = insertValues.at(idx).trimmed();
+            if (valueExpr.compare("NULL", Qt::CaseInsensitive) == 0) {
+                return "[Blocked: column " + requiredCol + " cannot be NULL]";
+            }
+        }
+
+        if (insertTableName == "ORDERS") {
+            const int typeIdx = insertColumns.indexOf("ORDER_TYPE");
+            if (typeIdx >= 0) {
+                QString typeExpr = insertValues.at(typeIdx).trimmed();
+                QString typeValue = typeExpr;
+                if (typeExpr.startsWith('\'') && typeExpr.endsWith('\'') && typeExpr.size() >= 2) {
+                    typeValue = typeExpr.mid(1, typeExpr.size() - 2);
+                    typeValue.replace("''", "'");
+                }
+
+                const QStringList allowedOrderTypes = {"Chair", "Table", "Cabinet", "Wardrobe", "Other"};
+                bool okType = false;
+                for (const QString &allowed : allowedOrderTypes) {
+                    if (typeValue.compare(allowed, Qt::CaseInsensitive) == 0) {
+                        okType = true;
+                        break;
+                    }
+                }
+                if (!okType) {
+                    return "[Blocked: ORDERS.ORDER_TYPE must be one of Chair, Table, Cabinet, Wardrobe, Other]";
+                }
+            }
+        }
+
+        if (insertTableName == "SUPPLIERS") {
+            const int phoneIdx = insertColumns.indexOf("PHONE_NUMBER");
+            if (phoneIdx >= 0) {
+                QString phoneExpr = insertValues.at(phoneIdx).trimmed();
+                QString phoneValue = phoneExpr;
+                if (phoneExpr.startsWith('\'') && phoneExpr.endsWith('\'') && phoneExpr.size() >= 2) {
+                    phoneValue = phoneExpr.mid(1, phoneExpr.size() - 2);
+                    phoneValue.replace("''", "'");
+                }
+                QRegularExpression phone8Rx("^\\d{8}$");
+                if (!phone8Rx.match(phoneValue).hasMatch()) {
+                    return "[Blocked: SUPPLIERS.PHONE_NUMBER must be exactly 8 digits without +216 (example: 12345678)]";
+                }
+            }
         }
     }
 

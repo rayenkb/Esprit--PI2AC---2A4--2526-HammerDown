@@ -362,6 +362,8 @@ private slots:
     void onChatGifClicked();
     void onChatSearchToggle();
     void onWeatherAssistantClicked();
+    void setupChatForgeVisuals();
+    void enforceChatTabTopOffset();
     void onMapNetworkFinished(QNetworkReply *reply);
     
     // Voice Slotes
@@ -430,6 +432,7 @@ private:
     QCompleter *m_chatCompleter = nullptr;
     QStringListModel *m_completerModel = nullptr;
     EquipmentHoverCard *m_hoverCard = nullptr;
+    QWidget *m_chatAmbientLayer = nullptr;
     
     // Employee Management Face Recognition
     QCamera *m_empCamera = nullptr;

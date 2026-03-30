@@ -242,6 +242,873 @@ void StatCard::updateData(const QString &value, const QString &trendText, bool i
     m_trendLbl->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: bold; border:none;").arg(color));
 }
 
+namespace {
+
+struct EquipmentRankingEntry {
+    int id = 0;
+    QString name;
+    QString type;
+    QString status;
+    int quantity = 0;
+    double unitPrice = 0.0;
+};
+
+struct EquipmentStatsVisualData {
+    int total = 0;
+    int available = 0;
+    int inUse = 0;
+    int maintenance = 0;
+    int retired = 0;
+    double totalValue = 0.0;
+
+    int lastMonthTotal = 0;
+    double lastMonthValue = 0.0;
+
+    QVector<EquipmentRankingEntry> ranking;
+    QStringList months;
+    QVector<int> monthlyAdded;
+    QVector<int> monthlyMaintenance;
+
+    QString mostActiveName;
+    int mostActiveEvents = 0;
+
+    QString newestName;
+    QDate newestDate;
+    int newestDays = 0;
+
+    double avgAgeYears = 0.0;
+    QString oldestName;
+    QString newestAgeName;
+
+    QVector<double> radarScores;
+};
+
+static qreal clamp01(qreal v) {
+    return qBound<qreal>(0.0, v, 1.0);
+}
+
+static qreal easeSin(qreal t) {
+    return qSin(clamp01(t) * M_PI_2);
+}
+
+class EquipmentStatsCanvas final : public QWidget {
+public:
+    explicit EquipmentStatsCanvas(QWidget *parent = nullptr) : QWidget(parent) {
+        setMouseTracking(true);
+        m_frameTimer.setInterval(16);
+        connect(&m_frameTimer, &QTimer::timeout, this, [this]() {
+            m_globalTime += 0.016;
+            update();
+        });
+        m_frameTimer.start();
+        restartAnimations();
+    }
+
+    void setData(const EquipmentStatsVisualData &data) {
+        m_data = data;
+        restartAnimations();
+        update();
+    }
+
+    void restartAnimations() {
+        m_bootMs = QDateTime::currentMSecsSinceEpoch();
+    }
+
+protected:
+    void mouseMoveEvent(QMouseEvent *event) override {
+        const QPointF pos = event->position();
+        m_hoveredPanel = -1;
+        for (int i = 0; i < m_panelRects.size(); ++i) {
+            if (m_panelRects[i].contains(pos)) {
+                m_hoveredPanel = i;
+                break;
+            }
+        }
+
+        int oldSeg = m_hoveredSegment;
+        m_hoveredSegment = -1;
+        if (m_donutOuter > 1.0 && m_donutInner > 1.0) {
+            const qreal d = QLineF(m_donutCenter, pos).length();
+            if (d >= m_donutInner && d <= m_donutOuter + 16.0) {
+                qreal angle = QLineF(m_donutCenter, pos).angle();
+                qreal fromTopCW = 90.0 - angle;
+                if (fromTopCW < 0) fromTopCW += 360.0;
+                for (int i = 0; i < m_segmentRanges.size(); ++i) {
+                    const qreal s = m_segmentRanges[i].first;
+                    const qreal e = m_segmentRanges[i].second;
+                    if (fromTopCW >= s && fromTopCW < e) {
+                        m_hoveredSegment = i;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (m_hoveredSegment >= 0 && m_hoveredSegment < 4) {
+            const int total = qMax(1, m_data.total + m_data.retired);
+            const int value = (m_hoveredSegment == 0) ? m_data.available
+                            : (m_hoveredSegment == 1) ? m_data.inUse
+                            : (m_hoveredSegment == 2) ? m_data.maintenance
+                            : m_data.retired;
+            const QString name = (m_hoveredSegment == 0) ? "Available"
+                               : (m_hoveredSegment == 1) ? "In Use"
+                               : (m_hoveredSegment == 2) ? "Maintenance"
+                               : "Retired";
+            const qreal pct = 100.0 * value / total;
+            QToolTip::showText(event->globalPosition().toPoint(), QString("%1: %2 (%3%)").arg(name).arg(value).arg(QString::number(pct, 'f', 1)), this);
+        } else {
+            QToolTip::hideText();
+        }
+
+        if (oldSeg != m_hoveredSegment) {
+            update();
+        }
+        QWidget::mouseMoveEvent(event);
+    }
+
+    void leaveEvent(QEvent *event) override {
+        m_hoveredPanel = -1;
+        m_hoveredSegment = -1;
+        QToolTip::hideText();
+        update();
+        QWidget::leaveEvent(event);
+    }
+
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setRenderHint(QPainter::TextAntialiasing, true);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+        const QRectF canvas = rect();
+        drawBackground(p, canvas);
+
+        const QRectF content = canvas.adjusted(16, 46, -16, -14);
+        const QRectF header(content.left(), content.top(), content.width(), 112.0);
+        drawHeader(p, header);
+
+        const qreal gap = 8.0;
+        const qreal cardsH = 90.0;
+        const qreal topY = header.bottom() + 10.0;
+        const qreal usableH = content.bottom() - topY;
+        const qreal gridH = qMax<qreal>(240.0, usableH - cardsH - 12.0);
+        const qreal panelW = (content.width() - gap) * 0.5;
+        const qreal panelH = (gridH - gap) * 0.5;
+
+        m_panelRects.clear();
+        m_panelRects << QRectF(content.left(), topY, panelW, panelH)
+                     << QRectF(content.left() + panelW + gap, topY, panelW, panelH)
+                     << QRectF(content.left(), topY + panelH + gap, panelW, panelH)
+                     << QRectF(content.left() + panelW + gap, topY + panelH + gap, panelW, panelH);
+
+        drawPanelDonut(p, m_panelRects[0]);
+        drawPanelRanking(p, m_panelRects[1]);
+        drawPanelTimeline(p, m_panelRects[2]);
+        drawPanelRadar(p, m_panelRects[3]);
+
+        const qreal cardY = topY + gridH + 12.0;
+        const qreal cardW = (content.width() - 2.0 * gap) / 3.0;
+        drawBottomCards(p,
+                        QRectF(content.left(), cardY, cardW, cardsH),
+                        QRectF(content.left() + cardW + gap, cardY, cardW, cardsH),
+                        QRectF(content.left() + 2.0 * (cardW + gap), cardY, cardW, cardsH));
+    }
+
+private:
+    qreal elapsedSec() const {
+        return (QDateTime::currentMSecsSinceEpoch() - m_bootMs) / 1000.0;
+    }
+
+    void drawBackground(QPainter &p, const QRectF &r) {
+        QRadialGradient deep(r.center(), qMax(r.width(), r.height()) * 0.62);
+        deep.setColorAt(0.0, QColor("#1A0E06"));
+        deep.setColorAt(0.40, QColor("#0F0804"));
+        deep.setColorAt(1.0, QColor("#000000"));
+        p.fillRect(r, deep);
+
+        p.setPen(QPen(QColor(139, 90, 43, 8), 1));
+        const int lines = 55;
+        for (int i = 0; i < lines; ++i) {
+            const qreal yy = r.top() + (r.height() * i) / (lines - 1.0);
+            QPainterPath path;
+            path.moveTo(r.left(), yy);
+            for (qreal x = r.left(); x <= r.right(); x += 14.0) {
+                const qreal y = yy + qSin(x * 0.012 + i * 0.25) * 2.0;
+                path.lineTo(x, y);
+            }
+            p.drawPath(path);
+        }
+
+        for (int i = 0; i < 180; ++i) {
+            const qreal seed = i * 27.0;
+            const qreal speed = 10.0 + (i % 7) * 3.0;
+            qreal y = r.bottom() - std::fmod(m_globalTime * speed + seed, r.height() + 40.0);
+            qreal x = r.left() + (i * 43 % int(r.width())) + qSin(m_globalTime * 0.18 + i * 0.85) * 1.2;
+            const qreal sz = 1.0 + (i % 2);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(193, 127, 62, 13));
+            p.drawEllipse(QPointF(x, y), sz, sz);
+        }
+
+        const qreal b = 0.5 + 0.5 * qSin(m_globalTime * 0.22);
+        auto drawGlow = [&](const QPointF &c, qreal radius, const QColor &col, qreal alphaScale) {
+            QColor cc = col;
+            cc.setAlphaF(alphaScale * (0.65 + 0.35 * b));
+            QRadialGradient g(c, radius);
+            g.setColorAt(0.0, cc);
+            QColor t = cc;
+            t.setAlpha(0);
+            g.setColorAt(1.0, t);
+            p.setBrush(g);
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(c, radius, radius);
+        };
+
+        drawGlow(QPointF(r.right() - r.width() * 0.18, r.top() + r.height() * 0.18), r.width() * 0.40, QColor("#C17F3E"), 0.05);
+        drawGlow(QPointF(r.left() + r.width() * 0.22, r.bottom() - r.height() * 0.18), r.width() * 0.32, QColor("#8B5A2B"), 0.03);
+        drawGlow(r.center(), r.width() * 0.50, QColor("#C17F3E"), 0.03);
+    }
+
+    void drawHeader(QPainter &p, const QRectF &rect) {
+        QLinearGradient g(rect.topLeft(), rect.bottomRight());
+        g.setColorAt(0.0, QColor("#1E1108"));
+        g.setColorAt(1.0, QColor("#0D0805"));
+        p.setPen(Qt::NoPen);
+        p.setBrush(g);
+        p.drawRoundedRect(rect, 12, 12);
+
+        QLinearGradient border(rect.left(), rect.bottom(), rect.right(), rect.bottom());
+        border.setColorAt(0.0, QColor(0, 0, 0, 0));
+        border.setColorAt(0.35, QColor("#C17F3E"));
+        border.setColorAt(0.55, QColor("#FF6600"));
+        border.setColorAt(1.0, QColor(0, 0, 0, 0));
+        p.setPen(QPen(border, 1.5));
+        p.drawLine(QPointF(rect.left() + 14, rect.bottom() - 1), QPointF(rect.right() - 14, rect.bottom() - 1));
+
+        const QPointF symCenter(rect.left() + 26, rect.top() + 32);
+        QPainterPath oct;
+        const qreal rr = 10.0;
+        const qreal rot = m_globalTime * 15.0;
+        for (int i = 0; i < 8; ++i) {
+            qreal a = qDegreesToRadians(rot + i * 45.0 - 90.0);
+            QPointF pt(symCenter.x() + rr * qCos(a), symCenter.y() + rr * qSin(a));
+            if (i == 0) oct.moveTo(pt); else oct.lineTo(pt);
+        }
+        oct.closeSubpath();
+        QRadialGradient og(symCenter, 18);
+        og.setColorAt(0.0, QColor("#FFD700"));
+        og.setColorAt(1.0, QColor("#C17F3E"));
+        p.setBrush(og);
+        p.setPen(QPen(QColor(255, 215, 0, 130), 1));
+        p.drawPath(oct);
+
+        QRadialGradient glow(symCenter, 18);
+        glow.setColorAt(0.0, QColor(193, 127, 62, 52));
+        glow.setColorAt(1.0, QColor(193, 127, 62, 0));
+        p.setPen(Qt::NoPen);
+        p.setBrush(glow);
+        p.drawEllipse(symCenter, 18, 18);
+
+        const QString title = QString::fromUtf8("◈ WORKSHOP STATISTICS");
+        const QPointF tpos(rect.left() + 46, rect.top() + 48);
+        QFont tf("Segoe UI", 22, QFont::Bold);
+        p.setFont(tf);
+        p.setPen(QColor(0, 0, 0, 217));
+        p.drawText(tpos + QPointF(3, 4), title);
+        p.setPen(QColor(107, 58, 26, 153));
+        p.drawText(tpos + QPointF(1, 2), title);
+        p.setPen(QColor("#C17F3E"));
+        p.drawText(tpos, title);
+
+        QFontMetrics fm(tf);
+        QRect tr = fm.boundingRect(title);
+        QRectF clipRect(tpos.x(), tpos.y() - tr.height() + 2, tr.width(), tr.height() * 0.38);
+        p.save();
+        p.setClipRect(clipRect);
+        p.setPen(QColor(255, 212, 160, 102));
+        p.drawText(tpos, title);
+        p.restore();
+
+        QFont sf("Segoe UI", 10, QFont::DemiBold);
+        sf.setLetterSpacing(QFont::AbsoluteSpacing, 3.0);
+        p.setFont(sf);
+        QColor sc("#F5E6D3");
+        sc.setAlphaF(0.35 + 0.15 * (0.5 + 0.5 * qSin(m_globalTime * 0.4)));
+        p.setPen(sc);
+        p.drawText(QPointF(rect.left() + 48, rect.top() + 76), "REAL-TIME EQUIPMENT INTELLIGENCE");
+
+        const qreal uw = tr.width() * (0.5 + 0.5 * qSin(m_globalTime * 0.7));
+        const qreal ux = rect.left() + 48 + tr.width() * 0.5 - uw * 0.5;
+        QLinearGradient ug(ux, 0, ux + uw, 0);
+        ug.setColorAt(0.0, QColor(0, 0, 0, 0));
+        ug.setColorAt(0.45, QColor("#C17F3E"));
+        ug.setColorAt(0.75, QColor("#FFD700"));
+        ug.setColorAt(1.0, QColor(0, 0, 0, 0));
+        p.setPen(QPen(ug, 1.5));
+        p.drawLine(QPointF(ux, rect.top() + 84), QPointF(ux + uw, rect.top() + 84));
+
+        const QVector<QColor> kpiColors = {QColor("#C17F3E"), QColor("#4CAF7D"), QColor("#F59E0B"), QColor("#FFD700")};
+        const QVector<QString> labels = {"TOTAL EQUIPMENT", "AVAILABLE NOW", "IN MAINTENANCE", "TOTAL VALUE (dt)"};
+        const QVector<double> values = {
+            (double)(m_data.total + m_data.retired),
+            (double)m_data.available,
+            (double)m_data.maintenance,
+            m_data.totalValue
+        };
+
+        const qreal boxW = 160.0;
+        const qreal boxH = 64.0;
+        const qreal startX = rect.right() - (boxW * 4.0 + 24.0);
+        const qreal y = rect.bottom() - boxH - 10.0;
+        const qreal t = elapsedSec();
+        const qreal cnt = easeSin(t / 1.4);
+
+        for (int i = 0; i < 4; ++i) {
+            QRectF b(startX + i * boxW + i * 8, y, boxW, boxH);
+            QColor c = kpiColors[i];
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(0, 0, 0, 153));
+            p.drawRoundedRect(b.translated(2, 3), 10, 10);
+
+            QLinearGradient bg(b.topLeft(), b.bottomRight());
+            bg.setColorAt(0.0, QColor("#1E1510"));
+            bg.setColorAt(1.0, QColor("#0D0805"));
+            p.setBrush(bg);
+            p.setPen(QPen(QColor(193, 127, 62, 130), 1));
+            p.drawRoundedRect(b, 10, 10);
+
+            p.fillRect(QRectF(b.left() + 1, b.top() + 1, b.width() - 2, 2), c);
+            p.fillRect(QRectF(b.left() + 1, b.bottom() - 3, b.width() - 2, 3), QColor(0, 0, 0, 130));
+            p.fillRect(QRectF(b.right() - 2, b.top() + 2, 2, b.height() - 4), QColor(0, 0, 0, 120));
+            p.fillRect(QRectF(b.left() + 1, b.top() + 1, b.width() * 0.55, 1), QColor(245, 230, 211, 35));
+
+            if (i < 3) {
+                QLinearGradient sep(b.right() + 4, b.top(), b.right() + 4, b.bottom());
+                sep.setColorAt(0.0, QColor(0, 0, 0, 0));
+                sep.setColorAt(0.5, QColor(193, 127, 62, 50));
+                sep.setColorAt(1.0, QColor(0, 0, 0, 0));
+                p.setPen(QPen(sep, 1));
+                p.drawLine(QPointF(b.right() + 4, b.top() + 8), QPointF(b.right() + 4, b.bottom() - 8));
+            }
+
+            QFont lf("Segoe UI", 8, QFont::DemiBold);
+            lf.setLetterSpacing(QFont::AbsoluteSpacing, 1.0);
+            p.setFont(lf);
+            p.setPen(QColor(245, 230, 211, 170));
+            p.drawText(QRectF(b.left() + 28, b.top() + 8, b.width() - 34, 14), Qt::AlignLeft | Qt::AlignVCenter, labels[i]);
+
+            const qreal breath = 1.0 + 0.015 * qSin(m_globalTime * 1.2 + i);
+            QFont nf("Segoe UI", int(22 * breath), QFont::Bold);
+            p.setFont(nf);
+            p.setPen(c);
+            const qreal shown = values[i] * cnt;
+            const QString txt = (i == 3) ? QString::number(shown, 'f', 0) : QString::number((int)qRound(shown));
+            p.drawText(QRectF(b.left() + 26, b.top() + 22, b.width() - 30, 34), Qt::AlignLeft | Qt::AlignVCenter, txt);
+
+            p.setPen(c);
+            p.setBrush(Qt::NoBrush);
+            if (i == 0) {
+                QPainterPath hammer;
+                hammer.moveTo(b.left() + 10, b.top() + 43);
+                hammer.lineTo(b.left() + 15, b.top() + 36);
+                hammer.lineTo(b.left() + 18, b.top() + 38);
+                hammer.lineTo(b.left() + 13, b.top() + 45);
+                hammer.addRect(QRectF(b.left() + 9, b.top() + 32, 9, 3));
+                p.drawPath(hammer);
+            } else if (i == 1) {
+                p.drawEllipse(QPointF(b.left() + 14, b.top() + 40), 6, 6);
+                p.drawLine(QPointF(b.left() + 11, b.top() + 40), QPointF(b.left() + 13, b.top() + 42));
+                p.drawLine(QPointF(b.left() + 13, b.top() + 42), QPointF(b.left() + 17, b.top() + 38));
+            } else if (i == 2) {
+                p.drawLine(QPointF(b.left() + 9, b.top() + 44), QPointF(b.left() + 18, b.top() + 35));
+                p.drawEllipse(QPointF(b.left() + 19, b.top() + 34), 2, 2);
+                p.drawLine(QPointF(b.left() + 11, b.top() + 41), QPointF(b.left() + 14, b.top() + 44));
+            } else {
+                QPainterPath d;
+                d.moveTo(b.left() + 14, b.top() + 31);
+                d.lineTo(b.left() + 19, b.top() + 36);
+                d.lineTo(b.left() + 14, b.top() + 41);
+                d.lineTo(b.left() + 9, b.top() + 36);
+                d.closeSubpath();
+                p.drawPath(d);
+            }
+        }
+    }
+
+    void drawPanelFrame(QPainter &p, const QRectF &r, const QString &title, const QColor &accent, const QString &sub, int panelIndex) {
+        const qreal appear = easeSin((elapsedSec() - panelIndex * 0.08) / 0.4);
+        p.save();
+        p.setOpacity(appear);
+
+        const bool hovered = (panelIndex == m_hoveredPanel);
+        const QPointF sh = hovered ? QPointF(6, 9) : QPointF(4, 6);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0, 0, 0, hovered ? 153 : 127));
+        p.drawRoundedRect(r.translated(sh), 16, 16);
+
+        QLinearGradient bg(r.topLeft(), r.bottomRight());
+        bg.setColorAt(0.0, QColor("#1A1208"));
+        bg.setColorAt(1.0, QColor("#0A0804"));
+        p.setBrush(bg);
+        p.setPen(QPen(QColor(193, 127, 62, hovered ? 115 : 64), 1));
+        p.drawRoundedRect(r, 16, 16);
+
+        QLinearGradient ag(r.left(), r.top(), r.right(), r.top());
+        ag.setColorAt(0.0, QColor(0, 0, 0, 0));
+        ag.setColorAt(0.5, accent);
+        ag.setColorAt(1.0, QColor(0, 0, 0, 0));
+        p.fillRect(QRectF(r.left() + 8, r.top() + 6, r.width() - 16, 2), ag);
+        QColor glow = accent; glow.setAlpha(40);
+        p.fillRect(QRectF(r.left() + 8, r.top() + 8, r.width() - 16, 12), glow);
+
+        p.setFont(QFont("Segoe UI", 12, QFont::Bold));
+        p.setPen(QColor("#F5E6D3"));
+        p.drawText(QRectF(r.left() + 14, r.top() + 12, r.width() - 130, 18), Qt::AlignLeft | Qt::AlignVCenter, title);
+        p.setPen(accent);
+        p.drawText(QRectF(r.right() - 120, r.top() + 12, 106, 18), Qt::AlignRight | Qt::AlignVCenter, sub);
+        p.setPen(QPen(QColor("#1E1508"), 1));
+        p.drawLine(QPointF(r.left() + 10, r.top() + 36), QPointF(r.right() - 10, r.top() + 36));
+        p.restore();
+    }
+
+    void drawPanelDonut(QPainter &p, const QRectF &panel) {
+        const int all = m_data.total + m_data.retired;
+        drawPanelFrame(p, panel, "STATUS DISTRIBUTION", QColor("#C17F3E"), QString::number(all), 0);
+
+        const QRectF body = panel.adjusted(12, 42, -12, -10);
+        const QRectF chartRect(body.left() + 6, body.top() + 6, body.width() * 0.62, body.height() - 12);
+        const QPointF c = chartRect.center();
+        const qreal r = qMin(chartRect.width(), chartRect.height()) * 0.42;
+        const qreal inner = r * 0.52;
+
+        m_donutCenter = c;
+        m_donutInner = inner;
+        m_donutOuter = r;
+        m_segmentRanges.clear();
+
+        const QVector<int> vals = {m_data.available, m_data.inUse, m_data.maintenance, m_data.retired};
+        const QVector<QString> names = {"Available", "In Use", "Maintenance", "Retired"};
+        const QVector<QColor> colors = {QColor("#4CAF7D"), QColor("#C17F3E"), QColor("#F59E0B"), QColor("#6B7280")};
+        const qreal total = qMax(1, all);
+
+        qreal consumed = 0.0;
+        for (int i = 0; i < vals.size(); ++i) {
+            const qreal span = 360.0 * vals[i] / total;
+            const qreal segProg = easeSin((elapsedSec() - i * 0.1) / 0.35);
+            const qreal visSpan = span * segProg;
+            const qreal start = consumed;
+            const qreal mid = start + visSpan * 0.5;
+            const qreal hoverOut = (i == m_hoveredSegment) ? 10.0 : 0.0;
+            const qreal dim = (m_hoveredSegment >= 0 && m_hoveredSegment != i) ? 0.65 : 1.0;
+
+            m_segmentRanges.push_back({consumed, consumed + span});
+
+            const qreal theta = qDegreesToRadians(-90.0 + mid);
+            const QPointF segC(c.x() + qCos(theta) * hoverOut, c.y() + qSin(theta) * hoverOut);
+
+            QRectF baseOuter(segC.x() - (r + 10), segC.y() - (r + 10), 2 * (r + 10), 2 * (r + 10));
+            QRectF baseInner(segC.x() - inner, segC.y() - inner, 2 * inner, 2 * inner);
+            QPainterPath baseRing;
+            baseRing.addEllipse(baseOuter.translated(5, 7));
+            baseRing.addEllipse(baseInner.translated(5, 7));
+            baseRing.setFillRule(Qt::OddEvenFill);
+            p.save();
+            p.setClipPath(baseRing);
+            QColor sh = colors[i];
+            sh.setAlphaF(0.30 * dim);
+            p.setBrush(sh);
+            p.setPen(Qt::NoPen);
+            p.drawPie(baseOuter.translated(5, 7), qRound((90 - start) * 16), -qRound(visSpan * 16));
+            p.restore();
+
+            QRectF o(segC.x() - r, segC.y() - r, 2 * r, 2 * r);
+            QRectF in(segC.x() - inner, segC.y() - inner, 2 * inner, 2 * inner);
+            QPainterPath ring;
+            ring.addEllipse(o);
+            ring.addEllipse(in);
+            ring.setFillRule(Qt::OddEvenFill);
+            p.save();
+            p.setClipPath(ring);
+            QConicalGradient cg(segC, 90 - start);
+            QColor c0 = colors[i]; c0.setAlphaF(dim);
+            QColor c1 = colors[i].darker(125); c1.setAlphaF(dim * 0.90);
+            cg.setColorAt(0.0, c0);
+            cg.setColorAt(1.0, c1);
+            p.setBrush(cg);
+            p.setPen(QPen(QColor(0, 0, 0, 80), 1));
+            p.drawPie(o, qRound((90 - start) * 16), -qRound(visSpan * 16));
+            p.restore();
+
+            p.setPen(QPen(colors[i].lighter(140), 4));
+            p.setBrush(Qt::NoBrush);
+            p.drawArc(o.adjusted(-1, -1, 1, 1), qRound((90 - start) * 16), -qRound(visSpan * 16));
+
+            if (span > 0) {
+                const qreal bd = qDegreesToRadians(-90.0 + consumed + span);
+                p.setPen(QPen(QColor(0, 0, 0), 2));
+                p.drawLine(QPointF(segC.x() + qCos(bd) * inner, segC.y() + qSin(bd) * inner), QPointF(segC.x() + qCos(bd) * r, segC.y() + qSin(bd) * r));
+            }
+
+            consumed += span;
+        }
+
+        QRadialGradient hole(c, inner);
+        hole.setColorAt(0.0, QColor("#1A0E06"));
+        hole.setColorAt(0.55, QColor("#0D0805"));
+        hole.setColorAt(1.0, QColor("#1A1208"));
+        p.setBrush(hole);
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(c, inner, inner);
+        p.setPen(QPen(QColor(0, 0, 0, 178), 6));
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(QRectF(c.x() - inner, c.y() - inner, inner * 2, inner * 2), 0, 360 * 16);
+
+        const qreal centerCount = (m_data.total + m_data.retired) * easeSin(elapsedSec() / 1.4);
+        p.setFont(QFont("Segoe UI", 26, QFont::Bold));
+        p.setPen(QColor("#C17F3E"));
+        p.drawText(QRectF(c.x() - 70, c.y() - 18, 140, 36), Qt::AlignCenter, QString::number((int)qRound(centerCount)));
+        p.setFont(QFont("Segoe UI", 9, QFont::DemiBold));
+        p.setPen(QColor(245, 230, 211, 115));
+        p.drawText(QRectF(c.x() - 70, c.y() + 12, 140, 18), Qt::AlignCenter, "TOTAL");
+
+        const QRectF legend(body.left() + body.width() * 0.66, body.top() + 12, body.width() * 0.33, body.height() - 24);
+        qreal ly = legend.top();
+        for (int i = 0; i < names.size(); ++i) {
+            QColor col = colors[i];
+            qreal pct = 100.0 * vals[i] / total;
+            p.setPen(Qt::NoPen);
+            QColor glow = col; glow.setAlpha(80);
+            p.setBrush(glow);
+            p.drawRoundedRect(QRectF(legend.left(), ly + 2, 10, 10), 2, 2);
+            p.setBrush(col);
+            p.drawRoundedRect(QRectF(legend.left() + 1, ly + 3, 8, 8), 2, 2);
+
+            p.setFont(QFont("Segoe UI", 10));
+            p.setPen(QColor("#F5E6D3"));
+            p.drawText(QRectF(legend.left() + 16, ly, 82, 14), Qt::AlignLeft | Qt::AlignVCenter, names[i]);
+
+            p.setFont(QFont("Segoe UI", 10, QFont::Bold));
+            p.setPen(col);
+            p.drawText(QRectF(legend.left() + 98, ly, 40, 14), Qt::AlignLeft | Qt::AlignVCenter, QString::number(vals[i]));
+
+            p.setFont(QFont("Segoe UI", 9));
+            p.setPen(QColor(245, 230, 211, 128));
+            p.drawText(QRectF(legend.left() + 136, ly, 52, 14), Qt::AlignLeft | Qt::AlignVCenter, QString::number(pct, 'f', 1) + "%");
+            ly += 24;
+        }
+    }
+
+    void drawPanelRanking(QPainter &p, const QRectF &panel) {
+        drawPanelFrame(p, panel, "EQUIPMENT VALUE RANKING", QColor("#FFD700"), QString::number(m_data.ranking.size()), 1);
+        QRectF body = panel.adjusted(10, 44, -10, -10);
+
+        const int rows = qMin(8, m_data.ranking.size());
+        if (rows == 0) return;
+        qreal maxVal = 1.0;
+        for (int i = 0; i < rows; ++i) maxVal = qMax(maxVal, m_data.ranking[i].unitPrice);
+
+        const qreal rowH = qMin(42.0, body.height() / rows);
+        for (int i = 0; i < rows; ++i) {
+            QRectF row(body.left(), body.top() + i * rowH, body.width(), rowH - 2);
+            QColor rowBg = (i % 2 == 0) ? QColor("#0D0805") : QColor("#110A06");
+            if (m_hoveredPanel == 1 && row.contains(mapFromGlobal(QCursor::pos()))) rowBg = QColor("#1E1408");
+            p.fillRect(row, rowBg);
+
+            const EquipmentRankingEntry &e = m_data.ranking[i];
+            p.setFont(QFont("Segoe UI", 11, QFont::Bold));
+            p.setPen(QColor("#F5E6D3"));
+            p.drawText(QRectF(row.left() + 6, row.top() + 3, 160, 16), Qt::AlignLeft, e.name.left(20));
+            p.setFont(QFont("Segoe UI", 9));
+            p.setPen(QColor(245, 230, 211, 102));
+            p.drawText(QRectF(row.left() + 6, row.top() + 20, 160, 14), Qt::AlignLeft, e.status);
+
+            const qreal areaLeft = row.left() + 170;
+            const qreal areaW = row.width() - 250;
+            const qreal t = easeSin((elapsedSec() - i * 0.07) / 0.7);
+            const qreal bw = areaW * (e.unitPrice / maxVal) * t;
+
+            QRectF sh(areaLeft + 4, row.center().y() - 5, bw, 14);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(193, 127, 62, 51));
+            p.drawRoundedRect(sh, 7, 7);
+
+            QRectF bar(areaLeft, row.center().y() - 9, bw, 18);
+            QLinearGradient bg(bar.topLeft(), bar.topRight());
+            bg.setColorAt(0.0, QColor("#FFD700"));
+            bg.setColorAt(0.5, QColor("#C17F3E"));
+            bg.setColorAt(1.0, QColor("#8B4A1E"));
+            p.setBrush(bg);
+            p.drawRoundedRect(bar, 9, 9);
+
+            p.setPen(QPen(QColor(255, 224, 102, 150), 1.5));
+            p.drawLine(QPointF(bar.left() + 2, bar.top() + 1), QPointF(bar.right() - 2, bar.top() + 1));
+
+            if (bw > 30) {
+                qreal shimmerX = std::fmod(m_globalTime * 50.0 + i * 30.0, bw);
+                qreal op = qSin((shimmerX / qMax<qreal>(1.0, bw)) * M_PI) * 0.25;
+                QColor shc(255, 255, 255, int(op * 255));
+                p.fillRect(QRectF(bar.left() + shimmerX, bar.top() + 2, 20, bar.height() - 4), shc);
+            }
+
+            p.setFont(QFont("Segoe UI", 11, QFont::Bold));
+            p.setPen(QColor("#FFD700"));
+            p.drawText(QRectF(row.right() - 80, row.top(), 76, row.height()), Qt::AlignRight | Qt::AlignVCenter,
+                       QString::number(e.unitPrice, 'f', 0) + " dt");
+        }
+    }
+
+    void drawPanelTimeline(QPainter &p, const QRectF &panel) {
+        drawPanelFrame(p, panel, "WORKSHOP ACTIVITY TIMELINE", QColor("#3B82F6"), QString::number(m_data.months.size()), 2);
+
+        QRectF body = panel.adjusted(14, 46, -14, -14);
+        p.setPen(QPen(QColor("#1E1508"), 1));
+        p.setBrush(QColor("#080503"));
+        p.drawRoundedRect(body, 8, 8);
+
+        if (m_data.months.isEmpty()) return;
+
+        const int n = m_data.months.size();
+        int maxY = 1;
+        for (int v : m_data.monthlyAdded) maxY = qMax(maxY, v);
+        for (int v : m_data.monthlyMaintenance) maxY = qMax(maxY, v);
+
+        QRectF plot = body.adjusted(42, 16, -10, -28);
+        p.setPen(QPen(QColor(193, 127, 62, 20), 1));
+        for (int i = 0; i < 4; ++i) {
+            qreal y = plot.bottom() - i * (plot.height() / 3.0);
+            p.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
+            p.setFont(QFont("Segoe UI", 9));
+            p.setPen(QColor(193, 127, 62, 150));
+            p.drawText(QRectF(body.left(), y - 8, 34, 16), Qt::AlignRight | Qt::AlignVCenter, QString::number((maxY * i) / 3));
+            p.setPen(QPen(QColor(193, 127, 62, 20), 1));
+        }
+
+        QVector<QPointF> addPts;
+        QVector<QPointF> mntPts;
+        for (int i = 0; i < n; ++i) {
+            qreal x = plot.left() + (n == 1 ? 0.0 : (plot.width() * i / (n - 1.0)));
+            qreal y1 = plot.bottom() - (plot.height() * m_data.monthlyAdded.value(i) / maxY);
+            qreal y2 = plot.bottom() - (plot.height() * m_data.monthlyMaintenance.value(i) / maxY);
+            addPts << QPointF(x, y1);
+            mntPts << QPointF(x, y2);
+            p.setPen(QColor(245, 230, 211, 120));
+            p.setFont(QFont("Segoe UI", 9));
+            p.drawText(QRectF(x - 20, plot.bottom() + 6, 40, 14), Qt::AlignCenter, m_data.months[i]);
+        }
+
+        auto buildSmooth = [](const QVector<QPointF> &pts) {
+            QPainterPath path;
+            if (pts.isEmpty()) return path;
+            path.moveTo(pts.first());
+            for (int i = 1; i < pts.size(); ++i) {
+                QPointF p0 = pts[i - 1];
+                QPointF p1 = pts[i];
+                qreal dx = (p1.x() - p0.x()) * 0.5;
+                path.cubicTo(QPointF(p0.x() + dx, p0.y()), QPointF(p1.x() - dx, p1.y()), p1);
+            }
+            return path;
+        };
+
+        QPainterPath addPath = buildSmooth(addPts);
+        QPainterPath mntPath = buildSmooth(mntPts);
+
+        const qreal lineProg = easeSin(elapsedSec() / 1.2);
+        p.save();
+        p.setClipRect(QRectF(plot.left(), plot.top(), plot.width() * lineProg, plot.height()));
+
+        QPainterPath fill = addPath;
+        fill.lineTo(plot.bottomRight());
+        fill.lineTo(plot.bottomLeft());
+        fill.closeSubpath();
+        QLinearGradient fg(plot.left(), plot.top(), plot.left(), plot.bottom());
+        fg.setColorAt(0.0, QColor(59, 130, 246, 89));
+        fg.setColorAt(1.0, QColor(59, 130, 246, 0));
+        p.fillPath(fill, fg);
+
+        p.setPen(QPen(QColor("#3B82F6"), 2.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(addPath);
+        p.setPen(QPen(QColor("#F59E0B"), 2.0, Qt::DashLine));
+        p.drawPath(mntPath);
+        p.restore();
+
+        for (int i = 0; i < addPts.size(); ++i) {
+            p.setPen(QPen(Qt::white, 2));
+            p.setBrush(QColor("#3B82F6"));
+            p.drawEllipse(addPts[i], 3.5, 3.5);
+            p.setPen(QPen(QColor("#F59E0B"), 2));
+            p.setBrush(QColor("#F59E0B"));
+            p.drawEllipse(mntPts[i], 2.8, 2.8);
+        }
+
+        p.setPen(QColor("#3B82F6"));
+        p.setFont(QFont("Segoe UI", 9));
+        p.drawText(QRectF(plot.right() - 160, plot.top() + 2, 150, 12), "Blue  Equipment Added");
+        p.setPen(QColor("#F59E0B"));
+        p.drawText(QRectF(plot.right() - 160, plot.top() + 16, 150, 12), "Orange  Maintenance Events");
+    }
+
+    void drawPanelRadar(QPainter &p, const QRectF &panel) {
+        drawPanelFrame(p, panel, "WORKSHOP HEALTH RADAR", QColor("#4CAF7D"), QString::number(m_data.radarScores.size()), 3);
+        QRectF body = panel.adjusted(12, 44, -12, -10);
+
+        const QVector<QString> labels = {
+            "Equipment Health", "Maintenance Score", "Value Density",
+            "Activity Level", "Age Balance", "Documentation"
+        };
+        QVector<double> scores = m_data.radarScores;
+        if (scores.size() != 6) {
+            scores = {40, 40, 40, 40, 40, 40};
+        }
+
+        QPointF c(body.center().x(), body.center().y() + 2);
+        const qreal rr = qMin(body.width(), body.height()) * 0.33;
+        const int axes = 6;
+
+        p.setPen(QPen(QColor(193, 127, 62, 20), 1));
+        for (int ring = 1; ring <= 4; ++ring) {
+            qreal k = ring / 4.0;
+            QPolygonF poly;
+            for (int i = 0; i < axes; ++i) {
+                qreal a = qDegreesToRadians(-90.0 + i * (360.0 / axes));
+                poly << QPointF(c.x() + rr * k * qCos(a), c.y() + rr * k * qSin(a));
+            }
+            p.drawPolygon(poly);
+        }
+
+        for (int i = 0; i < axes; ++i) {
+            qreal a = qDegreesToRadians(-90.0 + i * (360.0 / axes));
+            p.setPen(QPen(QColor(193, 127, 62, 38), 1));
+            p.drawLine(c, QPointF(c.x() + rr * qCos(a), c.y() + rr * qSin(a)));
+        }
+
+        const qreal radarAnim = easeSin(elapsedSec() / 1.0);
+        QPolygonF dataPoly;
+        QVector<QPointF> points;
+        for (int i = 0; i < axes; ++i) {
+            qreal a = qDegreesToRadians(-90.0 + i * (360.0 / axes));
+            qreal k = clamp01(scores[i] / 100.0) * radarAnim;
+            QPointF pt(c.x() + rr * k * qCos(a), c.y() + rr * k * qSin(a));
+            points << pt;
+            dataPoly << pt;
+        }
+
+        QRadialGradient rg(c, rr);
+        rg.setColorAt(0.0, QColor(76, 175, 125, 64));
+        rg.setColorAt(1.0, QColor(76, 175, 125, 20));
+        p.setBrush(rg);
+        p.setPen(QPen(QColor(76, 175, 125, 204), 2));
+        p.drawPolygon(dataPoly);
+
+        for (int i = 0; i < points.size(); ++i) {
+            QRadialGradient g(points[i], 10);
+            g.setColorAt(0.0, QColor(76, 175, 125, 90));
+            g.setColorAt(1.0, QColor(76, 175, 125, 0));
+            p.setBrush(g);
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(points[i], 10, 10);
+
+            p.setBrush(QColor("#4CAF7D"));
+            p.setPen(QPen(Qt::white, 2));
+            p.drawEllipse(points[i], 3, 3);
+        }
+
+        for (int i = 0; i < axes; ++i) {
+            qreal a = qDegreesToRadians(-90.0 + i * (360.0 / axes));
+            QPointF lp(c.x() + (rr + 18) * qCos(a), c.y() + (rr + 18) * qSin(a));
+            QRectF lr(lp.x() - 52, lp.y() - 10, 104, 32);
+            p.setFont(QFont("Segoe UI", 9, QFont::Bold));
+            p.setPen(QColor("#F5E6D3"));
+            p.drawText(QRectF(lr.left(), lr.top(), lr.width(), 14), Qt::AlignCenter, labels[i]);
+            p.setFont(QFont("Segoe UI", 12, QFont::Bold));
+            p.setPen(QColor("#4CAF7D"));
+            p.drawText(QRectF(lr.left(), lr.top() + 14, lr.width(), 16), Qt::AlignCenter, QString::number((int)qRound(scores[i])));
+        }
+    }
+
+    void drawBottomCards(QPainter &p, const QRectF &a, const QRectF &b, const QRectF &c) {
+        auto drawCardFrame = [&](const QRectF &r) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(0, 0, 0, 120));
+            p.drawRoundedRect(r.translated(3, 5), 12, 12);
+            QLinearGradient bg(r.topLeft(), r.bottomRight());
+            bg.setColorAt(0.0, QColor("#1A1208"));
+            bg.setColorAt(1.0, QColor("#0A0804"));
+            p.setBrush(bg);
+            p.setPen(QPen(QColor(193, 127, 62, 64), 1));
+            p.drawRoundedRect(r, 12, 12);
+        };
+
+        drawCardFrame(a);
+        p.setPen(QColor("#C17F3E"));
+        p.setFont(QFont("Segoe UI", 9, QFont::Bold));
+        p.drawText(QRectF(a.left() + 10, a.top() + 10, a.width() - 20, 14), "MOST ACTIVE EQUIPMENT");
+        p.setPen(QColor("#F5E6D3"));
+        p.setFont(QFont("Segoe UI", 11, QFont::Bold));
+        p.drawText(QRectF(a.left() + 10, a.top() + 28, a.width() - 20, 16), m_data.mostActiveName.isEmpty() ? "No tracked activity" : m_data.mostActiveName);
+        p.setFont(QFont("Segoe UI", 9));
+        p.setPen(QColor(245, 230, 211, 150));
+        p.drawText(QRectF(a.left() + 10, a.top() + 46, a.width() - 20, 14), QString::number(m_data.mostActiveEvents) + " Most interactions");
+        qreal actw = (a.width() - 20) * clamp01(m_data.mostActiveEvents / 12.0);
+        p.fillRect(QRectF(a.left() + 10, a.bottom() - 16, actw, 6), QColor("#C17F3E"));
+
+        drawCardFrame(b);
+        p.setPen(QColor("#4CAF7D"));
+        p.setFont(QFont("Segoe UI", 9, QFont::Bold));
+        p.drawText(QRectF(b.left() + 10, b.top() + 10, b.width() - 20, 14), "NEWEST ACQUISITION");
+        p.setPen(QColor("#F5E6D3"));
+        p.setFont(QFont("Segoe UI", 11, QFont::Bold));
+        p.drawText(QRectF(b.left() + 10, b.top() + 28, b.width() - 20, 16), m_data.newestName.isEmpty() ? "No purchase date" : m_data.newestName);
+        p.setFont(QFont("Segoe UI", 9));
+        p.setPen(QColor(245, 230, 211, 150));
+        const QString dateTxt = m_data.newestDate.isValid() ? m_data.newestDate.toString("yyyy-MM-dd") : "n/a";
+        p.drawText(QRectF(b.left() + 10, b.top() + 46, b.width() - 20, 14), dateTxt + "  |  " + QString::number(m_data.newestDays) + " days ago");
+        p.setBrush(QColor("#4CAF7D"));
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(QRectF(b.right() - 58, b.top() + 10, 48, 16), 8, 8);
+        p.setPen(Qt::white);
+        p.setFont(QFont("Segoe UI", 8, QFont::Bold));
+        p.drawText(QRectF(b.right() - 58, b.top() + 10, 48, 16), Qt::AlignCenter, "NEW");
+
+        drawCardFrame(c);
+        p.setPen(QColor("#C17F3E"));
+        p.setFont(QFont("Segoe UI", 9, QFont::Bold));
+        p.drawText(QRectF(c.left() + 10, c.top() + 10, c.width() - 20, 14), "WORKSHOP AGE SUMMARY");
+        p.setPen(QColor("#F5E6D3"));
+        p.setFont(QFont("Segoe UI", 10, QFont::Bold));
+        p.drawText(QRectF(c.left() + 10, c.top() + 26, c.width() - 20, 14), "Average: " + QString::number(m_data.avgAgeYears, 'f', 1) + " years");
+        p.setFont(QFont("Segoe UI", 9));
+        p.setPen(QColor(245, 230, 211, 150));
+        p.drawText(QRectF(c.left() + 10, c.top() + 42, c.width() - 20, 12), "Oldest: " + (m_data.oldestName.isEmpty() ? "n/a" : m_data.oldestName));
+        p.drawText(QRectF(c.left() + 10, c.top() + 56, c.width() - 20, 12), "Newest: " + (m_data.newestAgeName.isEmpty() ? "n/a" : m_data.newestAgeName));
+
+        qreal ageNorm = clamp01(m_data.avgAgeYears / 20.0);
+        QRectF tl(c.left() + 10, c.bottom() - 16, c.width() - 20, 6);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(245, 230, 211, 30));
+        p.drawRoundedRect(tl, 3, 3);
+        p.setBrush(QColor("#C17F3E"));
+        p.drawRoundedRect(QRectF(tl.left(), tl.top(), tl.width() * ageNorm, tl.height()), 3, 3);
+    }
+
+private:
+    EquipmentStatsVisualData m_data;
+    QTimer m_frameTimer;
+    qreal m_globalTime = 0.0;
+    qint64 m_bootMs = 0;
+
+    QVector<QRectF> m_panelRects;
+    int m_hoveredPanel = -1;
+    int m_hoveredSegment = -1;
+
+    QPointF m_donutCenter;
+    qreal m_donutInner = 0.0;
+    qreal m_donutOuter = 0.0;
+    QVector<QPair<qreal, qreal>> m_segmentRanges;
+};
+
+}
+
 
 namespace {
 QString trKey(const QString &key)
@@ -253,14 +1120,6 @@ void setTrKey(QWidget *widget, const QString &key)
 {
     if (widget) {
         widget->setProperty("trKey", key);
-    }
-}
-
-void setItemTrKey(QListWidgetItem *item, const QString &key)
-{
-    if (item) {
-        item->setData(Qt::UserRole, key);
-        item->setText(trKey(key));
     }
 }
 }
@@ -4614,172 +5473,188 @@ void MainWindow::setupEquipmentStats()
 {
     if (!ui_equipment || !ui_equipment->tab_stats) return;
 
-    // ─── 1. Absolute Cleanup ───
-    // We use a named container to ensure 100% cleanup of previous dashboard instances
-    QWidget *oldContainer = ui_equipment->tab_stats->findChild<QWidget*>("dashContainer");
-    if (oldContainer) {
-        oldContainer->deleteLater();
-        // We must also clear the layout to prevent constraints fighting
-        if (ui_equipment->tab_stats->layout()) delete ui_equipment->tab_stats->layout();
+    if (ui_equipment->tab_stats->layout()) {
+        delete ui_equipment->tab_stats->layout();
     }
-    
-    // Hide ANY legacy widgets left from the .ui file to prevent messiness
     for (auto *w : ui_equipment->tab_stats->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly)) {
         w->hide();
     }
 
-    QWidget *dashContainer = new QWidget(ui_equipment->tab_stats);
-    dashContainer->setObjectName("dashContainer");
-    dashContainer->show();
+    EquipmentStatsVisualData data;
 
-    QVBoxLayout *mainLayoutWrapper = new QVBoxLayout(ui_equipment->tab_stats);
-    mainLayoutWrapper->setContentsMargins(0,0,0,0);
-    mainLayoutWrapper->addWidget(dashContainer);
-
-    QVBoxLayout *mainLay = new QVBoxLayout(dashContainer);
-    mainLay->setContentsMargins(30, 20, 30, 30);
-    mainLay->setSpacing(25);
-
-    // ─── 2. Data Acquisition ──────────
-    int total = 0, available = 0, inUse = 0, maint = 0, retired = 0;
-    double totalVal = 0.0, lastMonthVal = 0.0;
-    int lastMonthTotal = 0;
+    // Existing baseline queries kept intact.
     QString lm = QDate::currentDate().addMonths(-1).toString("yyyy-MM");
-
     QSqlQuery qSt("SELECT STATUS, COUNT(*), SUM(UNIT_PRICE) FROM EQUIPMENT WHERE STATUS != 'Retired' GROUP BY STATUS");
     while (qSt.next()) {
-        QString s = qSt.value(0).toString();
-        int c = qSt.value(1).toInt();
-        total += c;
-        totalVal += qSt.value(2).toDouble();
-        if (s == "Available") available = c;
-        else if (s == "In Use") inUse = c;
-        else if (s == "Under Maintenance") maint = c;
-        else if (s == "Retired") retired = c;
+        const QString s = qSt.value(0).toString();
+        const int c = qSt.value(1).toInt();
+        data.total += c;
+        data.totalValue += qSt.value(2).toDouble();
+        if (s == "Available") data.available = c;
+        else if (s == "In Use") data.inUse = c;
+        else if (s == "Under Maintenance") data.maintenance = c;
+        else if (s == "Retired") data.retired = c;
     }
-    
+
+    QSqlQuery qRet("SELECT COUNT(*) FROM EQUIPMENT WHERE STATUS = 'Retired'");
+    if (qRet.exec() && qRet.next()) {
+        data.retired = qRet.value(0).toInt();
+    }
+
     QSqlQuery qTrend;
     qTrend.prepare("SELECT * FROM (SELECT COUNT(*), SUM(UNIT_PRICE) FROM EQUIPMENT WHERE STATUS != 'Retired' AND TO_CHAR(PURCHASE_DATE, 'YYYY-MM') = :m) WHERE ROWNUM <= 1");
     qTrend.bindValue(":m", lm);
     if (qTrend.exec() && qTrend.next()) {
-        lastMonthTotal = qTrend.value(0).toInt();
-        lastMonthVal = qTrend.value(1).toDouble();
+        data.lastMonthTotal = qTrend.value(0).toInt();
+        data.lastMonthValue = qTrend.value(1).toDouble();
     }
 
-    // ─── 3. Header & KPI Cards ────────
-    QHBoxLayout *headerLay = new QHBoxLayout();
-    headerLay->setContentsMargins(10, 0, 10, 0);
-
-    // Styled PDF Report Button
-    QPushButton *reportBtn = new QPushButton(QString::fromUtf8("\xF0\x9F\x93\x84 Generate Intelligence Report"), dashContainer);
-    reportBtn->setFixedSize(280, 48);
-    reportBtn->setCursor(Qt::PointingHandCursor);
-    reportBtn->setStyleSheet(
-        "QPushButton { "
-        "  background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #D4AF37, stop:0.5 #B8925A, stop:1 #8B6F47);"
-        "  color: #1A1208; font-weight: 900; font-size: 13px; border-radius: 24px; "
-        "  border: 1px solid rgba(255,255,255,0.4); letter-spacing: 1.2px; text-transform: uppercase; "
-        "  padding: 0 25px; "
-        "} "
-        "QPushButton:hover { "
-        "  background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #F0E0C0, stop:1 #D4AF37);"
-        "  color: black; border-color: white;"
-        "} "
-        "QPushButton:pressed { background: #5A4A32; color: #D4AF37; }"
-    );
-    connect(reportBtn, &QPushButton::clicked, this, &MainWindow::onEquipmentExportStatsPDF);
-    headerLay->addStretch();
-    headerLay->addWidget(reportBtn);
-    mainLay->addLayout(headerLay);
-
-    QHBoxLayout *cardsLay = new QHBoxLayout();
-    cardsLay->setSpacing(20);
-    cardsLay->addWidget(new StatCard("TOTAL FLEET", QString::number(total), QString::number(qAbs(total - lastMonthTotal)), total >= lastMonthTotal, dashContainer));
-    cardsLay->addWidget(new StatCard("VALUATION", QString::number(totalVal, 'f', 0) + " DT", QString::number(qAbs(totalVal - lastMonthVal), 'f', 0), totalVal >= lastMonthVal, dashContainer));
-    cardsLay->addWidget(new StatCard("OPERATIONAL", QString::number(total > 0 ? (available * 100 / total) : 0) + "%", "STABLE", true, dashContainer));
-    mainLay->addLayout(cardsLay);
-
-    // ─── 4. Main Content Area ─────────
-    QHBoxLayout *content = new QHBoxLayout();
-    content->setSpacing(30);
-
-    // Left: Donut
-    QGroupBox *boxL = new QGroupBox("Status Distribution Matrix", dashContainer);
-    boxL->setStyleSheet("QGroupBox { background: rgba(30, 20, 10, 0.4); border: 2px solid #8B6F47; border-radius: 16px; margin-top: 20px; color: #D4AF37; font-weight: bold; font-size: 14px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 5px 15px; background: #1A1208; border-radius: 8px; }");
-    QVBoxLayout *vL = new QVBoxLayout(boxL);
-    AnimatedDonutChart *donut = new AnimatedDonutChart(boxL);
-    donut->setData({
-        {"Available", (double)available, QColor("#4CAF50")},
-        {"In Use", (double)inUse, QColor("#2196F3")},
-        {"Maintenance", (double)maint, QColor("#FF9800")},
-        {"Retired", (double)retired, QColor("#F44336")}
-    });
-    donut->setMinimumSize(320, 320);
-    vL->addWidget(donut);
-    content->addWidget(boxL, 3);
-    donut->startAnimation();
-
-    // Right Column: Ranking and Spending Chart
-    QVBoxLayout *vR = new QVBoxLayout();
-    vR->setSpacing(20);
-    
-    QGroupBox *rankB = new QGroupBox("Utilization Ranking", dashContainer);
-    rankB->setStyleSheet(boxL->styleSheet());
-    QVBoxLayout *rL = new QVBoxLayout(rankB);
-    rL->setContentsMargins(15, 30, 15, 15);
-    
+    // Existing ranking query kept (used for activity card baseline).
+    QString topType;
+    int topTypeCount = 0;
     QSqlQuery rq("SELECT EQUIPMENT_TYPE, COUNT(*) as cnt FROM EQUIPMENT WHERE STATUS != 'Retired' GROUP BY EQUIPMENT_TYPE ORDER BY cnt DESC");
-    int ri = 1;
-    bool hasData = false;
-    while(rq.next() && ri <= 5) {
-        hasData = true;
-        QString type = rq.value(0).toString();
-        int count = rq.value(1).toInt();
-        QLabel *rl = new QLabel(QString::fromUtf8("   %1. %2 — %3 activations").arg(ri++).arg(type).arg(count), rankB);
-        rl->setStyleSheet("color: #F0E0C0; font-size: 13px; font-weight: 600; padding: 10px; border-bottom: 1px solid rgba(212,175,55,0.12);");
-        rL->addWidget(rl);
+    if (rq.next()) {
+        topType = rq.value(0).toString();
+        topTypeCount = rq.value(1).toInt();
     }
-    if (!hasData) {
-        QLabel *eL = new QLabel("No gear tracked yet", rankB);
-        eL->setStyleSheet("color: rgba(212,175,55,0.4); font-style: italic;");
-        eL->setAlignment(Qt::AlignCenter);
-        rL->addWidget(eL);
-    }
-    rL->addStretch();
-    vR->addWidget(rankB, 3); // Increased stretch to fill space
 
-    // Spending Chart
-    QGroupBox *sB = new QGroupBox("Spending Volatility", dashContainer);
-    sB->setFixedHeight(160);
-    sB->setStyleSheet(boxL->styleSheet());
-    QHBoxLayout *sL = new QHBoxLayout(sB);
-    sL->setContentsMargins(15, 25, 15, 10);
-    sL->setSpacing(10);
-    
-    for (int i=5; i>=0; --i) {
-        QVBoxLayout *barCol = new QVBoxLayout();
-        QWidget *bar = new QWidget();
-        int h = 20 + (rand() % 70);
-        bar->setFixedSize(16, h);
-        bar->setStyleSheet(
-            "QWidget { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #D4AF37, stop:1 rgba(212,175,55,0.1));"
-            "border-radius: 4px; border: 1px solid rgba(139,111,71,0.5); }"
-            "QWidget:hover { background: #D4AF37; border-color: white; }"
-        );
-        
-        QLabel *l = new QLabel(QDate::currentDate().addMonths(-i).toString("MMM"), sB);
-        l->setStyleSheet("color: #B8925A; font-size: 9px; font-weight: bold; background: transparent;");
-        l->setAlignment(Qt::AlignCenter);
-        
-        barCol->addStretch();
-        barCol->addWidget(bar, 0, Qt::AlignCenter);
-        barCol->addWidget(l);
-        sL->addLayout(barCol);
+    QSqlQuery qRank(
+        "SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, UNIT_PRICE, STATUS, QUANTITY "
+        "FROM EQUIPMENT ORDER BY UNIT_PRICE DESC, EQUIPMENT_ID ASC"
+    );
+    while (qRank.next() && data.ranking.size() < 8) {
+        EquipmentRankingEntry e;
+        e.id = qRank.value(0).toInt();
+        e.type = qRank.value(1).toString();
+        e.name = QString("#%1 %2").arg(e.id).arg(e.type);
+        e.unitPrice = qRank.value(2).toDouble();
+        e.status = qRank.value(3).toString();
+        e.quantity = qRank.value(4).toInt();
+        data.ranking.push_back(e);
     }
-    vR->addWidget(sB, 2);
 
-    content->addLayout(vR, 2);
-    mainLay->addLayout(content);
+    QMap<QString, int> addMap;
+    QMap<QString, int> maintMap;
+    QSqlQuery qAdd(
+        "SELECT TO_CHAR(PURCHASE_DATE, 'YYYY-MM') AS M, COUNT(*) "
+        "FROM EQUIPMENT WHERE PURCHASE_DATE IS NOT NULL "
+        "GROUP BY TO_CHAR(PURCHASE_DATE, 'YYYY-MM') ORDER BY M"
+    );
+    while (qAdd.next()) {
+        addMap[qAdd.value(0).toString()] = qAdd.value(1).toInt();
+    }
+    QSqlQuery qMaint(
+        "SELECT TO_CHAR(NEXT_MAINTENANCE, 'YYYY-MM') AS M, COUNT(*) "
+        "FROM EQUIPMENT WHERE NEXT_MAINTENANCE IS NOT NULL "
+        "GROUP BY TO_CHAR(NEXT_MAINTENANCE, 'YYYY-MM') ORDER BY M"
+    );
+    while (qMaint.next()) {
+        maintMap[qMaint.value(0).toString()] = qMaint.value(1).toInt();
+    }
+
+    QStringList months = addMap.keys();
+    for (const QString &k : maintMap.keys()) {
+        if (!months.contains(k)) months << k;
+    }
+    std::sort(months.begin(), months.end());
+    if (months.size() > 8) {
+        months = months.mid(months.size() - 8);
+    }
+    for (const QString &m : months) {
+        QDate d = QDate::fromString(m + "-01", "yyyy-MM-dd");
+        data.months << (d.isValid() ? d.toString("MMM") : m);
+        data.monthlyAdded << addMap.value(m, 0);
+        data.monthlyMaintenance << maintMap.value(m, 0);
+    }
+
+    QSqlQuery qDocs(
+        "SELECT COUNT(*), "
+        "SUM(CASE WHEN DESCRIPTION IS NOT NULL AND TRIM(DESCRIPTION) != '' THEN 1 ELSE 0 END), "
+        "AVG((SYSDATE - PURCHASE_DATE) / 365.25) "
+        "FROM EQUIPMENT"
+    );
+    int docTotal = 0;
+    int docFilled = 0;
+    if (qDocs.exec() && qDocs.next()) {
+        docTotal = qDocs.value(0).toInt();
+        docFilled = qDocs.value(1).toInt();
+        data.avgAgeYears = qMax(0.0, qDocs.value(2).toDouble());
+    }
+
+    QSqlQuery qOld(
+        "SELECT EQUIPMENT_TYPE FROM EQUIPMENT "
+        "WHERE PURCHASE_DATE = (SELECT MIN(PURCHASE_DATE) FROM EQUIPMENT WHERE PURCHASE_DATE IS NOT NULL) "
+        "AND ROWNUM = 1"
+    );
+    if (qOld.exec() && qOld.next()) {
+        data.oldestName = qOld.value(0).toString();
+    }
+
+    QSqlQuery qNew(
+        "SELECT EQUIPMENT_TYPE, PURCHASE_DATE FROM EQUIPMENT "
+        "WHERE PURCHASE_DATE = (SELECT MAX(PURCHASE_DATE) FROM EQUIPMENT WHERE PURCHASE_DATE IS NOT NULL) "
+        "AND ROWNUM = 1"
+    );
+    if (qNew.exec() && qNew.next()) {
+        data.newestName = qNew.value(0).toString();
+        data.newestAgeName = data.newestName;
+        data.newestDate = qNew.value(1).toDate();
+        if (!data.newestDate.isValid()) {
+            data.newestDate = qNew.value(1).toDateTime().date();
+        }
+        if (data.newestDate.isValid()) {
+            data.newestDays = data.newestDate.daysTo(QDate::currentDate());
+        }
+    }
+
+    QSqlQuery qActive(
+        "SELECT EQUIPMENT_TYPE, "
+        "(CASE WHEN NEXT_MAINTENANCE IS NOT NULL THEN 1 ELSE 0 END + "
+        " CASE WHEN STATUS = 'Under Maintenance' THEN 1 ELSE 0 END) AS EV "
+        "FROM EQUIPMENT ORDER BY EV DESC, UNIT_PRICE DESC"
+    );
+    if (qActive.exec() && qActive.next()) {
+        data.mostActiveName = qActive.value(0).toString();
+        data.mostActiveEvents = qActive.value(1).toInt();
+    } else {
+        data.mostActiveName = topType;
+        data.mostActiveEvents = topTypeCount;
+    }
+
+    const int all = qMax(1, data.total + data.retired);
+    const double health = (100.0 * data.available) / all;
+    const double maintenanceScore = 100.0 - (100.0 * data.maintenance / all);
+
+    double maxUnit = 1.0;
+    QSqlQuery qMaxPrice("SELECT NVL(MAX(UNIT_PRICE), 1) FROM EQUIPMENT");
+    if (qMaxPrice.exec() && qMaxPrice.next()) {
+        maxUnit = qMaxPrice.value(0).toDouble();
+    }
+    const double valueDensity = qBound(0.0, (data.totalValue / all) / qMax(1.0, maxUnit) * 100.0, 100.0);
+
+    int activityTotal = 0;
+    for (int v : data.monthlyAdded) activityTotal += v;
+    for (int v : data.monthlyMaintenance) activityTotal += v;
+    const double activityLevel = qBound(0.0, activityTotal * 7.0, 100.0);
+
+    const double ageBalance = qBound(0.0, 100.0 - (data.avgAgeYears / 20.0) * 100.0, 100.0);
+    const double documentation = docTotal > 0 ? (100.0 * docFilled / docTotal) : 0.0;
+    data.radarScores = {health, maintenanceScore, valueDensity, activityLevel, ageBalance, documentation};
+
+    QWidget *host = new QWidget(ui_equipment->tab_stats);
+    host->setObjectName("dashContainer");
+    host->setAttribute(Qt::WA_StyledBackground, true);
+    host->setStyleSheet("background: transparent;");
+
+    auto *layout = new QVBoxLayout(ui_equipment->tab_stats);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(host);
+
+    auto *hostLayout = new QVBoxLayout(host);
+    hostLayout->setContentsMargins(0, 0, 0, 0);
+    auto *canvas = new EquipmentStatsCanvas(host);
+    canvas->setData(data);
+    hostLayout->addWidget(canvas);
 }
 
 
@@ -5322,7 +6197,33 @@ void MainWindow::setupEmployeeModes()
     cbJob->setObjectName("cb_job_title");
     cbJob->addItems({"smith", "cleaner", "developer", "cashier", "carpenter", "boss"});
     cbJob->setGeometry(ui_employee->le_fonction->geometry());
-    cbJob->setStyleSheet(ui_employee->le_mdp->styleSheet());
+    cbJob->setStyleSheet(
+        "QComboBox {"
+        " background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFFFFF, stop:1 #F5F5F5);"
+        " border: 2px solid #8B6F47;"
+        " border-radius: 8px;"
+        " padding: 3px 12px;"
+        " font-size: 14px;"
+        " color: #333;"
+        "}"
+        "QComboBox:hover {"
+        " border: 2px solid #A0825A;"
+        "}"
+        "QComboBox:focus {"
+        " border: 2px solid #8B4513;"
+        " background: #FFFAF0;"
+        "}"
+        "QComboBox QAbstractItemView {"
+        " background-color: #FFFFFF;"
+        " color: #333333;"
+        " border: 1px solid #8B6F47;"
+        " selection-background-color: #8B6F47;"
+        " selection-color: #FFFFFF;"
+        " outline: 0;"
+        "}"
+    );
+    cbJob->setEditable(false);
+    cbJob->setInsertPolicy(QComboBox::NoInsert);
     ui_employee->le_fonction->hide();
     cbJob->show();
 
@@ -5420,8 +6321,8 @@ void MainWindow::setupSupplierModes()
 
     ui_supplier->groupBox_gestion->move(20, 70);
 
-    ui_supplier->groupBox_gestion->setProperty("trTitleAddKey", "Add New Supplier");
-    ui_supplier->groupBox_gestion->setProperty("trTitleModKey", "Manage Existing Supplier");
+    ui_supplier->groupBox_gestion->setProperty("trTitleAddKey", "");
+    ui_supplier->groupBox_gestion->setProperty("trTitleModKey", "");
     ui_supplier->groupBox_gestion->setProperty("trModeAddRadio", "rb_supplier_add_mode");
     ui_supplier->groupBox_gestion->setProperty("trModeModRadio", "rb_supplier_mod_mode");
 
@@ -5474,12 +6375,12 @@ void MainWindow::setupSupplierModes()
 
     auto updateUI = [=](bool isAdd) {
         if(isAdd) {
-            ui_supplier->groupBox_gestion->setTitle(trKey("Add New Supplier"));
+            ui_supplier->groupBox_gestion->setTitle("");
             ui_supplier->btn_add->setVisible(true);
             ui_supplier->btn_modify->setVisible(false);
             ui_supplier->btn_delete->setVisible(false);
         } else {
-            ui_supplier->groupBox_gestion->setTitle(trKey("Manage Existing Supplier"));
+            ui_supplier->groupBox_gestion->setTitle("");
             ui_supplier->btn_add->setVisible(false);
             ui_supplier->btn_modify->setVisible(true);
             ui_supplier->btn_delete->setVisible(true);
@@ -6713,7 +7614,6 @@ void MainWindow::onClientRowSelected(const QModelIndex &index)
     QSqlQueryModel *model = qobject_cast<QSqlQueryModel*>(ui_client->tableView->model());
     if (!model) return;
     int row = index.row();
-    int col = index.column();
 
     // ALWAYS prepopulate the modify fields
     ui_client->le_id_mod->setText(model->data(model->index(row, 0)).toString());
@@ -7110,7 +8010,9 @@ void MainWindow::onEmployeeExportHistoryPDF()
             
             painter.setPen(Qt::black);
             // Action column gets word wrap, others use standard align
-            int flags = (c == 2) ? (Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap) : (Qt::AlignCenter);
+            Qt::Alignment flags = (c == 2)
+                ? Qt::Alignment(Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap)
+                : Qt::Alignment(Qt::AlignCenter);
             painter.drawText(currentX + 5, y + 5, cWidths[c] - 10, rowH - 10, flags, content);
             
             currentX += cWidths[c];
@@ -7737,8 +8639,6 @@ void MainWindow::onEquipmentModify()
     double  price= ui_equipment->dsb_unit_price->value();
 
     int     qty  = ui_equipment->sb_quantity->value();
-    QString loc  = "";
-    QString resp = "";
 
     if (id.isEmpty()) {
         QMessageBox::warning(this, "Validation", "Please enter the Equipment ID to modify.");
@@ -7753,17 +8653,52 @@ void MainWindow::onEquipmentModify()
         return;
     }
 
+    // Load existing row first so empty form fields do not overwrite required DB columns with NULL.
+    QSqlQuery existing;
+    existing.prepare("SELECT EQUIPMENT_TYPE, DESCRIPTION, STATUS, UNIT_PRICE, QUANTITY, LOCATION, RESPONSABLE "
+                     "FROM EQUIPMENT WHERE EQUIPMENT_ID = :id");
+    existing.bindValue(":id", id.toInt());
+    if (!existing.exec()) {
+        QMessageBox::critical(this, "Database Error", "Failed to read equipment before update:\n" + existing.lastError().text());
+        return;
+    }
+    if (!existing.next()) {
+        QMessageBox::warning(this, "Validation", "No equipment found with this ID.");
+        return;
+    }
+
+    const QString currentType = existing.value(0).toString();
+    const QString currentDesc = existing.value(1).toString();
+    const QString currentStatus = existing.value(2).toString();
+    const double currentPrice = existing.value(3).toDouble();
+    const int currentQty = existing.value(4).toInt();
+    const QString currentLoc = existing.value(5).toString();
+    const QString currentResp = existing.value(6).toString();
+
+    const QString finalType = type.isEmpty() ? currentType : type;
+    const QString finalDesc = desc.isEmpty() ? currentDesc : desc;
+    const QString finalStatus = etat.isEmpty() ? currentStatus : etat;
+    const double finalPrice = (price <= 0.0) ? currentPrice : price;
+    const int finalQty = (qty <= 0) ? currentQty : qty;
+    const QString finalLoc = currentLoc;
+    const QString finalResp = currentResp;
+
+    if (finalType.trimmed().isEmpty()) {
+        QMessageBox::warning(this, "Validation", "Equipment type cannot be empty.");
+        return;
+    }
+
     QSqlQuery q;
     q.prepare("UPDATE EQUIPMENT SET EQUIPMENT_TYPE=:type, DESCRIPTION=:desc, STATUS=:status, UNIT_PRICE=:price, "
               "QUANTITY=:qty, LOCATION=:loc, RESPONSABLE=:resp, NEXT_MAINTENANCE=SYSDATE WHERE EQUIPMENT_ID=:id");
     q.bindValue(":id",     id.toInt());
-    q.bindValue(":type",   type.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : type);
-    q.bindValue(":desc",   desc);
-    q.bindValue(":status", etat);
-    q.bindValue(":price",  price);
-    q.bindValue(":qty",    qty);
-    q.bindValue(":loc",    loc);
-    q.bindValue(":resp",   resp);
+    q.bindValue(":type",   finalType);
+    q.bindValue(":desc",   finalDesc);
+    q.bindValue(":status", finalStatus);
+    q.bindValue(":price",  finalPrice);
+    q.bindValue(":qty",    finalQty);
+    q.bindValue(":loc",    finalLoc);
+    q.bindValue(":resp",   finalResp);
 
     if (!q.exec()) {
         QMessageBox::critical(this, "Database Error", "Failed to update equipment:\n" + q.lastError().text());
@@ -7771,7 +8706,7 @@ void MainWindow::onEquipmentModify()
     }
 
     QMessageBox::information(this, "Success", "Equipment updated successfully.");
-    logActivity("Modified equipment: " + type + " (ID: " + id + ")", "Equipment");
+    logActivity("Modified equipment: " + finalType + " (ID: " + id + ")", "Equipment");
     onEquipmentClearFields();
     onEquipmentRefreshView();
     onEquipmentHistoryRefresh();
@@ -9857,6 +10792,16 @@ void MainWindow::onChatSettingsClicked()
     // Cleanup blur
     this->setGraphicsEffect(nullptr);
     delete dialog;
+}
+
+void MainWindow::setupChatForgeVisuals()
+{
+    // Intentionally minimal: keep current chat visual behavior unchanged.
+}
+
+void MainWindow::enforceChatTabTopOffset()
+{
+    // Intentionally minimal: legacy hook kept for linker compatibility.
 }
 
 void MainWindow::onWeatherAssistantClicked()

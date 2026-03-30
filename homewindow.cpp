@@ -74,45 +74,30 @@ void HomeWindow::handleDisconnect()  { emit disconnectClicked();   }
 
 void HomeWindow::handleChatBot()
 {
-    if (!m_isStandardMode) {
-        // Animation mode: do not show the guide until the animation sequence runs
-        if (!m_animationTriggered) {
-            return;
-        }
-
-        if (m_currentGuide) {
-            m_currentGuide->show();
-            m_currentGuide->raise();
-            return;
-        }
-
-        // Animation already ran — reopen the guide directly
-        m_currentGuide = new LoreGuideWidget(m_animationAudioPlayer, this);
-        LoreGuideWidget *guide = m_currentGuide;
-        guide->setAnimationUnlocked(true);
-        QPoint anchor = this->mapToGlobal(QPoint(this->width() - guide->width() - 10, 10));
-        guide->move(anchor);
-        connect(guide, &LoreGuideWidget::closeRequested, this, [this, guide]() {
-            m_currentGuide = nullptr;
-            guide->hide();
-            guide->deleteLater();
-            ui->btn_chat->setVisible(true);
-        });
-        ui->btn_chat->setVisible(false);
-        guide->show();
-        guide->raise();
-        return;
-    }
-    // Standard mode: regular chatbot dialog
+    // Standard and animation modes now use the same chatbot dialog behavior.
     QWidget *topLevel = this->window();
     if (topLevel) {
         QPoint bottomRight = topLevel->mapToGlobal(topLevel->rect().bottomRight());
         chatBotDialog->move(bottomRight.x() - chatBotDialog->width() - 20,
                             bottomRight.y() - chatBotDialog->height() - 20);
     }
+
+    if (!m_isStandardMode) {
+        chatBotDialog->setWindowOpacity(0.0);
+    }
+
     chatBotDialog->show();
     chatBotDialog->raise();
     chatBotDialog->activateWindow();
+
+    if (!m_isStandardMode) {
+        QPropertyAnimation *fadeIn = new QPropertyAnimation(chatBotDialog, "windowOpacity", chatBotDialog);
+        fadeIn->setDuration(220);
+        fadeIn->setStartValue(0.0);
+        fadeIn->setEndValue(1.0);
+        fadeIn->setEasingCurve(QEasingCurve::OutCubic);
+        fadeIn->start(QAbstractAnimation::DeleteWhenStopped);
+    }
 }
 
 void HomeWindow::handleSettingsClicked()

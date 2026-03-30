@@ -181,6 +181,9 @@ QLineEdit:focus {
       <property name="text">
        <string>💼 Job Title:</string>
       </property>
+        <property name="alignment">
+         <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set>
+        </property>
      </widget>
       <widget class="QLabel" name="label_age">
        <property name="geometry">
