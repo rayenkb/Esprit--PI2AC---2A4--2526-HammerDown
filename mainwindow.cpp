@@ -85,11 +85,13 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
+#include <QCursor>
 #include <QLocale>
 #include <QFileInfo>
 #include <QProcess>
 #include <QUuid>
 #include <functional>
+#include <algorithm>
 // =============================================================================
 // ANIMATED DONUT CHART WIDGET
 // =============================================================================
@@ -1234,19 +1236,12 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui_employee->btn_delete, &QPushButton::clicked, this, &MainWindow::onEmployeeDelete);
     connect(ui_employee->tableView_employes, &QTableView::clicked, this, [this](const QModelIndex &idx){
         if (idx.column() == 0) { // Edit Action
-            QSqlQueryModel *m = qobject_cast<QSqlQueryModel*>(ui_employee->tableView_employes->model());
-            if (!m) return;
-            // Data is now shifted by 2 because of "Edit" and "Delete" columns
-            ui_employee->le_id->setText(m->data(m->index(idx.row(), 2)).toString());
-            ui_employee->le_nom->setText(m->data(m->index(idx.row(), 3)).toString());
-            ui_employee->le_prenom->setText(m->data(m->index(idx.row(), 4)).toString());
-            ui_employee->le_fonction->setText(m->data(m->index(idx.row(), 5)).toString());
-            int age = m->data(m->index(idx.row(), 6)).toInt();
-            ui_employee->de_birthdate->setDate(QDate::currentDate().addYears(-age));
-            ui_employee->le_email->setText(m->data(m->index(idx.row(), 7)).toString());
-            ui_employee->le_num->setText(m->data(m->index(idx.row(), 8)).toString());
-            
+            onEmployeeRowSelected(idx);
             ui_employee->tabWidget->setCurrentIndex(0);
+            // Switch UI to "Modify Employee" mode
+            if (auto *rb = ui_employee->tab_add->findChild<QRadioButton*>("rb_employee_mod_mode")) {
+                rb->setChecked(true);
+            }
         } else if (idx.column() == 1) { // Delete Action
             onEmployeeDelete();
         }
@@ -1739,9 +1734,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui_employee->cb_mail_template,    &QComboBox::currentIndexChanged, this, &MainWindow::onEmployeeMailTemplateChanged);
     connect(ui_employee->btn_scan_face,       &QPushButton::clicked, this, &MainWindow::onScanFace);
     connect(ui_employee->btn_upload_avatar,   &QPushButton::clicked, this, &MainWindow::onUploadAvatar);
-    connect(ui_employee->btn_add,            &QPushButton::clicked, this, &MainWindow::onEmployeeAdd);
-    connect(ui_employee->btn_modify,         &QPushButton::clicked, this, &MainWindow::onEmployeeModify);
-    connect(ui_employee->btn_delete,         &QPushButton::clicked, this, &MainWindow::onEmployeeDelete);
+    // btn_modify / btn_delete are already connected earlier (avoid duplicate CRUD calls)
     
     connect(ui_supplier->btn_add,            &QPushButton::clicked, this, &MainWindow::onSupplierAdd);
     connect(ui_supplier->btn_modify,         &QPushButton::clicked, this, &MainWindow::onSupplierModify);
@@ -2630,7 +2623,12 @@ void MainWindow::onOrderClearFields()
 void MainWindow::updateSalaryInsight()
 {
     if (!ui_employee) return;
-    QString role = ui_employee->le_fonction->text().trimmed();
+    QString role;
+    if (auto *cb = ui_employee->tab_add->findChild<QComboBox*>("cb_job_title")) {
+        role = cb->currentText().trimmed();
+    } else {
+        role = ui_employee->le_fonction->text().trimmed();
+    }
     double currentSalary = ui_employee->dsb_salaire->value();
 
     if (role.isEmpty()) {
@@ -2661,7 +2659,12 @@ void MainWindow::updateSalaryInsight()
 void MainWindow::onSuggestSalary()
 {
     if (!ui_employee) return;
-    QString role = ui_employee->le_fonction->text().trimmed();
+    QString role;
+    if (auto *cb = ui_employee->tab_add->findChild<QComboBox*>("cb_job_title")) {
+        role = cb->currentText().trimmed();
+    } else {
+        role = ui_employee->le_fonction->text().trimmed();
+    }
     if (role.isEmpty()) return;
 
     QSqlQuery q;
@@ -5386,17 +5389,43 @@ void MainWindow::setupClientManagement()
 
 void MainWindow::onClientCyberTraceRefresh()
 {
-    QString queryStr = "SELECT TO_CHAR(LOG_DATE, 'DD/MM/YYYY HH24:MI') AS \"Timestamp\", "
-                       "EMPLOYEE_NAME AS \"Operative\", "
-                       "ACTION_DETAILS AS \"Action Sequence\" "
-                       "FROM APP_HISTORY WHERE MODULE_NAME = 'Clients' ORDER BY LOG_DATE DESC";
+    const QString filePath = "hammerdown_audit_log.json";
+    QJsonArray auditArray;
+    {
+        QFile file(filePath);
+        if (file.open(QIODevice::ReadOnly)) {
+            const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+            if (doc.isArray()) auditArray = doc.array();
+            file.close();
+        }
+    }
 
-    QSqlQueryModel *model = new QSqlQueryModel(this);
-    model->setQuery(queryStr);
-    
-    if (model->lastError().isValid()) {
-        QMessageBox::warning(this, "Trace Error", "Failed to retrieve Cyber Trace:\n" + model->lastError().text());
-        return;
+    QVector<QJsonObject> filtered;
+    filtered.reserve(auditArray.size());
+    for (const QJsonValue &v : auditArray) {
+        if (!v.isObject()) continue;
+        const QJsonObject o = v.toObject();
+        if (o.value("module_name").toString() == "Clients") filtered.push_back(o);
+    }
+
+    std::sort(filtered.begin(), filtered.end(), [](const QJsonObject &a, const QJsonObject &b) {
+        const qint64 at = a.value("timestamp_ms").toVariant().toLongLong();
+        const qint64 bt = b.value("timestamp_ms").toVariant().toLongLong();
+        return bt < at; // descending
+    });
+
+    QStandardItemModel *model = new QStandardItemModel(filtered.size(), 3, this);
+    model->setHorizontalHeaderLabels({"Timestamp", "Operative", "Action Sequence"});
+
+    for (int r = 0; r < filtered.size(); ++r) {
+        const QJsonObject o = filtered.at(r);
+        QDateTime dt = QDateTime::fromMSecsSinceEpoch(o.value("timestamp_ms").toVariant().toLongLong());
+        if (!dt.isValid()) dt = QDateTime::fromString(o.value("timestamp_iso").toString(), Qt::ISODate);
+        const QString timeStr = dt.isValid() ? dt.toString("dd/MM/yyyy HH:mm") : QString();
+
+        model->setItem(r, 0, new QStandardItem(timeStr));
+        model->setItem(r, 1, new QStandardItem(o.value("employee_name").toString()));
+        model->setItem(r, 2, new QStandardItem(o.value("action_details").toString()));
     }
 
     m_clientCyberTable->setModel(model);
@@ -6193,9 +6222,11 @@ void MainWindow::setupEmployeeModes()
     setTabTextTr(ui_employee->tabWidget, ui_employee->tab_add, "Manage Employees");
 
     // Replace le_fonction with QComboBox
-    QComboBox *cbJob = new QComboBox(ui_employee->tab_add);
+    // Parent it to group_add so geometry() matches the existing label/input layout
+    QComboBox *cbJob = new QComboBox(ui_employee->group_add);
     cbJob->setObjectName("cb_job_title");
-    cbJob->addItems({"smith", "cleaner", "developer", "cashier", "carpenter", "boss"});
+    // Keep the same capitalization used elsewhere (and commonly stored in DB)
+    cbJob->addItems({"Smith", "Cleaner", "Developer", "Cashier", "Carpenter", "Boss"});
     cbJob->setGeometry(ui_employee->le_fonction->geometry());
     cbJob->setStyleSheet(
         "QComboBox {"
@@ -6226,6 +6257,7 @@ void MainWindow::setupEmployeeModes()
     cbJob->setInsertPolicy(QComboBox::NoInsert);
     ui_employee->le_fonction->hide();
     cbJob->show();
+    connect(cbJob, &QComboBox::currentTextChanged, this, &MainWindow::updateSalaryInsight);
 
     // Strict Input Validation (Contrôle de Saisie)
     // ID: numbers only
@@ -6280,7 +6312,9 @@ void MainWindow::setupEmployeeModes()
             ui_employee->btn_add->setVisible(false);
             ui_employee->btn_modify->setVisible(true);
             ui_employee->le_id->setEnabled(false);
-            toggleEmployeeFields(false);
+            // In modify mode, keep fields enabled for the currently selected employee.
+            // We only "lock" when no employee is selected (empty ID).
+            toggleEmployeeFields(!ui_employee->le_id->text().trimmed().isEmpty());
         }
     };
     
@@ -7682,9 +7716,19 @@ void MainWindow::onEmployeeRowSelected(const QModelIndex &index)
     ui_employee->le_prenom->setText(model->data(model->index(row, 4)).toString());
     QString jt = model->data(model->index(row, 5)).toString();
     if (auto *cb = ui_employee->tab_add->findChild<QComboBox*>("cb_job_title")) {
-        int idx = cb->findText(jt, Qt::MatchFixedString);
-        if (idx >= 0) cb->setCurrentIndex(idx);
-        else cb->setCurrentText(jt);
+        // Match case-insensitively since DB values may not match combo capitalization exactly.
+        bool matched = false;
+        for (int i = 0; i < cb->count(); ++i) {
+            if (cb->itemText(i).trimmed().compare(jt.trimmed(), Qt::CaseInsensitive) == 0) {
+                cb->setCurrentIndex(i);
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            // Keep selection safe: default to first option.
+            cb->setCurrentIndex(0);
+        }
     }
     int age = model->data(model->index(row, 6)).toInt();
     ui_employee->de_birthdate->setDate(QDate::currentDate().addYears(-age));
@@ -7782,7 +7826,8 @@ void MainWindow::onEmployeeRefreshHistory()
     if (ui_employee->cb_history_filter->count() <= 1) {
         QSignalBlocker blocker(ui_employee->cb_history_filter);
         ui_employee->cb_history_filter->clear();
-        ui_employee->cb_history_filter->addItem("All Modules");
+        // Keep the label consistent with the UI default to avoid mismatch bugs.
+        ui_employee->cb_history_filter->addItem("All Personnel");
         ui_employee->cb_history_filter->addItem("Employees");
         ui_employee->cb_history_filter->addItem("Clients");
         ui_employee->cb_history_filter->addItem("Equipment");
@@ -7792,29 +7837,68 @@ void MainWindow::onEmployeeRefreshHistory()
 
     QString searchText = ui_employee->le_history_search->text().trimmed().toUpper();
     QString moduleFilter = ui_employee->cb_history_filter->currentText();
-    
-    // Using a nested subquery for correct Oracle ROWNUM ordering (get newest first)
-    QString innerQuery = "SELECT TO_CHAR(LOG_DATE, 'DD/MM/YYYY HH24:MI') AS \"Time\", "
-                         "EMPLOYEE_NAME AS \"Employee\", "
-                         "ACTION_DETAILS AS \"Action\", "
-                         "MODULE_NAME AS \"Module\" "
-                         "FROM APP_HISTORY WHERE 1=1";
-    
-    if (!searchText.isEmpty()) {
-        innerQuery += QString(" AND (UPPER(ACTION_DETAILS) LIKE '%%1%' OR UPPER(EMPLOYEE_NAME) LIKE '%%1%')").arg(searchText);
-    }
-    
-    if (moduleFilter != "All Modules" && !moduleFilter.isEmpty()) {
-        innerQuery += QString(" AND MODULE_NAME = '%1'").arg(moduleFilter);
-    }
-    
-    innerQuery += " ORDER BY LOG_DATE DESC";
-    
-    QString finalQuery = QString("SELECT * FROM (%1) WHERE ROWNUM <= 250").arg(innerQuery);
 
-    QSqlQueryModel *model = new QSqlQueryModel(this);
-    model->setQuery(finalQuery);
-    
+    const bool isAllModule = moduleFilter.toLower().startsWith("all");
+
+    // Read audit/history from local JSON file (no DB tables).
+    const QString filePath = "hammerdown_audit_log.json";
+    QJsonArray auditArray;
+    {
+        QFile file(filePath);
+        if (file.open(QIODevice::ReadOnly)) {
+            const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+            if (doc.isArray()) auditArray = doc.array();
+            file.close();
+        }
+    }
+
+    QVector<QJsonObject> filtered;
+    filtered.reserve(auditArray.size());
+
+    for (const QJsonValue &v : auditArray) {
+        if (!v.isObject()) continue;
+        const QJsonObject o = v.toObject();
+
+        const QString emp    = o.value("employee_name").toString();
+        const QString action = o.value("action_details").toString();
+        const QString mod    = o.value("module_name").toString();
+
+        if (!isAllModule && !moduleFilter.isEmpty()) {
+            if (mod != moduleFilter) continue;
+        }
+
+        if (!searchText.isEmpty()) {
+            const QString empUp = emp.toUpper();
+            const QString actionUp = action.toUpper();
+            if (!empUp.contains(searchText) && !actionUp.contains(searchText)) continue;
+        }
+
+        filtered.push_back(o);
+    }
+
+    std::sort(filtered.begin(), filtered.end(), [](const QJsonObject &a, const QJsonObject &b) {
+        const qint64 at = a.value("timestamp_ms").toVariant().toLongLong();
+        const qint64 bt = b.value("timestamp_ms").toVariant().toLongLong();
+        return bt < at; // descending
+    });
+
+    const int maxRows = 250;
+    const int rowCount = qMin(filtered.size(), maxRows);
+    QStandardItemModel *model = new QStandardItemModel(rowCount, 4, this);
+    model->setHorizontalHeaderLabels({"Time", "Employee", "Action", "Module"});
+
+    for (int r = 0; r < rowCount; ++r) {
+        const QJsonObject o = filtered.at(r);
+        QDateTime dt = QDateTime::fromMSecsSinceEpoch(o.value("timestamp_ms").toVariant().toLongLong());
+        if (!dt.isValid()) dt = QDateTime::fromString(o.value("timestamp_iso").toString(), Qt::ISODate);
+        const QString timeStr = dt.isValid() ? dt.toString("dd/MM/yyyy HH:mm") : QString();
+
+        model->setItem(r, 0, new QStandardItem(timeStr));
+        model->setItem(r, 1, new QStandardItem(o.value("employee_name").toString()));
+        model->setItem(r, 2, new QStandardItem(o.value("action_details").toString()));
+        model->setItem(r, 3, new QStandardItem(o.value("module_name").toString()));
+    }
+
     ui_employee->tableView_historique_emp->setModel(model);
     ui_employee->tableView_historique_emp->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     ui_employee->tableView_historique_emp->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -8105,59 +8189,155 @@ void MainWindow::onAIPulseClicked()
     ui_employee->lbl_ai_pulse_result->setText("📡 SYNCING WITH GLOBAL MARKET NETWORKS... CORE ANALYSIS ENGAGED.");
     
     QTimer::singleShot(1200, this, [this](){
-        QSqlQuery qEmp("SELECT COUNT(*), AVG(SALARY) FROM EMPLOYEES"); qEmp.next(); 
+        QSqlQuery qEmp("SELECT COUNT(*), AVG(SALARY), AVG(AGE), COUNT(DISTINCT JOB_TITLE) FROM EMPLOYEES");
+        qEmp.next();
         int cEmp = qEmp.value(0).toInt();
         double avgS = qEmp.value(1).toDouble();
-        
-        QSqlQuery qOrd("SELECT COUNT(*) FROM ORDERS"); qOrd.next(); int cOrd = qOrd.value(0).toInt();
-        
-        QString insight;
+        double avgAge = qEmp.value(2).toDouble();
+        int distinctRoles = qEmp.value(3).toInt();
+
+        QSqlQuery qOrd("SELECT COUNT(*) FROM ORDERS");
+        qOrd.next();
+        int cOrd = qOrd.value(0).toInt();
+
         double throughput = (cOrd > 0) ? (double)cOrd / qMax(1, cEmp) : 0.0;
-        double marketIndex = avgS / 4500.0; // Benchmark against industry 4.5k
-        
+        double marketIndex = (avgS > 0.0) ? (avgS / 4500.0) : 0.0; // Benchmark against ~4.5k
+        double bufferPct = qMin(100.0, (throughput / 3.0) * 100.0);
+        double burnPct = qMax(0.0, qMin(100.0, marketIndex * 100.0));
+
         QString efficiencyColor = throughput > 2.0 ? "#4CAF50" : (throughput > 1.0 ? "#D4AF37" : "#FF5252");
-        
-        insight = QString("<b style='color:#D4AF37;'>⚡ SYSTEM VITALITY REPORT</b><br/>"
-                          "<span style='color:%1;'>▶ Efficiency Throughput: %2 orders/capita</span><br/>"
-                          "▶ Operational Buffer: %3% capacity utilized.<br/>"
-                          "▶ Resource Burn: Stability at %4% (Market Relative).<br/><br/>"
-                          "<i style='color:#AAA;'>MANAGEMENT ADVISORY: %5</i>")
-                  .arg(efficiencyColor)
-                  .arg(throughput, 0, 'f', 2)
-                  .arg(qMin(100.0, (throughput/3.0)*100.0), 0, 'f', 1)
-                  .arg(marketIndex * 100.0, 0, 'f', 1)
-                  .arg(throughput < 1.0 ? "IMMEDIATE RECRUITMENT RECOMMENDED TO PREVENT PROJECT OVERBURN." : "SYSTEM STABILITY OPTIMAL. MAINTAIN CURRENT WORKFLOW VELOCITY.");
-        
+        QString stabilityColor   = burnPct > 66.0 ? "#4CAF50" : (burnPct > 33.0 ? "#D4AF37" : "#FF5252");
+
+        // Top 3 roles for quick planning
+        QString topRoles;
+        {
+            QSqlQuery qRoles("SELECT JOB_TITLE, COUNT(*) FROM EMPLOYEES GROUP BY JOB_TITLE ORDER BY COUNT(*) DESC FETCH FIRST 3 ROWS ONLY");
+            int i = 0;
+            while (qRoles.next() && i < 3) {
+                const QString role = qRoles.value(0).toString();
+                const int cnt = qRoles.value(1).toInt();
+                topRoles += (i == 0 ? "" : ", ");
+                topRoles += QString("%1(%2)").arg(role).arg(cnt);
+                ++i;
+            }
+        }
+
+        // Recent employee actions from local audit JSON
+        QString recentOps;
+        {
+            const QString filePath = "hammerdown_audit_log.json";
+            QJsonArray arr;
+            QFile f(filePath);
+            if (f.open(QIODevice::ReadOnly)) {
+                const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+                if (doc.isArray()) arr = doc.array();
+                f.close();
+            }
+
+            QVector<QJsonObject> objs;
+            objs.reserve(arr.size());
+            for (const QJsonValue &v : arr) if (v.isObject()) objs.push_back(v.toObject());
+
+            std::sort(objs.begin(), objs.end(), [](const QJsonObject &a, const QJsonObject &b) {
+                return b.value("timestamp_ms").toVariant().toLongLong() < a.value("timestamp_ms").toVariant().toLongLong();
+            });
+
+            for (int r = 0; r < objs.size() && r < 3; ++r) {
+                const QJsonObject o = objs.at(r);
+                const QString emp = o.value("employee_name").toString();
+                const QString act = o.value("action_details").toString();
+                const QString mod = o.value("module_name").toString();
+                recentOps += QString("<br/>• [%1] %2: %3").arg(mod, emp, act);
+            }
+            if (objs.isEmpty()) recentOps = "<br/>• No local audit entries yet.";
+        }
+
+        QString advisory;
+        if (cEmp <= 0) {
+            advisory = "SYSTEM IDLE. Add employees to initialize workforce analytics.";
+        } else if (distinctRoles < 3) {
+            advisory = "ROLE COVERAGE LOW. Consider adding staff across more job titles for resilience.";
+        } else if (throughput < 1.0) {
+            advisory = "THROUGHPUT LOW. Optimize workload distribution and consider short-term hires.";
+        } else {
+            advisory = "STABILITY STRONG. Maintain staffing alignment and monitor burnout risk.";
+        }
+
+        QString insight = QString(
+            "<b style='color:#D4AF37;'>⚡ SYSTEM VITALITY REPORT</b><br/>"
+            "<span style='color:%1;'>▶ Efficiency Throughput: %2 orders/capita</span><br/>"
+            "▶ Operational Buffer: %3% capacity utilized.<br/>"
+            "<span style='color:%4;'>▶ Resource Burn: Stability at %5% (Market Relative)</span><br/>"
+            "▶ Team Snapshot: %6 employees • Avg age %7 • Roles %8<br/>"
+            "▶ Top Roles: %9<br/>"
+            "<br/><i style='color:#AAA;'>MANAGEMENT ADVISORY: %10</i>"
+            "<br/><br/><b style='color:#D4AF37;'>Recent Ops (Audit JSON)</b>%11"
+        )
+            .arg(efficiencyColor)
+            .arg(throughput, 0, 'f', 2)
+            .arg(bufferPct, 0, 'f', 1)
+            .arg(stabilityColor)
+            .arg(burnPct, 0, 'f', 1)
+            .arg(cEmp)
+            .arg(avgAge, 0, 'f', 1)
+            .arg(distinctRoles)
+            .arg(topRoles)
+            .arg(advisory)
+            .arg(recentOps);
+
         ui_employee->lbl_ai_pulse_result->setText(insight);
     });
 }
 
 void MainWindow::onStatsAiClicked()
 {
-    ui_employee->lbl_stats_ai_insight->setText("✨ CROSS-REFERENCING STAFF DEMOGRAPHICS... COMPUTING SYNERGY COEFFICIENT.");
-    
-    QTimer::singleShot(1000, this, [this](){
-        QSqlQuery q("SELECT COUNT(*), AVG(AGE), MAX(SALARY), COUNT(DISTINCT JOB_TITLE) FROM EMPLOYEES");
-        q.next();
-        int count = q.value(0).toInt();
-        double avgAge = q.value(1).toDouble();
-        double maxSalary = q.value(2).toDouble();
-        int distinctRoles = q.value(3).toInt();
-        
+    if (!ui_employee) return;
+
+    ui_employee->lbl_stats_ai_insight->setVisible(true);
+    ui_employee->lbl_stats_ai_insight->setText("✨ Generating AI 3D workforce insights...");
+
+    // Populate the stats area with your existing “3D-styled” charts.
+    // (setupEmployeeStats() rebuilds the grid panel each call.)
+    setupEmployeeStats();
+
+    QTimer::singleShot(650, this, [this](){
+        QSqlQuery q("SELECT COUNT(*), AVG(AGE), AVG(SALARY), MAX(SALARY), COUNT(DISTINCT JOB_TITLE) FROM EMPLOYEES");
+        if (!q.next()) return;
+
+        const int count = q.value(0).toInt();
+        const double avgAge = q.value(1).toDouble();
+        const double avgSalary = q.value(2).toDouble();
+        const double maxSalary = q.value(3).toDouble();
+        const int distinctRoles = q.value(4).toInt();
+
         QString synergy;
-        if (distinctRoles > 4 && avgAge < 40) {
-            synergy = "DIVERSE AGILE TEAM: High innovative potential with broad technical coverage. Structural resilience is high.";
-        } else if (distinctRoles < 3) {
-            synergy = "SPECIALIZED TASK-FORCE: Deep expertise in narrow domains. Extreme precision but vulnerable to skill-gap disruptions.";
+        if (distinctRoles >= 5 && avgAge < 40) {
+            synergy = "DIVERSE AGILE TEAM: Strong coverage + fast adaptation. Resilience looks high.";
+        } else if (distinctRoles <= 2) {
+            synergy = "SPECIALIZED TASK-FORCE: Deep expertise in few domains. Watch for skill-gap risk.";
         } else {
-            synergy = "BALANCED FLEET: Standard operational capability with healthy knowledge-sharing protocols in place.";
+            synergy = "BALANCED FLEET: Solid coverage with healthy knowledge sharing.";
         }
-        
-        QString advice = (maxSalary > 8000) ? "Maintain high-tier talent retention programs." : "Consider incentive scaling to attract senior-level Smith/Boss class talent.";
-        
+
+        const QString advice =
+            (maxSalary > 8000)
+                ? "Retention plan: protect high-tier talent to avoid knowledge loss."
+                : "Incentive plan: scale rewards to pull senior-level roles (Smith/Boss).";
+
+        const QString viewNote =
+            QString("3D charts refreshed (Workforce Sector + Synergy Index).");
+
         ui_employee->lbl_stats_ai_insight->setText(
-            QString("✨ SYNERGY INSIGHT [%1 Personnel]: %2\n💡 STRATEGIC ADVICE: %3")
-                .arg(count).arg(synergy, advice));
+            QString("✨ SYNERGY INSIGHT [%1 Personnel]\n%2\n\n"
+                    "📌 Avg Age: %3 • Avg Salary: $%4 • Distinct Roles: %5\n"
+                    "💡 STRATEGIC ADVICE: %6\n\n%7")
+                .arg(count)
+                .arg(synergy)
+                .arg(avgAge, 0, 'f', 1)
+                .arg(avgSalary, 0, 'f', 0)
+                .arg(distinctRoles)
+                .arg(advice)
+                .arg(viewNote));
     });
 }
 
@@ -8196,18 +8376,40 @@ void MainWindow::setupEmployeeStats()
         c->setMargins(QMargins(10, 10, 10, 10));
     };
 
+    struct RoleStat {
+        int count = 0;
+        double avgSalary = 0.0;
+        double avgAge = 0.0;
+    };
+
+    // Precompute stats per job title for interactive tooltips and role focus.
+    QHash<QString, RoleStat> roleStats;
+    {
+        QSqlQuery qRole("SELECT JOB_TITLE, COUNT(*), AVG(SALARY), AVG(AGE) FROM EMPLOYEES GROUP BY JOB_TITLE");
+        while (qRole.next()) {
+            const QString role = qRole.value(0).toString();
+            RoleStat rs;
+            rs.count = qRole.value(1).toInt();
+            rs.avgSalary = qRole.value(2).toDouble();
+            rs.avgAge = qRole.value(3).toDouble();
+            roleStats.insert(role, rs);
+        }
+    }
+
     // --- CHART 1: Stunning Glass Donut (Role Distribution) ---
     QPieSeries *pieSeries = new QPieSeries();
     pieSeries->setHoleSize(0.55); 
-    pieSeries->setPieSize(0.85);
+    pieSeries->setPieSize(0.95);
     
     QSqlQuery q("SELECT JOB_TITLE, COUNT(*) FROM EMPLOYEES GROUP BY JOB_TITLE");
     int totalCount = 0;
+    QHash<QString, QPieSlice*> sliceByRole;
     while (q.next()) {
         QString titleStr = q.value(0).toString();
         int count = q.value(1).toInt();
         totalCount += count;
         QPieSlice *slice = pieSeries->append(titleStr, count);
+        sliceByRole.insert(titleStr, slice);
         
         QColor base = QColor::fromHsl((count * 45) % 360, 160, 140);
         slice->setBrush(QBrush(base));
@@ -8215,11 +8417,21 @@ void MainWindow::setupEmployeeStats()
         slice->setLabelColor(QColor("#F0E6D2"));
         slice->setPen(QPen(QColor("#2C2215"), 2.0));
 
-        connect(slice, &QPieSlice::hovered, this, [slice](bool state) {
+        // Hover tooltip with useful role metrics.
+        const RoleStat rs = roleStats.value(titleStr);
+        const QString roleTip = QString("%1\nCount: %2\nAvg salary: $%3\nAvg age: %4")
+                                    .arg(titleStr)
+                                    .arg(rs.count)
+                                    .arg(rs.avgSalary, 0, 'f', 0)
+                                    .arg(rs.avgAge, 0, 'f', 1);
+
+        connect(slice, &QPieSlice::hovered, this, [slice, roleTip](bool state) {
             slice->setExploded(state);
             slice->setLabelVisible(state);
-            slice->setExplodeDistanceFactor(state ? 0.12 : 0.02);
+            slice->setExplodeDistanceFactor(state ? 0.16 : 0.03);
             slice->setLabelFont(QFont("Outfit", 10, QFont::Bold));
+            if (state) QToolTip::showText(QCursor::pos(), roleTip);
+            else QToolTip::hideText();
         });
     }
 
@@ -8233,6 +8445,15 @@ void MainWindow::setupEmployeeStats()
 
     QChartView *viewPie = new QChartView(chartPie);
     makeObsidianPanel(viewPie);
+    // Slight shadow to enhance depth/3D feel in the stats panel.
+    {
+        auto *eff = new QGraphicsDropShadowEffect(viewPie);
+        eff->setBlurRadius(22);
+        eff->setColor(QColor(0, 0, 0, 180));
+        eff->setOffset(0, 6);
+        viewPie->setGraphicsEffect(eff);
+    }
+    viewPie->setMinimumSize(520, 320);
 
     // --- CHART 2: STAFF SYNERGY ALIGNMENT (3D-Styled Stacked Bar) ---
     QBarSet *performanceSet = new QBarSet("Alignment Efficiency");
@@ -8243,7 +8464,7 @@ void MainWindow::setupEmployeeStats()
     // Map roles to a "Synergy Level" based on count/pay ratio
     QSqlQuery qS("SELECT JOB_TITLE, (COUNT(*)*1.5) + (AVG(SALARY)/2000) FROM EMPLOYEES GROUP BY JOB_TITLE ORDER BY JOB_TITLE LIMIT 6");
     while (qS.next()) {
-        roles << qS.value(0).toString().toUpper();
+        roles << qS.value(0).toString();
         *performanceSet << qS.value(1).toDouble();
     }
 
@@ -8278,13 +8499,45 @@ void MainWindow::setupEmployeeStats()
 
     QChartView *viewSalary = new QChartView(chartSynergy); // Reusing viewSalary pointer name for layout compatibility
     makeObsidianPanel(viewSalary);
+    {
+        auto *eff = new QGraphicsDropShadowEffect(viewSalary);
+        eff->setBlurRadius(22);
+        eff->setColor(QColor(0, 0, 0, 180));
+        eff->setOffset(0, 6);
+        viewSalary->setGraphicsEffect(eff);
+    }
+    viewSalary->setMinimumSize(420, 220);
     
-    // Add interactive click behavior
-    connect(synergySeries, &QBarSeries::clicked, this, [this](int index, QBarSet *barset){
-        Q_UNUSED(barset);
-        QString role = ui_employee->le_fonction->text(); // Placeholder or actual detection
-        QMessageBox::information(this, "Synergy Profile", 
-            QString("Sector: %1 Team\nDeployment Status: OPTIMIZED\nAlignment Coefficient: %2%").arg(barset->label()).arg(barset->at(index)));
+    const QStringList rolesCopy = roles;
+    // Add interactive click behavior (bar -> real role stats).
+    connect(synergySeries, &QBarSeries::clicked, this,
+            [this, rolesCopy](int index, QBarSet *barset) {
+        if (index < 0 || index >= rolesCopy.size()) return;
+        const QString role = rolesCopy.at(index);
+
+        // Role metrics (useful details)
+        QSqlQuery q;
+        q.prepare("SELECT COUNT(*), AVG(SALARY), AVG(AGE) FROM EMPLOYEES WHERE JOB_TITLE = :r");
+        q.bindValue(":r", role);
+
+        int count = 0;
+        double avgSalary = 0.0;
+        double avgAge = 0.0;
+        if (q.exec() && q.next()) {
+            count = q.value(0).toInt();
+            avgSalary = q.value(1).toDouble();
+            avgAge = q.value(2).toDouble();
+        }
+
+        const double score = (barset ? barset->at(index) : 0.0);
+        ui_employee->lbl_stats_ai_insight->setText(
+            QString("📌 Role Focus: %1 | Team: %2 • Avg salary: $%3 • Avg age: %4\n"
+                    "Alignment Coefficient: %5")
+                .arg(role)
+                .arg(count)
+                .arg(avgSalary, 0, 'f', 0)
+                .arg(avgAge, 0, 'f', 1)
+                .arg(score, 0, 'f', 2));
     });
 
     // --- WIDGET 3: Live Pulse Card (Dynamic Quick Facts) ---
@@ -8297,9 +8550,65 @@ void MainWindow::setupEmployeeStats()
         "border-radius: 20px;"
         "}"
     );
+    {
+        auto *eff = new QGraphicsDropShadowEffect(framePulse);
+        eff->setBlurRadius(28);
+        eff->setColor(QColor(0, 0, 0, 200));
+        eff->setOffset(0, 8);
+        framePulse->setGraphicsEffect(eff);
+    }
     QVBoxLayout *pulseLayout = new QVBoxLayout(framePulse);
     pulseLayout->setContentsMargins(25, 25, 25, 25);
     pulseLayout->setSpacing(15);
+
+    // Role focus selector (interactive + useful)
+    QStringList roleKeys = roleStats.keys();
+    roleKeys.sort(Qt::CaseInsensitive);
+    if (roleKeys.isEmpty()) roleKeys << "N/A";
+
+    QComboBox *cbRoleFocus = new QComboBox(framePulse);
+    cbRoleFocus->setEditable(false);
+    cbRoleFocus->addItems(roleKeys);
+    cbRoleFocus->setStyleSheet(
+        "QComboBox { background: rgba(255,255,255,0.08); border: 1px solid rgba(212,175,55,0.35); border-radius: 10px; color: #D4AF37; padding: 6px 12px; }"
+        "QComboBox:hover { border-color: rgba(212,175,55,0.6); }"
+    );
+    pulseLayout->addWidget(cbRoleFocus);
+
+    QLabel *lblRoleFocus = new QLabel("ROLE FOCUS: —");
+    lblRoleFocus->setStyleSheet("color: #D4AF37; font-size: 12px; font-weight: bold; background: transparent;");
+    pulseLayout->addWidget(lblRoleFocus);
+
+    QLabel *lblRoleDetails = new QLabel("—");
+    lblRoleDetails->setStyleSheet("color: #F0E6D2; font-size: 11px; background: transparent;");
+    pulseLayout->addWidget(lblRoleDetails);
+
+    // Capture by value: lambdas may fire after setupEmployeeStats() returns.
+    const auto roleStatsCopy = roleStats;
+    const auto sliceByRoleCopy = sliceByRole;
+    auto updateRoleFocus = [=]() {
+        const QString role = cbRoleFocus->currentText();
+        const RoleStat rs = roleStatsCopy.value(role);
+
+        lblRoleFocus->setText(QString("ROLE FOCUS: %1").arg(role));
+        lblRoleDetails->setText(QString("Count: %1 | Avg salary: $%2 | Avg age: %3")
+                                     .arg(rs.count)
+                                     .arg(rs.avgSalary, 0, 'f', 0)
+                                     .arg(rs.avgAge, 0, 'f', 1));
+
+        // Highlight the corresponding donut slice.
+        for (auto it = sliceByRoleCopy.begin(); it != sliceByRoleCopy.end(); ++it) {
+            if (it.value()) it.value()->setExploded(false);
+        }
+        if (sliceByRoleCopy.contains(role) && sliceByRoleCopy.value(role)) {
+            sliceByRoleCopy.value(role)->setExploded(true);
+            sliceByRoleCopy.value(role)->setLabelVisible(true);
+        }
+    };
+    updateRoleFocus();
+
+    connect(cbRoleFocus, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [=](int) { updateRoleFocus(); });
     
     auto addMetric = [&](const QString &icon, const QString &label, const QString &val) {
         QLabel *l = new QLabel(QString("<font color='#D4D4D4' size='4'>%1 %2</font><br/><font color='#D4AF37' size='6'><b>%3</b></font>").arg(icon, label, val));
@@ -8316,13 +8625,16 @@ void MainWindow::setupEmployeeStats()
 
     pulseLayout->addStretch();
     
-    ui_employee->gridLayout_stats->setSpacing(25);
-    ui_employee->gridLayout_stats->addWidget(viewPie, 0, 0, 1, 1);
-    ui_employee->gridLayout_stats->addWidget(viewSalary, 0, 1, 2, 1);
-    ui_employee->gridLayout_stats->addWidget(framePulse, 1, 0, 1, 1);
-    
+    // Bigger + better layout: make the donut bigger and keep synergy + pulse on the right.
+    ui_employee->gridLayout_stats->setSpacing(18);
+    ui_employee->gridLayout_stats->addWidget(viewPie, 0, 0, 2, 1);
+    ui_employee->gridLayout_stats->addWidget(viewSalary, 0, 1, 1, 1);
+    ui_employee->gridLayout_stats->addWidget(framePulse, 1, 1, 1, 1);
+
+    ui_employee->gridLayout_stats->setRowStretch(0, 1);
+    ui_employee->gridLayout_stats->setRowStretch(1, 1);
     ui_employee->gridLayout_stats->setColumnStretch(0, 1);
-    ui_employee->gridLayout_stats->setColumnStretch(1, 2);
+    ui_employee->gridLayout_stats->setColumnStretch(1, 1);
 }
 
 void MainWindow::onEmployeeAdd()
@@ -11623,22 +11935,19 @@ QPixmap MainWindow::getCircularPixmap(const QPixmap &src) {
 }
 
 void MainWindow::onEmployeeEnsureHistoryTable() {
-    QSqlQuery q;
-    // Create the history table (ignore if already exists)
-    q.exec("CREATE TABLE APP_HISTORY ("
-           "  LOG_ID          NUMBER PRIMARY KEY,"
-           "  LOG_DATE        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-           "  EMPLOYEE_NAME   VARCHAR2(200),"
-           "  ACTION_DETAILS  VARCHAR2(1000),"
-           "  MODULE_NAME     VARCHAR2(100)"
-           ")");
-    // Create the sequence (ignore if exists)
-    q.exec("CREATE SEQUENCE REQ_HIST_SEQ START WITH 1 INCREMENT BY 1");
+    // Use local JSON storage (no DB table creation allowed by user request).
+    const QString filePath = "hammerdown_audit_log.json";
+    QFile file(filePath);
+    if (file.exists()) return;
+
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(QJsonArray()).toJson(QJsonDocument::Compact));
+        file.close();
+    }
 }
 
 void MainWindow::logActivity(const QString &action, const QString &module) {
-    QSqlQuery q;
-    // Get full name of current employee
+    // Get full name of current employee (DB read is OK; no DB table creation).
     QString empName = "System";
     if (currentEmployeeId > 0) {
         QSqlQuery nq;
@@ -11647,12 +11956,38 @@ void MainWindow::logActivity(const QString &action, const QString &module) {
         if (nq.exec() && nq.next()) empName = nq.value(0).toString();
     }
 
-    q.prepare("INSERT INTO APP_HISTORY (LOG_ID, LOG_DATE, EMPLOYEE_NAME, ACTION_DETAILS, MODULE_NAME) "
-              "VALUES (REQ_HIST_SEQ.NEXTVAL, CURRENT_TIMESTAMP, :name, :action, :module)");
-    q.bindValue(":name", empName);
-    q.bindValue(":action", action);
-    q.bindValue(":module", module);
-    q.exec();
+    const QString filePath = "hammerdown_audit_log.json";
+    QJsonArray auditArray;
+
+    // Load existing log
+    {
+        QFile file(filePath);
+        if (file.open(QIODevice::ReadOnly)) {
+            const QByteArray raw = file.readAll();
+            file.close();
+
+            const QJsonDocument doc = QJsonDocument::fromJson(raw);
+            if (doc.isArray()) auditArray = doc.array();
+        }
+    }
+
+    const QDateTime now = QDateTime::currentDateTime();
+    QJsonObject obj;
+    obj["log_id"] = auditArray.size() + 1;
+    obj["timestamp_iso"] = now.toString(Qt::ISODate);
+    obj["timestamp_ms"] = static_cast<qint64>(now.toMSecsSinceEpoch());
+    obj["employee_name"] = empName;
+    obj["action_details"] = action;
+    obj["module_name"] = module;
+
+    auditArray.append(obj);
+
+    // Save back
+    QFile out(filePath);
+    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        out.write(QJsonDocument(auditArray).toJson(QJsonDocument::Compact));
+        out.close();
+    }
 }
 
 void MainWindow::setupOrderMapTab()
