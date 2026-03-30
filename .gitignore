@@ -18,8 +18,10 @@ qrc_*.cpp
 *.o
 *.obj
 
-# Binary files
+# Binary files (only block compiled output — build/ already covers most of these)
 *.exe
-*.dll
 *.so
 *.dylib
+
+# Claude internal files
+.claude/
