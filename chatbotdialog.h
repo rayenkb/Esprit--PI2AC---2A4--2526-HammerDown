@@ -53,6 +53,10 @@ private:
     QString handleAddRandomSuppliers(int count);
     QString handleAddRandomEquipment(int count);
     int getNextId(const QString &tableName, const QString &idColumn, int fallback = 1);
+    QStringList getColumnValuesFromCheckConstraints(const QString &tableName, const QString &columnName);
+    QString getColumnDefaultValue(const QString &tableName, const QString &columnName);
+    QStringList getDistinctColumnValues(const QString &tableName, const QString &columnName);
+    QStringList getAllowedColumnValues(const QString &tableName, const QString &columnName);
     void callApi(const QString &userMessage);
     void callImageApi(const QString &prompt);
     void retryWithNextModel();

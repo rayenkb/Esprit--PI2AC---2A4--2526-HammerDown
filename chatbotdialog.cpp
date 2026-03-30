@@ -9,6 +9,7 @@
 #include <QSqlDatabase>
 #include <QRandomGenerator>
 #include <QVector>
+#include <QSet>
 #include <QtGlobal>
 #include <QRegularExpression>
 #include <QPixmap>
@@ -632,8 +633,11 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
     }
 
     const QStringList orderTypes = {"Custom Furniture", "Repair", "Installation", "Design", "Consulting"};
-    const QStringList orderStatuses = {"Pending", "Processing", "Completed"};
-    const QStringList paymentStatuses = {"Unpaid", "Partial", "Paid"};
+    const QStringList orderStatuses = getAllowedColumnValues("ORDERS", "ORDER_STATUS");
+    const QStringList paymentStatuses = getAllowedColumnValues("ORDERS", "PAYMENT_STATUS");
+    if (orderStatuses.isEmpty() || paymentStatuses.isEmpty()) {
+        return "Cannot add orders: valid ORDER_STATUS/PAYMENT_STATUS values were not found in DB constraints/defaults/existing data.";
+    }
 
     int nextOrderId = 1;
     QSqlQuery nextIdQuery;
@@ -713,6 +717,137 @@ int ChatBotDialog::getNextId(const QString &tableName, const QString &idColumn, 
     return fallback;
 }
 
+QStringList ChatBotDialog::getColumnValuesFromCheckConstraints(const QString &tableName, const QString &columnName)
+{
+    QSqlQuery q;
+    q.prepare("SELECT uc.SEARCH_CONDITION_VC "
+              "FROM USER_CONSTRAINTS uc "
+              "JOIN USER_CONS_COLUMNS ucc ON uc.CONSTRAINT_NAME = ucc.CONSTRAINT_NAME "
+              "WHERE uc.CONSTRAINT_TYPE = 'C' "
+              "AND uc.TABLE_NAME = :tableName "
+              "AND ucc.COLUMN_NAME = :columnName");
+    q.bindValue(":tableName", tableName.toUpper());
+    q.bindValue(":columnName", columnName.toUpper());
+
+    QStringList values;
+    QSet<QString> seenUpper;
+    if (q.exec()) {
+        QRegularExpression quotedValueRx("'((?:''|[^'])*)'");
+        while (q.next()) {
+            QString condition = q.value(0).toString();
+            if (condition.trimmed().isEmpty()) {
+                continue;
+            }
+
+            QRegularExpressionMatchIterator it = quotedValueRx.globalMatch(condition);
+            while (it.hasNext()) {
+                QRegularExpressionMatch m = it.next();
+                QString value = m.captured(1);
+                value.replace("''", "'");
+                QString key = value.toUpper();
+                if (!value.isEmpty() && !seenUpper.contains(key)) {
+                    seenUpper.insert(key);
+                    values << value;
+                }
+            }
+        }
+    }
+
+    return values;
+}
+
+QString ChatBotDialog::getColumnDefaultValue(const QString &tableName, const QString &columnName)
+{
+    QSqlQuery q;
+    q.prepare("SELECT DATA_DEFAULT "
+              "FROM USER_TAB_COLUMNS "
+              "WHERE TABLE_NAME = :tableName "
+              "AND COLUMN_NAME = :columnName");
+    q.bindValue(":tableName", tableName.toUpper());
+    q.bindValue(":columnName", columnName.toUpper());
+
+    if (!q.exec() || !q.next()) {
+        return QString();
+    }
+
+    QString raw = q.value(0).toString().trimmed();
+    if (raw.isEmpty()) {
+        return QString();
+    }
+
+    raw.remove('\n');
+    raw.remove('\r');
+    raw = raw.trimmed();
+
+    while (raw.startsWith('(') && raw.endsWith(')') && raw.size() >= 2) {
+        raw = raw.mid(1, raw.size() - 2).trimmed();
+    }
+
+    QRegularExpression quotedLiteralRx("^'((?:''|[^'])*)'$");
+    QRegularExpressionMatch m = quotedLiteralRx.match(raw);
+    if (!m.hasMatch()) {
+        return QString();
+    }
+
+    QString value = m.captured(1);
+    value.replace("''", "'");
+    return value.trimmed();
+}
+
+QStringList ChatBotDialog::getDistinctColumnValues(const QString &tableName, const QString &columnName)
+{
+    static const QRegularExpression identRx("^[A-Z0-9_]+$", QRegularExpression::CaseInsensitiveOption);
+    if (!identRx.match(tableName).hasMatch() || !identRx.match(columnName).hasMatch()) {
+        return {};
+    }
+
+    QStringList values;
+    QSet<QString> seenUpper;
+    QString sql = QString("SELECT DISTINCT %1 FROM %2 WHERE %1 IS NOT NULL FETCH FIRST 100 ROWS ONLY")
+                      .arg(columnName, tableName);
+
+    QSqlQuery q;
+    if (q.exec(sql)) {
+        while (q.next()) {
+            QString value = q.value(0).toString().trimmed();
+            QString key = value.toUpper();
+            if (!value.isEmpty() && !seenUpper.contains(key)) {
+                seenUpper.insert(key);
+                values << value;
+            }
+        }
+    }
+
+    return values;
+}
+
+QStringList ChatBotDialog::getAllowedColumnValues(const QString &tableName, const QString &columnName)
+{
+    QStringList values;
+    QSet<QString> seenUpper;
+
+    auto appendUnique = [&](const QStringList &items) {
+        for (const QString &item : items) {
+            QString value = item.trimmed();
+            QString key = value.toUpper();
+            if (!value.isEmpty() && !seenUpper.contains(key)) {
+                seenUpper.insert(key);
+                values << value;
+            }
+        }
+    };
+
+    appendUnique(getColumnValuesFromCheckConstraints(tableName, columnName));
+
+    QString defaultValue = getColumnDefaultValue(tableName, columnName);
+    if (!defaultValue.isEmpty()) {
+        appendUnique({defaultValue});
+    }
+
+    appendUnique(getDistinctColumnValues(tableName, columnName));
+    return values;
+}
+
 QString ChatBotDialog::handleAddRandomEmployees(int count)
 {
     if (count <= 0) return "Please provide a positive number of employees to add.";
@@ -722,7 +857,10 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
     const QStringList lastNames = {"Ben Ali", "Trabelsi", "Mansour", "Haddad", "Gharbi", "Jaziri", "Ayari", "Kefi"};
     const QStringList jobs = {"Carpenter", "Designer", "Technician", "Manager", "Installer"};
     const QStringList departments = {"Production", "Design", "Operations", "Sales", "Maintenance"};
-    const QStringList statuses = {"Active", "On Leave", "Inactive"};
+    const QStringList statuses = getAllowedColumnValues("EMPLOYEES", "EMPLOYEE_STATUS");
+    if (statuses.isEmpty()) {
+        return "Cannot add employees: no valid EMPLOYEE_STATUS values found in DB constraints/defaults/existing data.";
+    }
 
     int nextId = getNextId("EMPLOYEES", "EMPLOYEE_ID");
 
@@ -790,7 +928,10 @@ QString ChatBotDialog::handleAddRandomClients(int count)
     const QStringList firstNames = {"Hedi", "Amira", "Karim", "Sarra", "Walid", "Ines", "Fares", "Rania"};
     const QStringList lastNames = {"Mabrouk", "Cherif", "Ben Salem", "Khalfallah", "Mejri", "Boussetta", "Chaari", "Sfaxi"};
     const QStringList genders = {"Male", "Female"};
-    const QStringList statuses = {"Active", "Inactive", "Pending"};
+    const QStringList statuses = getAllowedColumnValues("CLIENTS", "STATUS");
+    if (statuses.isEmpty()) {
+        return "Cannot add clients: no valid STATUS values found in DB constraints/defaults/existing data.";
+    }
     const QStringList streets = {"Avenue Habib Bourguiba", "Rue de Marseille", "Avenue de la Liberte", "Rue d'Alger"};
 
     int nextId = getNextId("CLIENTS", "CLIENT_ID");
@@ -858,7 +999,10 @@ QString ChatBotDialog::handleAddRandomSuppliers(int count)
 
     const QStringList prefixes = {"Atlas", "Nord", "Cedar", "Prime", "Delta", "Sahara", "Olive", "Nova"};
     const QStringList suffixes = {"Wood", "Supply", "Materials", "Trade", "Systems", "Partners"};
-    const QStringList statuses = {"Active", "Pending", "Inactive"};
+    const QStringList statuses = getAllowedColumnValues("SUPPLIERS", "ACCOUNT_STATUS");
+    if (statuses.isEmpty()) {
+        return "Cannot add suppliers: no valid ACCOUNT_STATUS values found in DB constraints/defaults/existing data.";
+    }
 
     int nextId = getNextId("SUPPLIERS", "SUPPLIER_ID");
 
@@ -934,7 +1078,10 @@ QString ChatBotDialog::handleAddRandomEquipment(int count)
     }
 
     const QStringList types = {"Drill", "Saw", "Sander", "Compressor", "Workstation", "Safety Kit"};
-    const QStringList statuses = {"Available", "In Use", "Under Maintenance", "Retired"};
+    const QStringList statuses = getAllowedColumnValues("EQUIPMENT", "STATUS");
+    if (statuses.isEmpty()) {
+        return "Cannot add equipment: no valid STATUS values found in DB constraints/defaults/existing data.";
+    }
     const QStringList locations = {"Warehouse A", "Warehouse B", "Workshop 1", "Workshop 2", "Site Storage"};
 
     int nextId = getNextId("EQUIPMENT", "EQUIPMENT_ID");
@@ -1074,11 +1221,15 @@ DATABASE SCHEMA:
 
 You can INSERT, UPDATE, DELETE, or SELECT data. When the user asks you to add, modify, remove, or read records, output the SQL inside [EXECUTE_SQL]...[/EXECUTE_SQL] tags. Rules:
 - Use Oracle SQL syntax.
-- Only one statement per tag. Use multiple tags for multiple statements.
+- SQL inside each [EXECUTE_SQL] tag must be exactly one plain statement (no multi-statement batches, no extra prose, no comments).
+- Do NOT chain statements with semicolons. A single optional trailing semicolon is fine.
+- Multiline formatting is allowed; line breaks do not make it multiple statements.
+- Prefer one [EXECUTE_SQL] block that fully solves the user request.
 - Only operate on these tables: EMPLOYEES, CLIENTS, ORDERS, EQUIPMENT, SUPPLIERS.
 - For INSERT: use the next available ID or let the sequence/trigger handle it.
-- Always confirm what you did after the SQL.
-- Example: "I'll add that employee now. [EXECUTE_SQL]INSERT INTO EMPLOYEES (FIRST_NAME, LAST_NAME, JOB_TITLE) VALUES ('John', 'Smith', 'Blacksmith')[/EXECUTE_SQL] Done! John Smith has been added."
+- Always keep SQL valid and directly executable.
+- For requests like deleting/updating N random rows, do it in one statement with a subquery, e.g. [EXECUTE_SQL]DELETE FROM ORDERS WHERE ORDER_ID IN (SELECT ORDER_ID FROM (SELECT ORDER_ID FROM ORDERS ORDER BY DBMS_RANDOM.VALUE) WHERE ROWNUM <= 5)[/EXECUTE_SQL]
+- Example: [EXECUTE_SQL]INSERT INTO EMPLOYEES (FIRST_NAME, LAST_NAME, JOB_TITLE) VALUES ('John', 'Smith', 'Blacksmith')[/EXECUTE_SQL] Employee added.
  - For reading data, use SELECT queries inside [EXECUTE_SQL]...[/EXECUTE_SQL] tags, and keep results small (limit rows).
  - NEVER use DROP, TRUNCATE, ALTER, CREATE, GRANT, REVOKE, RENAME, BEGIN/DECLARE blocks, or any DDL/PLSQL commands. Only SELECT/INSERT/UPDATE/DELETE are allowed.)";
 
@@ -1563,13 +1714,60 @@ QString ChatBotDialog::executeSqlCommand(const QString &sql)
         trimmedSql.remove(lineCommentRx);
         trimmedSql = trimmedSql.trimmed();
 
-        while (trimmedSql.endsWith(';')) {
-            trimmedSql.chop(1);
-            trimmedSql = trimmedSql.trimmed();
+        // Accept multiline SQL and semicolons inside string literals; only block
+        // true statement separators (';') that are not trailing terminators.
+        QVector<int> topLevelSemicolons;
+        bool inLiteral = false;
+        for (int i = 0; i < trimmedSql.size(); ++i) {
+            QChar ch = trimmedSql.at(i);
+            if (ch == '\'') {
+                if (inLiteral && i + 1 < trimmedSql.size() && trimmedSql.at(i + 1) == '\'') {
+                    ++i; // Escaped quote inside literal
+                    continue;
+                }
+                inLiteral = !inLiteral;
+                continue;
+            }
+            if (!inLiteral && ch == ';') {
+                topLevelSemicolons.append(i);
+            }
         }
 
-        if (trimmedSql.contains(';')) {
+        QSet<int> trailingSemicolonPositions;
+        int cursor = trimmedSql.size() - 1;
+        while (cursor >= 0) {
+            while (cursor >= 0 && trimmedSql.at(cursor).isSpace()) {
+                --cursor;
+            }
+            if (cursor >= 0 && trimmedSql.at(cursor) == ';' && topLevelSemicolons.contains(cursor)) {
+                trailingSemicolonPositions.insert(cursor);
+                --cursor;
+            } else {
+                break;
+            }
+        }
+
+        bool hasInternalStatementSeparator = false;
+        for (int pos : topLevelSemicolons) {
+            if (!trailingSemicolonPositions.contains(pos)) {
+                hasInternalStatementSeparator = true;
+                break;
+            }
+        }
+
+        if (hasInternalStatementSeparator) {
             return "[Blocked: only one plain SQL statement is allowed]";
+        }
+
+        if (!trailingSemicolonPositions.isEmpty()) {
+            QString normalized;
+            normalized.reserve(trimmedSql.size());
+            for (int i = 0; i < trimmedSql.size(); ++i) {
+                if (!trailingSemicolonPositions.contains(i)) {
+                    normalized.append(trimmedSql.at(i));
+                }
+            }
+            trimmedSql = normalized.trimmed();
         }
     }
 
