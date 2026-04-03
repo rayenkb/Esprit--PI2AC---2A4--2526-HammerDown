@@ -1740,7 +1740,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui_supplier->btn_modify,         &QPushButton::clicked, this, &MainWindow::onSupplierModify);
     connect(ui_supplier->btn_delete,         &QPushButton::clicked, this, &MainWindow::onSupplierDelete);
     connect(ui_supplier->btn_clear,          &QPushButton::clicked, this, &MainWindow::onSupplierClearFields);
-    
+
+    connect(ui_supplier->btn_export_pdf_view, &QPushButton::clicked, this, &MainWindow::onSupplierExportPDF);
+    connect(ui_supplier->btn_print_view,      &QPushButton::clicked, this, &MainWindow::onSupplierPrint);
+    connect(ui_supplier->btn_delete_all_view, &QPushButton::clicked, this, &MainWindow::onSupplierDeleteAll);
+
     connect(ui_supplier->btn_send_sms,       &QPushButton::clicked, this, &MainWindow::onSupplierSendSMS);
     connect(ui_supplier->btn_upload_image,   &QPushButton::clicked, this, &MainWindow::onSupplierUploadImage);
     connect(ui_supplier->btn_chercher,       &QPushButton::clicked, this, &MainWindow::onSupplierSearch);
@@ -1854,7 +1858,9 @@ MainWindow::MainWindow(QWidget *parent)
         ui_supplier->btn_help_stats->setChecked(false);
         // ui_supplier->btn_help_reviews->setChecked(false); // Enable if present
 
-        if (ui_supplier->tabWidget->widget(idx) == ui_supplier->tab_view) {
+        if (ui_supplier->tabWidget->widget(idx) == ui_supplier->tab_stats) {
+            setupSupplierStats();
+        } else if (ui_supplier->tabWidget->widget(idx) == ui_supplier->tab_view) {
             onSupplierRefreshView();
         } else if (ui_supplier->tabWidget->widget(idx) == ui_supplier->tab_reviews) {
             onSupplierPopulateRatingCombos();
@@ -4868,6 +4874,303 @@ void MainWindow::onSupplierDelete()
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::onSupplierDeleteAll()
+{
+    if (!ui_supplier) return;
+
+    // Count first so the warning is specific
+    int count = 0;
+    QSqlQuery qCount("SELECT COUNT(*) FROM SUPPLIERS");
+    if (qCount.exec() && qCount.next()) count = qCount.value(0).toInt();
+
+    if (count == 0) {
+        QMessageBox::information(this, tr("Delete All"), tr("There are no suppliers to delete."));
+        return;
+    }
+
+    auto reply = QMessageBox::warning(
+        this,
+        tr("Confirm Delete All"),
+        tr("This will permanently delete ALL %1 supplier(s) and their ratings/notifications.\n\nThis action cannot be undone!").arg(count),
+        QMessageBox::Yes | QMessageBox::Cancel,
+        QMessageBox::Cancel
+    );
+    if (reply != QMessageBox::Yes) return;
+
+    QSqlQuery qDel("DELETE FROM SUPPLIERS");
+    if (qDel.exec()) {
+        QMessageBox::information(this, tr("Deleted"),
+            tr("%1 supplier(s) deleted successfully.").arg(count));
+        onSupplierClearFields();
+        onSupplierRefreshView();
+        setupSupplierStats(); // refresh the stats tab too
+    } else {
+        QMessageBox::critical(this, tr("Database Error"),
+            tr("Failed to delete suppliers:\n") + qDel.lastError().text());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::onSupplierExportPDF()
+{
+    if (!ui_supplier) return;
+
+    // Gather data from the current tableView model
+    const QAbstractItemModel *model = ui_supplier->tableView->model();
+    if (!model || model->rowCount() == 0) {
+        QMessageBox::information(this, tr("Export PDF"), tr("No supplier data to export."));
+        return;
+    }
+
+    QString fileName = QFileDialog::getSaveFileName(
+        this,
+        tr("Export Suppliers to PDF"),
+        QDir::homePath() + "/Suppliers_" + QDate::currentDate().toString("yyyyMMdd") + ".pdf",
+        "PDF Files (*.pdf)"
+    );
+    if (fileName.isEmpty()) return;
+
+    QPrinter printer(QPrinter::ScreenResolution);
+    printer.setOutputFormat(QPrinter::PdfFormat);
+    printer.setOutputFileName(fileName);
+    printer.setPageOrientation(QPageLayout::Landscape);
+    printer.setPageSize(QPageSize(QPageSize::A4));
+
+    QPainter painter;
+    if (!painter.begin(&printer)) {
+        QMessageBox::critical(this, tr("Export Error"), tr("Failed to create PDF file."));
+        return;
+    }
+
+    const int W      = printer.width();
+    const int margin = 60;
+    const int cw     = W - 2 * margin;
+    int y            = 0;
+
+    // ── Header bar ────────────────────────────────────────────────────────────
+    painter.fillRect(0, 0, W, 90, QColor(28, 22, 16));
+    painter.setFont(QFont("Segoe UI", 20, QFont::Bold));
+    painter.setPen(QColor("#D4AF37"));
+    painter.drawText(margin, 38, tr("Supplier Management System"));
+    painter.setFont(QFont("Segoe UI", 9));
+    painter.setPen(QColor(180, 160, 120));
+    painter.drawText(margin, 60, tr("Professional Supplier Directory Export"));
+
+    // Logo (right side of header)
+    QPixmap logo(":/assets/logo.png");
+    if (!logo.isNull())
+        painter.drawPixmap(W - margin - 70, 10, logo.scaled(70, 70, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+
+    // Generated timestamp
+    painter.setFont(QFont("Segoe UI", 8));
+    painter.setPen(QColor("#8B6F47"));
+    const QString stamp = tr("Generated: ") + QDateTime::currentDateTime().toString("dd/MM/yyyy HH:mm");
+    QFontMetrics fm8(QFont("Segoe UI", 8));
+    painter.drawText(W - margin - fm8.horizontalAdvance(stamp), 82, stamp);
+
+    y = 110;
+
+    // ── Summary strip ─────────────────────────────────────────────────────────
+    int totalSuppliers = 0, activeCount = 0;
+    double avgRat = 0.0;
+    {
+        QSqlQuery qs("SELECT COUNT(*), "
+                     "SUM(CASE WHEN ACCOUNT_STATUS='Active' THEN 1 ELSE 0 END), "
+                     "AVG(CASE WHEN AVERAGE_RATING>0 THEN AVERAGE_RATING END) "
+                     "FROM SUPPLIERS");
+        if (qs.exec() && qs.next()) {
+            totalSuppliers = qs.value(0).toInt();
+            activeCount    = qs.value(1).toInt();
+            avgRat         = qs.value(2).isNull() ? 0.0 : qs.value(2).toDouble();
+        }
+    }
+    painter.fillRect(margin, y, cw, 38, QColor(44, 34, 22));
+    painter.setFont(QFont("Segoe UI", 10, QFont::Bold));
+    painter.setPen(QColor("#F5E6D3"));
+    const QString summary = QString(tr("Total: %1   |   Active: %2   |   Inactive: %3   |   Avg Rating: %4 / 5.0"))
+        .arg(totalSuppliers).arg(activeCount).arg(totalSuppliers - activeCount)
+        .arg(QString::number(avgRat, 'f', 1));
+    painter.drawText(margin + 12, y + 25, summary);
+    y += 50;
+
+    // ── Column definitions ────────────────────────────────────────────────────
+    // Skip the first 2 model cols (Action / Delete icons), show cols 2-8
+    struct Col { QString name; int widthPct; };
+    const QList<Col> cols = {
+        {tr("ID"),          6},
+        {tr("Company"),    22},
+        {tr("Address"),    22},
+        {tr("Email"),      18},
+        {tr("Phone"),      12},
+        {tr("Type"),       12},
+        {tr("Postal"),      8},
+    };
+    // Pre-compute pixel widths
+    QList<int> colWidths;
+    for (const Col &c : cols) colWidths << (cw * c.widthPct / 100);
+
+    const int rowH    = 22;
+    const int headerH = 28;
+
+    auto drawRow = [&](int row, bool isHeader) {
+        int x = margin;
+        QColor bg  = isHeader ? QColor("#8B6F47") :
+                     (row % 2 == 0 ? QColor(240, 232, 220) : QColor(255, 252, 245));
+        QColor fg  = isHeader ? Qt::white : QColor(40, 30, 20);
+        int    h   = isHeader ? headerH : rowH;
+        painter.fillRect(x, y, cw, h, bg);
+        painter.setPen(QPen(QColor(180, 150, 110), 0.5));
+        painter.drawRect(x, y, cw, h);
+        painter.setPen(fg);
+        painter.setFont(QFont("Segoe UI", isHeader ? 9 : 8, isHeader ? QFont::Bold : QFont::Normal));
+        for (int c = 0; c < cols.size(); ++c) {
+            QString text = isHeader
+                ? cols[c].name
+                : model->data(model->index(row, c + 2)).toString(); // skip col 0,1
+            QRect cell(x + 3, y + 2, colWidths[c] - 6, h - 4);
+            painter.drawText(cell, Qt::AlignVCenter | Qt::AlignLeft,
+                             painter.fontMetrics().elidedText(text, Qt::ElideRight, cell.width()));
+            x += colWidths[c];
+        }
+    };
+
+    // Draw table header
+    drawRow(-1, true);
+    y += headerH;
+
+    // Draw data rows, paginating automatically
+    for (int r = 0; r < model->rowCount(); ++r) {
+        if (y + rowH > printer.height() - margin) {
+            printer.newPage();
+            y = margin;
+            // Repeat header on each new page
+            drawRow(-1, true);
+            y += headerH;
+        }
+        drawRow(r, false);
+        y += rowH;
+    }
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    y += 18;
+    painter.setPen(QPen(QColor("#8B6F47"), 1));
+    painter.drawLine(margin, y, W - margin, y);
+    y += 12;
+    painter.setFont(QFont("Segoe UI", 8));
+    painter.setPen(QColor("#8B6F47"));
+    painter.drawText(margin, y, tr("Hammer Down — Supplier Management System — Confidential"));
+    painter.drawText(W - margin - 80, y, QString(tr("Total: %1 suppliers")).arg(totalSuppliers));
+
+    painter.end();
+    QMessageBox::information(this, tr("Export Successful"),
+        tr("PDF exported successfully to:\n%1").arg(fileName));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::onSupplierPrint()
+{
+    if (!ui_supplier) return;
+
+    const QAbstractItemModel *model = ui_supplier->tableView->model();
+    if (!model || model->rowCount() == 0) {
+        QMessageBox::information(this, tr("Print"), tr("No supplier data to print."));
+        return;
+    }
+
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setPageOrientation(QPageLayout::Landscape);
+    printer.setPageSize(QPageSize(QPageSize::A4));
+
+    QPrintDialog dialog(&printer, this);
+    dialog.setWindowTitle(tr("Print Supplier List"));
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    QPainter painter;
+    if (!painter.begin(&printer)) {
+        QMessageBox::critical(this, tr("Print Error"), tr("Failed to start printing."));
+        return;
+    }
+
+    const int W      = printer.width();
+    const int margin = 120;
+    const int cw     = W - 2 * margin;
+    int y            = margin;
+
+    // Header
+    painter.fillRect(0, 0, W, 180, QColor(28, 22, 16));
+    painter.setFont(QFont("Segoe UI", 28, QFont::Bold));
+    painter.setPen(QColor("#D4AF37"));
+    painter.drawText(margin, 90, tr("Supplier Directory"));
+    painter.setFont(QFont("Segoe UI", 14));
+    painter.setPen(QColor(180, 160, 120));
+    painter.drawText(margin, 130, tr("Hammer Down — Supplier Management System"));
+    painter.setFont(QFont("Segoe UI", 12));
+    painter.setPen(QColor("#8B6F47"));
+    painter.drawText(margin, 165, QDateTime::currentDateTime().toString("dd/MM/yyyy HH:mm"));
+    y = 210;
+
+    // Column setup
+    struct Col { QString name; int widthPct; };
+    const QList<Col> cols = {
+        {tr("ID"),       6}, {tr("Company"), 22}, {tr("Address"), 22},
+        {tr("Email"),   18}, {tr("Phone"),   12}, {tr("Type"),    12}, {tr("Postal"), 8}
+    };
+    QList<int> colWidths;
+    for (const Col &c : cols) colWidths << (cw * c.widthPct / 100);
+
+    const int rowH = 56, headerH = 70;
+
+    auto drawRow = [&](int row, bool isHeader) {
+        int x = margin;
+        QColor bg = isHeader ? QColor("#8B6F47") :
+                    (row % 2 == 0 ? QColor(240, 232, 220) : QColor(255, 252, 245));
+        int h = isHeader ? headerH : rowH;
+        painter.fillRect(x, y, cw, h, bg);
+        painter.setPen(QPen(QColor(180, 150, 110), 1));
+        painter.drawRect(x, y, cw, h);
+        painter.setPen(isHeader ? Qt::white : QColor(40, 30, 20));
+        painter.setFont(QFont("Segoe UI", isHeader ? 16 : 14,
+                              isHeader ? QFont::Bold : QFont::Normal));
+        for (int c = 0; c < cols.size(); ++c) {
+            QString text = isHeader
+                ? cols[c].name
+                : model->data(model->index(row, c + 2)).toString();
+            QRect cell(x + 8, y + 4, colWidths[c] - 16, h - 8);
+            painter.drawText(cell, Qt::AlignVCenter | Qt::AlignLeft,
+                             painter.fontMetrics().elidedText(text, Qt::ElideRight, cell.width()));
+            x += colWidths[c];
+        }
+    };
+
+    drawRow(-1, true);
+    y += headerH;
+
+    for (int r = 0; r < model->rowCount(); ++r) {
+        if (y + rowH > printer.height() - margin) {
+            printer.newPage();
+            y = margin;
+            drawRow(-1, true);
+            y += headerH;
+        }
+        drawRow(r, false);
+        y += rowH;
+    }
+
+    // Footer line
+    y += 30;
+    painter.setPen(QPen(QColor("#8B6F47"), 2));
+    painter.drawLine(margin, y, W - margin, y);
+    y += 24;
+    painter.setFont(QFont("Segoe UI", 12));
+    painter.setPen(QColor("#8B6F47"));
+    painter.drawText(margin, y, tr("Hammer Down — Confidential"));
+    painter.drawText(W - margin - 300, y,
+        QString(tr("Total: %1 suppliers")).arg(model->rowCount()));
+
+    painter.end();
+}
+
 void MainWindow::onSupplierLoad(const QModelIndex &index)
 {
     if (!ui_supplier || !index.isValid()) return;
@@ -5693,23 +5996,67 @@ void MainWindow::setupSupplierStats()
 {
     if (!ui_supplier) return;
 
-    // --- 1. Top Level Metrics (Aggregated from Database) ---
-    QSqlQuery qMetrics;
-    
-    // Average Quality / Speed surrogate from ratings
-    qMetrics.exec("SELECT AVG(AVERAGE_RATING) FROM SUPPLIERS WHERE AVERAGE_RATING > 0");
-    double avgRating = 0;
-    if (qMetrics.next()) avgRating = qMetrics.value(0).toDouble();
-    
-    int qualityScore = qBound(0.0, avgRating * 20.0, 100.0); // Scale 1-5 to 0-100
-    int speedScore = qBound(0.0, (avgRating - 0.5) * 20.0, 100.0); // Simulating variation
-    
-    ui_supplier->pb_quality->setValue(qualityScore);
-    ui_supplier->pb_speed->setValue(speedScore);
 
-    // Retention / Accuracy surrogate
-    ui_supplier->lbl_percent_retention->setText(QString::number(qMin(100, 80 + int(avgRating * 4))) + "%");
-    ui_supplier->lbl_percent_accuracy->setText(QString::number(qMin(100, 75 + int(avgRating * 5))) + "%");
+    // --- 1. Top Level Metrics (Aggregated from Database) ---
+
+    // Product Quality: % of all individual ratings that are 4 or 5 stars
+    {
+        int totalRatings = 0, highRatings = 0;
+        QSqlQuery qQual("SELECT RATINGS_JSON FROM SUPPLIERS WHERE RATINGS_JSON IS NOT NULL");
+        while (qQual.next()) {
+            QJsonArray arr = QJsonDocument::fromJson(qQual.value(0).toString().toUtf8()).array();
+            for (const QJsonValue &v : arr) {
+                double r = v.toObject()["rating"].toDouble();
+                if (r > 0) { totalRatings++; if (r >= 4.0) highRatings++; }
+            }
+        }
+        int qualityPct = (totalRatings > 0) ? qBound(0, qRound(100.0 * highRatings / totalRatings), 100) : 0;
+        ui_supplier->pb_quality->setValue(qualityPct);
+    }
+
+    // Contact Coverage: % of suppliers with both email AND phone on file (responsiveness proxy)
+    {
+        int total = 0, contactComplete = 0;
+        QSqlQuery qCov(
+            "SELECT COUNT(*), "
+            "SUM(CASE WHEN EMAIL IS NOT NULL AND TRIM(EMAIL) != '' "
+            "         AND PHONE_NUMBER IS NOT NULL AND TRIM(TO_CHAR(PHONE_NUMBER)) != '' "
+            "    THEN 1 ELSE 0 END) "
+            "FROM SUPPLIERS"
+        );
+        if (qCov.exec() && qCov.next()) {
+            total           = qCov.value(0).toInt();
+            contactComplete = qCov.value(1).toInt();
+        }
+        int coveragePct = (total > 0) ? qBound(0, qRound(100.0 * contactComplete / total), 100) : 0;
+        // Relabel so it no longer says "Delivery Speed"
+        ui_supplier->lbl_bar_speed->setText(trKey("Contact Coverage:"));
+        ui_supplier->pb_speed->setValue(coveragePct);
+    }
+
+    // Retention: % of suppliers that have submitted at least one rating
+    {
+        int total = 0, withRating = 0;
+        QSqlQuery qRet("SELECT COUNT(*), SUM(CASE WHEN AVERAGE_RATING > 0 THEN 1 ELSE 0 END) FROM SUPPLIERS");
+        if (qRet.exec() && qRet.next()) {
+            total      = qRet.value(0).toInt();
+            withRating = qRet.value(1).toInt();
+        }
+        int retPct = (total > 0) ? qBound(0, qRound(100.0 * withRating / total), 100) : 0;
+        ui_supplier->lbl_percent_retention->setText(QString::number(retPct) + "%");
+    }
+
+    // Accuracy: % of suppliers whose average rating is >= 3.0 ("good or better")
+    {
+        int total = 0, highRating = 0;
+        QSqlQuery qAcc("SELECT COUNT(*), SUM(CASE WHEN AVERAGE_RATING >= 3 THEN 1 ELSE 0 END) FROM SUPPLIERS WHERE AVERAGE_RATING > 0");
+        if (qAcc.exec() && qAcc.next()) {
+            total      = qAcc.value(0).toInt();
+            highRating = qAcc.value(1).toInt();
+        }
+        int accPct = (total > 0) ? qBound(0, qRound(100.0 * highRating / total), 100) : 0;
+        ui_supplier->lbl_percent_accuracy->setText(QString::number(accPct) + "%");
+    }
 
     // --- 2. Chart 1: Product Categories (Real Data) ---
     QPieSeries *seriesCat = new QPieSeries();
@@ -5823,21 +6170,139 @@ void MainWindow::setupSupplierStats()
     if (ui_supplier->chart_reviews_view) ui_supplier->chart_reviews_view->hide();
     ui_supplier->frame_chart_reviews->layout()->addWidget(viewTrend);
 
-    // --- 4. Top Performer Card (Dynamic) ---
+    // --- 4. Top Performer Card — real Compliance Score + Consistency Index ---
     QSqlQuery qTop(
-        "SELECT SUPPLIER_NAME, AVERAGE_RATING "
+        "SELECT SUPPLIER_NAME, AVERAGE_RATING, RATINGS_JSON "
         "FROM SUPPLIERS "
         "WHERE AVERAGE_RATING > 0 "
         "ORDER BY AVERAGE_RATING DESC"
     );
     if (qTop.next()) {
-        QString topName = qTop.value(0).toString();
-        double topRating = qTop.value(1).toDouble();
+        const QString topName   = qTop.value(0).toString();
+        const double  topRating = qTop.value(1).toDouble();
+        const QString ratJson   = qTop.value(2).toString();
+
+        double compliancePct  = 0.0;
+        QString consistLabel  = trKey("N/A");
+
+        if (!ratJson.isEmpty()) {
+            QJsonArray arr = QJsonDocument::fromJson(ratJson.toUtf8()).array();
+            const int n = arr.size();
+            if (n > 0) {
+                int goodCount = 0;
+                double sumSqDev = 0.0;
+                for (const QJsonValue &v : arr) {
+                    const double r = v.toObject()["rating"].toDouble();
+                    if (r >= 3.0) goodCount++;
+                    sumSqDev += (r - topRating) * (r - topRating);
+                }
+                compliancePct = 100.0 * goodCount / n;
+                const double stdDev = qSqrt(sumSqDev / n);
+                if      (stdDev <= 0.5) consistLabel = trKey("High");
+                else if (stdDev <= 1.0) consistLabel = trKey("Good");
+                else                   consistLabel = trKey("Variable");
+            }
+        }
+
         ui_supplier->lbl_top_performer->setText(
             trKey("🏆 Top Performer: ") + topName + "\n" +
-            trKey("Avg Rating: ") + QString::number(topRating, 'f', 1) + "/5.0\n" +
-            trKey("Status: Optimal")
+            trKey("Compliance Score: ") + QString::number(compliancePct, 'f', 1) + "%\n" +
+            trKey("Consistency Index: ") + consistLabel
         );
+    } else {
+        // No suppliers with ratings yet
+        ui_supplier->lbl_top_performer->setText(trKey("No rated suppliers yet."));
+    }
+
+    // --- 5. Network Status summary (was hardcoded) ---
+    {
+        int activeCount   = 0;
+        int inactiveCount = 0;
+        int totalCount    = 0;
+        QSqlQuery qStatus(
+            "SELECT ACCOUNT_STATUS, COUNT(*) "
+            "FROM SUPPLIERS "
+            "GROUP BY ACCOUNT_STATUS"
+        );
+        while (qStatus.next()) {
+            const QString st  = qStatus.value(0).toString();
+            const int     cnt = qStatus.value(1).toInt();
+            totalCount += cnt;
+            if (st.compare("Active", Qt::CaseInsensitive) == 0)
+                activeCount = cnt;
+            else
+                inactiveCount += cnt;
+        }
+
+        // Derive a simple health label from the active ratio
+        QString perfLabel;
+        if (totalCount == 0) {
+            perfLabel = trKey("N/A");
+        } else {
+            double ratio = (double)activeCount / totalCount;
+            if (ratio >= 0.85)      perfLabel = trKey("Optimal");
+            else if (ratio >= 0.60) perfLabel = trKey("Good");
+            else if (ratio >= 0.40) perfLabel = trKey("Fair");
+            else                   perfLabel = trKey("Poor");
+        }
+
+        const QString now = QDateTime::currentDateTime().toString("dd/MM/yyyy HH:mm");
+        ui_supplier->lbl_summary_val->setText(
+            QString(trKey("Active: %1  |  Inactive: %2  |  Performance: %3\nLast updated: %4"))
+                .arg(activeCount)
+                .arg(inactiveCount)
+                .arg(perfLabel)
+                .arg(now)
+        );
+    }
+
+    // --- 6. Top-2 supplier types by avg rating (was hardcoded North/South bars) ---
+    {
+        // Fetch the two top-performing TYPE_NOTIFICATION categories by average rating.
+        // Scale the 1-5 avg rating to 0-100 for the progress bars.
+        QSqlQuery qTypeRating(
+            "SELECT TYPE_NOTIFICATION, "
+            "       AVG(CASE WHEN AVERAGE_RATING > 0 THEN AVERAGE_RATING ELSE NULL END) AS AVG_R, "
+            "       COUNT(*) AS CNT "
+            "FROM SUPPLIERS "
+            "GROUP BY TYPE_NOTIFICATION "
+            "ORDER BY AVG_R DESC NULLS LAST"
+        );
+
+        // Row 1 — best type
+        if (qTypeRating.next()) {
+            const QString typeName = qTypeRating.value(0).toString().isEmpty()
+                                     ? trKey("General") : qTypeRating.value(0).toString();
+            const double  avgR     = qTypeRating.value(1).isNull() ? 0.0
+                                     : qTypeRating.value(1).toDouble();
+            const int     barVal   = qBound(0, qRound(avgR * 20.0), 100); // 1-5 → 0-100
+
+            // Re-label the static QLabel sitting next to pb_reg_1
+            ui_supplier->lbl_reg_1->setText(typeName + ":");
+            ui_supplier->pb_reg_1->setValue(barVal);
+            ui_supplier->pb_reg_1->setToolTip(
+                QString(trKey("Type: %1  —  Avg rating: %2 / 5.0"))
+                    .arg(typeName)
+                    .arg(QString::number(avgR, 'f', 1))
+            );
+        }
+
+        // Row 2 — second-best type
+        if (qTypeRating.next()) {
+            const QString typeName = qTypeRating.value(0).toString().isEmpty()
+                                     ? trKey("Other") : qTypeRating.value(0).toString();
+            const double  avgR     = qTypeRating.value(1).isNull() ? 0.0
+                                     : qTypeRating.value(1).toDouble();
+            const int     barVal   = qBound(0, qRound(avgR * 20.0), 100);
+
+            ui_supplier->lbl_reg_2->setText(typeName + ":");
+            ui_supplier->pb_reg_2->setValue(barVal);
+            ui_supplier->pb_reg_2->setToolTip(
+                QString(trKey("Type: %1  —  Avg rating: %2 / 5.0"))
+                    .arg(typeName)
+                    .arg(QString::number(avgR, 'f', 1))
+            );
+        }
     }
 }
 
@@ -6406,6 +6871,43 @@ void MainWindow::setupSupplierModes()
     QTimer::singleShot(1500, this, &MainWindow::checkAndPostSupplierNotifications);
     // ---
 
+    // --- Form Completion Progress Bar ---
+    m_supplierProgress = new QProgressBar(ui_supplier->groupBox_gestion);
+    m_supplierProgress->setRange(0, 100);
+    m_supplierProgress->setValue(0);
+    m_supplierProgress->setTextVisible(false);
+    m_supplierProgress->setFixedHeight(12);
+    m_supplierProgress->setStyleSheet(
+        "QProgressBar { background: rgba(0,0,0,0.2); border: 1px solid #5A4A32; border-radius: 6px; }"
+        "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8B6F47, stop:1 #D4AF37); border-radius: 5px; }");
+
+    QLabel *pTitle = new QLabel("Form Completion:", ui_supplier->groupBox_gestion);
+    pTitle->setObjectName("lbl_supp_prog_title");
+    pTitle->setStyleSheet("color: #D4AF37; font-weight: bold; font-size: 11px; font-family: 'Segoe UI';");
+
+    auto makeSuppInd = [&](const QString &txt, const QString &obj) {
+        QLabel *l = new QLabel(txt, ui_supplier->groupBox_gestion);
+        l->setObjectName(obj);
+        l->setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px; font-weight: bold;");
+        return l;
+    };
+    m_suppNameInd = makeSuppInd("[👤 Name ⬜]", "ind_supp_name"); 
+    m_suppEmailInd = makeSuppInd("[📧 Email ⬜]", "ind_supp_email"); 
+    m_suppTelInd = makeSuppInd("[📞 Phone ⬜]", "ind_supp_tel"); 
+    m_suppTypeInd = makeSuppInd("[🏢 Type ⬜]", "ind_supp_type");
+
+    pTitle->move(50, 40);
+    m_supplierProgress->setGeometry(50, 60, 555, 12);
+    m_suppNameInd->move(50, 78);
+    m_suppEmailInd->move(150, 78);
+    m_suppTelInd->move(260, 78);
+    m_suppTypeInd->move(380, 78);
+
+    connect(ui_supplier->le_nom, &QLineEdit::textChanged, this, &MainWindow::updateSupplierProgress);
+    connect(ui_supplier->le_email, &QLineEdit::textChanged, this, &MainWindow::updateSupplierProgress);
+    connect(ui_supplier->le_tel, &QLineEdit::textChanged, this, &MainWindow::updateSupplierProgress);
+    connect(ui_supplier->le_type, &QLineEdit::textChanged, this, &MainWindow::updateSupplierProgress);
+
 
     auto updateUI = [=](bool isAdd) {
         if(isAdd) {
@@ -6413,11 +6915,25 @@ void MainWindow::setupSupplierModes()
             ui_supplier->btn_add->setVisible(true);
             ui_supplier->btn_modify->setVisible(false);
             ui_supplier->btn_delete->setVisible(false);
+            
+            m_supplierProgress->setVisible(true);
+            pTitle->setVisible(true);
+            m_suppNameInd->setVisible(true);
+            m_suppEmailInd->setVisible(true);
+            m_suppTelInd->setVisible(true);
+            m_suppTypeInd->setVisible(true);
         } else {
             ui_supplier->groupBox_gestion->setTitle("");
             ui_supplier->btn_add->setVisible(false);
             ui_supplier->btn_modify->setVisible(true);
             ui_supplier->btn_delete->setVisible(true);
+            
+            m_supplierProgress->setVisible(false);
+            pTitle->setVisible(false);
+            m_suppNameInd->setVisible(false);
+            m_suppEmailInd->setVisible(false);
+            m_suppTelInd->setVisible(false);
+            m_suppTypeInd->setVisible(false);
         }
     };
 
@@ -9545,11 +10061,11 @@ void MainWindow::updateEquipProgress() {
         }
     };
     
-    updateInd(m_eqTypeInd,  typeOk,  "[🔨 Type");
-    updateInd(m_eqDateInd,  dateOk,  "[📅 Date");
+    updateInd(m_eqTypeInd, typeOk, "[🔨 Type");
+    updateInd(m_eqDateInd, dateOk, "[📅 Date");
     updateInd(m_eqPriceInd, priceOk, "[💰 Price");
-    updateInd(m_eqDescInd,  descOk,  "[📝 Desc");
-    
+    updateInd(m_eqDescInd, descOk, "[📝 Desc");
+
     // Pulsing animation for Add button at 100%
     if (progress == 100) {
         if (!ui_equipment->btn_add->graphicsEffect()) {
@@ -9569,6 +10085,70 @@ void MainWindow::updateEquipProgress() {
         }
     } else {
         ui_equipment->btn_add->setGraphicsEffect(nullptr);
+    }
+}
+
+void MainWindow::updateSupplierProgress() {
+    if (!m_supplierProgress || !ui_supplier) return;
+    
+    int progress = 0;
+    bool nameOk  = !ui_supplier->le_nom->text().trimmed().isEmpty();
+    bool emailOk = ui_supplier->le_email->text().contains("@") && ui_supplier->le_email->text().contains(".");
+    bool telOk   = ui_supplier->le_tel->text().trimmed().length() >= 8;
+    bool typeOk  = !ui_supplier->le_type->text().trimmed().isEmpty();
+    
+    if (nameOk)  progress += 25;
+    if (emailOk) progress += 25;
+    if (telOk)   progress += 25;
+    if (typeOk)  progress += 25;
+    
+    m_supplierProgress->setValue(progress);
+    
+    if (progress == 100) {
+        m_supplierProgress->setStyleSheet(
+            "QProgressBar { background: rgba(0,0,0,0.2); border: 1px solid #5A4A32; border-radius: 6px; }"
+            "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4CAF50, stop:1 #66BB6A); border-radius: 5px; }");
+    } else {
+        m_supplierProgress->setStyleSheet(
+            "QProgressBar { background: rgba(0,0,0,0.2); border: 1px solid #5A4A32; border-radius: 6px; }"
+            "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8B6F47, stop:1 #D4AF37); border-radius: 5px; }");
+    }
+    
+    auto updateInd = [](QLabel* l, bool ok, const QString& prefix) {
+        if (!l) return;
+        if (ok) {
+            l->setText(prefix + " ✅]");
+            l->setStyleSheet("color: #4CAF50; font-size: 11px; font-weight: bold;");
+        } else {
+            l->setText(prefix + " ⬜]");
+            l->setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px; font-weight: bold;");
+        }
+    };
+    
+    updateInd(m_suppNameInd,  nameOk,  "[👤 Name");
+    updateInd(m_suppEmailInd, emailOk, "[📧 Email");
+    updateInd(m_suppTelInd,   telOk,   "[📞 Phone");
+    updateInd(m_suppTypeInd,  typeOk,  "[🏢 Type");
+
+    // Pulsing animation for Add button at 100%
+    if (progress == 100) {
+        if (!ui_supplier->btn_add->graphicsEffect()) {
+            QGraphicsDropShadowEffect *eff = new QGraphicsDropShadowEffect(this);
+            eff->setBlurRadius(15);
+            eff->setColor(QColor(212, 175, 55, 200));
+            eff->setOffset(0);
+            ui_supplier->btn_add->setGraphicsEffect(eff);
+            
+            QPropertyAnimation *pulse = new QPropertyAnimation(eff, "blurRadius");
+            pulse->setDuration(1000);
+            pulse->setStartValue(8);
+            pulse->setEndValue(25);
+            pulse->setLoopCount(-1);
+            pulse->setEasingCurve(QEasingCurve::InOutSine);
+            pulse->start(QAbstractAnimation::DeleteWhenStopped);
+        }
+    } else {
+        ui_supplier->btn_add->setGraphicsEffect(nullptr);
     }
 }
 
@@ -12544,10 +13124,27 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 bool hovered = false;
                 for (const auto &pin : m_supplierPins) {
                     if (pin.rect.contains(mouse->pos())) {
+                        bool isOpen = false;
+                        if (pin.status == "Active") {
+                            QTime openT = QTime::fromString(pin.openTime, "HH:mm");
+                            QTime closeT = QTime::fromString(pin.closeTime, "HH:mm");
+                            QTime now = QTime::currentTime();
+                            if (openT.isValid() && closeT.isValid()) {
+                                if (openT <= closeT) isOpen = (now >= openT && now <= closeT);
+                                else isOpen = (now >= openT || now <= closeT);
+                            } else {
+                                isOpen = true; // Default if no times
+                            }
+                        }
+                        QString timeLabel = "";
+                        if (!pin.openTime.isEmpty() && !pin.closeTime.isEmpty()) {
+                            timeLabel = QString("<br/>Hours: %1 - %2").arg(pin.openTime).arg(pin.closeTime);
+                        }
                         QToolTip::showText(mouse->globalPosition().toPoint(),
-                            QString("<b>%1</b><br/>Supplies: %2<br/>Status: %3")
+                            QString("<b>%1</b><br/>Supplies: %2<br/>Status: %3%4")
                                 .arg(pin.name).arg(pin.type)
-                                .arg(pin.status == "Active" ? "<font color='green'>Open (Active)</font>" : "<font color='red'>Closed/Inactive</font>"),
+                                .arg(isOpen ? "<font color='green'>Open</font>" : "<font color='red'>Closed/Inactive</font>")
+                                .arg(timeLabel),
                             m_supplierMapImageLabel);
                         hovered = true;
                         break;
@@ -12735,13 +13332,15 @@ void MainWindow::loadSupplierMapPins()
     m_supplierPins.clear();
     m_supplierGeocodePendingCount = 0;
 
-    QSqlQuery q("SELECT SUPPLIER_ID, SUPPLIER_NAME, TYPE_NOTIFICATION, ACCOUNT_STATUS, ADDRESS FROM SUPPLIERS");
+    QSqlQuery q("SELECT SUPPLIER_ID, SUPPLIER_NAME, TYPE_NOTIFICATION, ACCOUNT_STATUS, ADDRESS, OPENING_TIME, CLOSING_TIME FROM SUPPLIERS");
     while (q.next()) {
         int id = q.value(0).toInt();
         QString name = q.value(1).toString();
         QString type = q.value(2).toString();
         QString status = q.value(3).toString();
         QString address = q.value(4).toString().trimmed();
+        QString openTime = q.value(5).toString().trimmed();
+        QString closeTime = q.value(6).toString().trimmed();
 
         if (!address.isEmpty()) {
             m_supplierGeocodePendingCount++;
@@ -12760,6 +13359,8 @@ void MainWindow::loadSupplierMapPins()
             reply->setProperty("supp_name", name);
             reply->setProperty("supp_type", type);
             reply->setProperty("supp_status", status);
+            reply->setProperty("supp_open", openTime);
+            reply->setProperty("supp_close", closeTime);
             reply->setProperty("address", address);
         }
     }
@@ -12793,6 +13394,8 @@ void MainWindow::onSupplierGeocodeFinished(QNetworkReply *reply)
                     pin.name = reply->property("supp_name").toString();
                     pin.type = reply->property("supp_type").toString();
                     pin.status = reply->property("supp_status").toString();
+                    pin.openTime = reply->property("supp_open").toString();
+                    pin.closeTime = reply->property("supp_close").toString();
                     pin.lat = lat;
                     pin.lon = lon;
                     m_supplierPins.append(pin);
@@ -12848,8 +13451,8 @@ void MainWindow::onSupplierGeocodeFinished(QNetworkReply *reply)
             return (lon + 180.0) / 360.0 * n * 256;
         };
 
-        int cx = qRound(lonToX(m_supplierCenterLon) - m_supplierMapTopLeftX);
-        int cy = qRound(latToY(m_supplierCenterLat) - m_supplierMapTopLeftY);
+        int cx = qRound(lonToX(10.1815) - m_supplierMapTopLeftX); // Fixed Workshop
+        int cy = qRound(latToY(36.8065) - m_supplierMapTopLeftY); // Fixed Workshop
         
         painter.setPen(QPen(Qt::white, 2));
         painter.setBrush(QColor("#D4AF37"));
@@ -12861,7 +13464,19 @@ void MainWindow::onSupplierGeocodeFinished(QNetworkReply *reply)
             int px = qRound(lonToX(pin.lon) - m_supplierMapTopLeftX);
             int py = qRound(latToY(pin.lat) - m_supplierMapTopLeftY);
             
-            QColor color = pin.status == "Active" ? QColor(0, 255, 100, 200) : QColor(255, 50, 50, 200);
+            bool isOpen = false;
+            if (pin.status == "Active") {
+                QTime openT = QTime::fromString(pin.openTime, "HH:mm");
+                QTime closeT = QTime::fromString(pin.closeTime, "HH:mm");
+                QTime now = QTime::currentTime();
+                if (openT.isValid() && closeT.isValid()) {
+                    if (openT <= closeT) isOpen = (now >= openT && now <= closeT);
+                    else isOpen = (now >= openT || now <= closeT);
+                } else {
+                    isOpen = true;
+                }
+            }
+            QColor color = isOpen ? QColor(0, 255, 100, 200) : QColor(255, 50, 50, 200);
             painter.setBrush(color);
             painter.setPen(QPen(Qt::white, 1));
             painter.drawEllipse(px - 8, py - 8, 16, 16);
@@ -12942,8 +13557,8 @@ void MainWindow::refreshSupplierMap()
         return (lon + 180.0) / 360.0 * n * 256;
     };
 
-    int cx = qRound(lonToX(m_supplierCenterLon) - m_supplierMapTopLeftX);
-    int cy = qRound(latToY(m_supplierCenterLat) - m_supplierMapTopLeftY);
+    int cx = qRound(lonToX(10.1815) - m_supplierMapTopLeftX); // Fixed Workshop
+    int cy = qRound(latToY(36.8065) - m_supplierMapTopLeftY); // Fixed Workshop
     
     painter.setPen(QPen(Qt::white, 2));
     painter.setBrush(QColor("#D4AF37"));
@@ -12955,7 +13570,19 @@ void MainWindow::refreshSupplierMap()
         int px = qRound(lonToX(pin.lon) - m_supplierMapTopLeftX);
         int py = qRound(latToY(pin.lat) - m_supplierMapTopLeftY);
         
-        QColor color = pin.status == "Active" ? QColor(0, 255, 100, 200) : QColor(255, 50, 50, 200);
+        bool isOpen = false;
+        if (pin.status == "Active") {
+            QTime openT = QTime::fromString(pin.openTime, "HH:mm");
+            QTime closeT = QTime::fromString(pin.closeTime, "HH:mm");
+            QTime now = QTime::currentTime();
+            if (openT.isValid() && closeT.isValid()) {
+                if (openT <= closeT) isOpen = (now >= openT && now <= closeT);
+                else isOpen = (now >= openT || now <= closeT);
+            } else {
+                isOpen = true;
+            }
+        }
+        QColor color = isOpen ? QColor(0, 255, 100, 200) : QColor(255, 50, 50, 200);
         painter.setBrush(color);
         painter.setPen(QPen(Qt::white, 1));
         painter.drawEllipse(px - 8, py - 8, 16, 16);

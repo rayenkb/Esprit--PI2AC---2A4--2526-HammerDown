@@ -310,6 +310,9 @@ private slots:
     void onSupplierAdd();
     void onSupplierModify();
     void onSupplierDelete();
+    void onSupplierDeleteAll();
+    void onSupplierExportPDF();
+    void onSupplierPrint();
     void onSupplierLoad(const QModelIndex &index);
     void onSupplierSearch();
     void onSupplierRefreshView();
@@ -472,6 +475,11 @@ private:
     QProgressBar *m_equipProgress = nullptr;
     QLabel *m_eqTypeInd = nullptr, *m_eqDateInd = nullptr, *m_eqPriceInd = nullptr, *m_eqDescInd = nullptr;
     void updateEquipProgress();
+    
+    QProgressBar *m_supplierProgress = nullptr;
+    QLabel *m_suppNameInd = nullptr, *m_suppEmailInd = nullptr, *m_suppTelInd = nullptr, *m_suppTypeInd = nullptr;
+    void updateSupplierProgress();
+
     void playEquipSuccessAnimation(const QString &equipName);
     void playSupplierSuccessAnimation(const QString &supplierName);
     void playSupplierModifyAnimation(const QString &supplierName);
@@ -521,6 +529,8 @@ private:
         QString name;
         QString type;
         QString status;
+        QString openTime;
+        QString closeTime;
         double lat;
         double lon;
         QRect rect;
