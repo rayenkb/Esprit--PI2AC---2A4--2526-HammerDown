@@ -351,6 +351,7 @@ private slots:
     void onEquipmentExportPDF();
     void onEquipmentExportStatsPDF();
     void onEquipmentBulkUpdateStatus();
+    void onEquipmentDeleteAll();
     
     // --- Employee Chat ---
     void onChatEnsureTable();

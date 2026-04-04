@@ -1811,7 +1811,12 @@ MainWindow::MainWindow(QWidget *parent)
 
             // Switch to management tab
             ui_equipment->tabWidget->setCurrentWidget(ui_equipment->tab_gestion);
+            // Force modify mode so updating edits the selected record instead of adding a new one.
+            if (QRadioButton *rbMod = ui_equipment->tab_gestion->findChild<QRadioButton*>("rb_equipment_mod_mode")) {
+                rbMod->setChecked(true);
+            }
         } else if (idx.column() == 1) { // Delete
+            ui_equipment->table_equipments->setCurrentIndex(idx);
             onEquipmentDelete();
         }
     });
@@ -7147,6 +7152,7 @@ void MainWindow::setupEquipmentModes()
     connect(ui_equipment->btn_clear_history,   &QPushButton::clicked, this, &MainWindow::onEquipmentHistoryClear);
     connect(ui_equipment->btn_export_stats,    &QPushButton::clicked, this, &MainWindow::onEquipmentExportStatsPDF);
     connect(ui_equipment->btn_bulk_update_status, &QPushButton::clicked, this, &MainWindow::onEquipmentBulkUpdateStatus);
+    connect(ui_equipment->btn_bulk_delete_all, &QPushButton::clicked, this, &MainWindow::onEquipmentDeleteAll);
 
     // Auto-refresh history or chat when switching tabs
     connect(ui_equipment->tabWidget, &QTabWidget::currentChanged, this, [this](int idx){
@@ -9396,6 +9402,11 @@ void MainWindow::onEquipmentRefreshView()
 
 void MainWindow::onEquipmentAdd()
 {
+    if (!ui_equipment->le_id->text().trimmed().isEmpty()) {
+        QMessageBox::warning(this, "Validation", "An equipment is already loaded. Use Modify to update it, or Clear to add a new one.");
+        return;
+    }
+
     QString type = ui_equipment->le_type->text().trimmed();
     QString desc = ui_equipment->te_desc->toPlainText().trimmed();
     QString etat = ui_equipment->cb_status->currentText();
@@ -9543,33 +9554,48 @@ void MainWindow::onEquipmentModify()
 
 void MainWindow::onEquipmentDelete()
 {
+    QString eqId;
+    QString type;
+    QString desc;
+
     QModelIndex idx = ui_equipment->table_equipments->currentIndex();
-    if (!idx.isValid()) {
-        QMessageBox::warning(this, "Selection", "Please select equipment from the list to delete.");
+    if (idx.isValid()) {
+        QSqlQueryModel *model = qobject_cast<QSqlQueryModel*>(ui_equipment->table_equipments->model());
+        if (!model) return;
+        eqId = model->data(model->index(idx.row(), 2)).toString();
+        type = model->data(model->index(idx.row(), 3)).toString();
+        desc = model->data(model->index(idx.row(), 8)).toString();
+    } else {
+        eqId = ui_equipment->le_id->text().trimmed();
+        type = ui_equipment->le_type->text().trimmed();
+        desc = ui_equipment->te_desc->toPlainText().trimmed();
+    }
+
+    if (eqId.isEmpty()) {
+        QMessageBox::warning(this, "Selection", "Please select equipment from the list or load an equipment in the form to delete.");
         return;
     }
-    QSqlQueryModel *model = qobject_cast<QSqlQueryModel*>(ui_equipment->table_equipments->model());
-    if (!model) return;
-    QString eqId = model->data(model->index(idx.row(), 2)).toString();
-    QString type = model->data(model->index(idx.row(), 3)).toString(); 
-    QString desc = model->data(model->index(idx.row(), 8)).toString(); // Description is at index 8
 
     int ret = QMessageBox::question(this, "Confirm Delete",
         "Delete equipment: " + type + " - " + desc + " (ID: " + eqId + ")?",
         QMessageBox::Yes | QMessageBox::No);
     if (ret != QMessageBox::Yes) return;
 
-    // Soft Delete: Mark as 'Retired'
+    // Hard delete from DB so the equipment no longer exists in the table.
     QSqlQuery q;
-    q.prepare("UPDATE EQUIPMENT SET STATUS = 'Retired' WHERE EQUIPMENT_ID = :id");
+    q.prepare("DELETE FROM EQUIPMENT WHERE EQUIPMENT_ID = :id");
     q.bindValue(":id", eqId.toInt());
     if (!q.exec()) {
         QMessageBox::critical(this, "Database Error", "Failed to delete equipment:\n" + q.lastError().text());
         return;
     }
-    logActivity("Retired equipment: " + type + " (ID: " + eqId + ")", "Equipment");
+    if (q.numRowsAffected() <= 0) {
+        QMessageBox::warning(this, "Not Found", "No equipment found with this ID.");
+        return;
+    }
+    logActivity("Deleted equipment: " + type + " (ID: " + eqId + ")", "Equipment");
 
-    QMessageBox::information(this, "Deleted", "Equipment marked as Retired successfully.");
+    QMessageBox::information(this, "Deleted", "Equipment deleted successfully.");
     onEquipmentClearFields();
     onEquipmentRefreshView();
     onEquipmentHistoryRefresh();
@@ -11845,6 +11871,63 @@ void MainWindow::onEquipmentBulkUpdateStatus()
             QString(trKey("Updated %1 items, but %2 failed. Check database logs."))
                 .arg(successCount).arg(failCount));
     }
+}
+
+void MainWindow::onEquipmentDeleteAll()
+{
+    if (!ui_equipment) return;
+
+    int visibleCount = 0;
+    if (ui_equipment->table_equipments && ui_equipment->table_equipments->model()) {
+        visibleCount = ui_equipment->table_equipments->model()->rowCount();
+    }
+
+    int count = 0;
+    QSqlQuery qCount;
+    const bool gotDbCount = qCount.exec("SELECT COUNT(*) FROM EQUIPMENT") && qCount.next();
+    if (gotDbCount) {
+        count = qCount.value(0).toInt();
+    } else {
+        count = visibleCount;
+    }
+
+    if (count == 0) {
+        QMessageBox::information(this, trKey("Delete All"), trKey("There are no equipments to delete."));
+        return;
+    }
+
+    const QString confirmMsg =
+        QString("This will permanently delete ALL %1 equipment item(s).\n\nThis action cannot be undone!")
+            .arg(count);
+
+    if (QMessageBox::warning(this, trKey("Confirm Delete All"), confirmMsg,
+                             QMessageBox::Yes | QMessageBox::Cancel,
+                             QMessageBox::Cancel) != QMessageBox::Yes) {
+        return;
+    }
+
+    QSqlQuery qDel;
+    if (!qDel.exec("DELETE FROM EQUIPMENT")) {
+        QMessageBox::critical(this, trKey("Database Error"),
+                              trKey("Failed to delete equipments:\n") + qDel.lastError().text());
+        return;
+    }
+
+    QSqlDatabase::database().commit();
+
+    int deleted = qDel.numRowsAffected();
+    if (deleted < 0) deleted = count;
+
+    logActivity(QString("Deleted ALL equipments (%1 records)").arg(deleted), "Equipment");
+    QMessageBox::information(this, trKey("Deleted"),
+                             QString("%1 equipment item(s) deleted successfully.").arg(deleted));
+
+    onEquipmentClearFields();
+    onEquipmentRefreshView();
+    onEquipmentHistoryRefresh();
+    setupEquipmentStats();
+    if (m_nexusWidget) m_nexusWidget->initialize();
+    if (m_costsWidget) m_costsWidget->initialize();
 }
 
 void MainWindow::onEquipmentShareToChat()
