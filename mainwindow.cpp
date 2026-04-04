@@ -7237,6 +7237,8 @@ void MainWindow::setupEquipmentModes()
 
 void MainWindow::setupOrderModes()
 {
+    const int manageBlockShiftX = 190;
+
     // tab_manage
     int idx = ui_order->tabWidget->indexOf(ui_order->tab_manage);
     if(idx != -1) {
@@ -7246,7 +7248,7 @@ void MainWindow::setupOrderModes()
     // Panel matching the "Log Delivery Rating" group box style
     QGroupBox *orderPanel = new QGroupBox(trKey("Manage Orders"), ui_order->tab_manage);
     orderPanel->setObjectName("order_manage_panel");
-    orderPanel->setGeometry(28, 60, 615, 440);
+    orderPanel->setGeometry(28 + manageBlockShiftX, 60, 615, 440);
     orderPanel->setStyleSheet(
         "QGroupBox#order_manage_panel {"
         "  background-color: rgba(60, 45, 30, 0.7);"
@@ -7257,7 +7259,7 @@ void MainWindow::setupOrderModes()
         "}"
         "QGroupBox#order_manage_panel::title {"
         "  subcontrol-origin: margin;"
-        "  subcontrol-position: top left;"
+        "  subcontrol-position: top center;"
         "  padding: 2px 12px;"
         "  background-color: #8B6F47;"
         "  font-weight: bold;"
@@ -7267,6 +7269,67 @@ void MainWindow::setupOrderModes()
     );
     orderPanel->lower();
     orderPanel->show();
+
+    const QList<QWidget*> manageWidgets = {
+        ui_order->label_id,
+        ui_order->le_id,
+        ui_order->label_type,
+        ui_order->cb_type,
+        ui_order->label_stock,
+        ui_order->le_stock,
+        ui_order->label_prix,
+        ui_order->le_prix,
+        ui_order->label_buyer,
+        ui_order->le_buyer,
+        ui_order->btn_add,
+        ui_order->btn_modify,
+        ui_order->btn_delete,
+        ui_order->btn_clear,
+        ui_order->btn_import
+    };
+    for (QWidget *w : manageWidgets) {
+        if (!w) continue;
+        w->move(w->x() + manageBlockShiftX, w->y());
+    }
+
+    const int qrBlockShiftY = 26;
+
+    QGroupBox *qrPanel = new QGroupBox(trKey("QR Code"), ui_order->tab_qrcode);
+    qrPanel->setObjectName("order_qr_panel");
+    qrPanel->setGeometry(300, 28 + qrBlockShiftY, 450, 482);
+    qrPanel->setStyleSheet(
+        "QGroupBox#order_qr_panel {"
+        "  background-color: rgba(60, 45, 30, 0.7);"
+        "  border: 2px solid #8B6F47;"
+        "  border-radius: 12px;"
+        "  margin-top: 18px;"
+        "  color: white;"
+        "}"
+        "QGroupBox#order_qr_panel::title {"
+        "  subcontrol-origin: margin;"
+        "  subcontrol-position: top center;"
+        "  padding: 2px 12px;"
+        "  background-color: #8B6F47;"
+        "  font-weight: bold;"
+        "  color: white;"
+        "  border-radius: 4px;"
+        "}"
+    );
+    qrPanel->lower();
+    qrPanel->show();
+
+    const QList<QWidget*> qrWidgets = {
+        ui_order->label_qr_order_id,
+        ui_order->le_qr_order_id,
+        ui_order->btn_generate_qr,
+        ui_order->label_qr_display,
+        ui_order->btn_save_qr,
+        ui_order->btn_print_qr
+    };
+    for (QWidget *w : qrWidgets) {
+        if (!w) continue;
+        w->move(w->x(), w->y() + qrBlockShiftY);
+    }
 
     QRadioButton *rbAdd = new QRadioButton(trKey("Add Order"), ui_order->tab_manage);
     QRadioButton *rbMod = new QRadioButton(trKey("Manage Order"), ui_order->tab_manage);
@@ -12898,11 +12961,19 @@ void MainWindow::requestMapForBuyerId()
         ? m_mapFullscreenLabel->size()
         : m_mapImageLabel->size();
 
+    QString geocodeQuery = address;
+    if (!geocodeQuery.contains("tunisia", Qt::CaseInsensitive) &&
+        !geocodeQuery.contains("tunisie", Qt::CaseInsensitive) &&
+        !geocodeQuery.contains(QString::fromUtf8("\xD8\xAA\xD9\x88\xD9\x86\xD8\xB3"), Qt::CaseInsensitive)) {
+        geocodeQuery += ", Tunisia";
+    }
+
     QUrl url("https://nominatim.openstreetmap.org/search");
     QUrlQuery query;
-    query.addQueryItem("q", address + ", Tunisia");
+    query.addQueryItem("q", geocodeQuery);
     query.addQueryItem("format", "json");
     query.addQueryItem("limit", "1");
+    query.addQueryItem("accept-language", "en");
     query.addQueryItem("countrycodes", "tn");
     query.addQueryItem("bounded", "1");
     query.addQueryItem("viewbox", "7.5,37.6,11.6,30.2");
@@ -12910,9 +12981,11 @@ void MainWindow::requestMapForBuyerId()
 
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+    req.setRawHeader("Accept", "application/json");
     QNetworkReply *reply = m_mapNet->get(req);
     reply->setProperty("mapType", "geocode");
     reply->setProperty("address", address);
+    reply->setProperty("query", geocodeQuery);
     reply->setProperty("geocodeStage", "tn");
 }
 
@@ -12920,54 +12993,110 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
 {
     if (!reply) return;
     const QString type = reply->property("mapType").toString();
-
-    if (reply->error() != QNetworkReply::NoError) {
-        m_mapStatusLabel->setText("Network error: " + reply->errorString());
-        reply->deleteLater();
-        return;
-    }
+    const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
     if (type == "geocode") {
-        QByteArray data = reply->readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        QJsonArray arr = doc.array();
-        if (arr.isEmpty()) {
-            QString stage = reply->property("geocodeStage").toString();
-            QString address = reply->property("address").toString();
-            if (stage == "tn" && !address.isEmpty()) {
-                QUrl url("https://nominatim.openstreetmap.org/search");
-                QUrlQuery query;
-                query.addQueryItem("q", address);
-                query.addQueryItem("format", "json");
-                query.addQueryItem("limit", "1");
-                url.setQuery(query);
+        const QString stage = reply->property("geocodeStage").toString();
+        const QString address = reply->property("address").toString();
+        const QString queryText = reply->property("query").toString();
+        const QByteArray data = reply->readAll();
 
-                QNetworkRequest req(url);
-                req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
-                QNetworkReply *fallback = m_mapNet->get(req);
-                fallback->setProperty("mapType", "geocode");
-                fallback->setProperty("address", address);
-                fallback->setProperty("geocodeStage", "global");
+        auto issueGlobalFallback = [this, address, queryText]() {
+            if (!m_mapNet) return;
+            QUrl url("https://nominatim.openstreetmap.org/search");
+            QUrlQuery q;
+            q.addQueryItem("q", queryText.isEmpty() ? address : queryText);
+            q.addQueryItem("format", "json");
+            q.addQueryItem("limit", "1");
+            q.addQueryItem("accept-language", "en");
+            url.setQuery(q);
+
+            QNetworkRequest req(url);
+            req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+            req.setRawHeader("Accept", "application/json");
+            QNetworkReply *fallback = m_mapNet->get(req);
+            fallback->setProperty("mapType", "geocode");
+            fallback->setProperty("address", address);
+            fallback->setProperty("query", queryText);
+            fallback->setProperty("geocodeStage", "global");
+            m_mapStatusLabel->setText("Geocoding retry (global)...");
+        };
+
+        auto issuePhotonFallback = [this, address, queryText]() {
+            if (!m_mapNet) return;
+            QUrl url("https://photon.komoot.io/api");
+            QUrlQuery q;
+            q.addQueryItem("q", queryText.isEmpty() ? address : queryText);
+            q.addQueryItem("limit", "1");
+            url.setQuery(q);
+
+            QNetworkRequest req(url);
+            req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+            req.setRawHeader("Accept", "application/json");
+            QNetworkReply *fallback = m_mapNet->get(req);
+            fallback->setProperty("mapType", "geocode");
+            fallback->setProperty("address", address);
+            fallback->setProperty("query", queryText);
+            fallback->setProperty("geocodeStage", "photon");
+            m_mapStatusLabel->setText("Geocoding retry (fallback provider)...");
+        };
+
+        bool hasCoords = false;
+        double latVal = 0.0;
+        double lonVal = 0.0;
+
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (stage == "photon") {
+                const QJsonObject root = doc.object();
+                const QJsonArray features = root.value("features").toArray();
+                if (!features.isEmpty()) {
+                    const QJsonObject feature = features.first().toObject();
+                    const QJsonArray coords = feature.value("geometry").toObject().value("coordinates").toArray();
+                    if (coords.size() >= 2) {
+                        lonVal = coords.at(0).toDouble();
+                        latVal = coords.at(1).toDouble();
+                        hasCoords = true;
+                    }
+                }
+            } else {
+                const QJsonArray arr = doc.array();
+                if (!arr.isEmpty()) {
+                    const QJsonObject obj = arr.first().toObject();
+                    bool okLat = false;
+                    bool okLon = false;
+                    latVal = obj.value("lat").toString().toDouble(&okLat);
+                    lonVal = obj.value("lon").toString().toDouble(&okLon);
+                    hasCoords = okLat && okLon;
+                }
+            }
+        }
+
+        if (!hasCoords) {
+            if (stage == "tn") {
+                issueGlobalFallback();
+                reply->deleteLater();
+                return;
+            }
+            if (stage == "global") {
+                issuePhotonFallback();
                 reply->deleteLater();
                 return;
             }
 
-            m_mapStatusLabel->setText("Address not found on map.");
+            if (reply->error() != QNetworkReply::NoError) {
+                m_mapStatusLabel->setText(QString("Geocoding failed (%1)").arg(reply->errorString()));
+            } else if (httpStatus >= 400) {
+                m_mapStatusLabel->setText(QString("Geocoding failed (HTTP %1)").arg(httpStatus));
+            } else {
+                m_mapStatusLabel->setText("Address not found on map.");
+            }
             reply->deleteLater();
             return;
         }
 
-        QJsonObject obj = arr.first().toObject();
-        QString lat = obj.value("lat").toString();
-        QString lon = obj.value("lon").toString();
-        if (lat.isEmpty() || lon.isEmpty()) {
-            m_mapStatusLabel->setText("Geocoding failed.");
-            reply->deleteLater();
-            return;
-        }
-
-        m_mapCenterLat = lat.toDouble();
-        m_mapCenterLon = lon.toDouble();
+        m_mapCenterLat = latVal;
+        m_mapCenterLon = lonVal;
         m_mapClientPinLat = m_mapCenterLat;
         m_mapClientPinLon = m_mapCenterLon;
         m_mapHasClientPin = true;
@@ -12977,8 +13106,15 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
         return;
     }
 
+    if (reply->error() != QNetworkReply::NoError) {
+        m_mapStatusLabel->setText("Network error: " + reply->errorString());
+        reply->deleteLater();
+        return;
+    }
+
     if (type == "tile") {
         const QString tileKey = reply->property("tileKey").toString();
+        const bool trackedTile = m_mapPendingTiles.contains(tileKey);
 
         if (reply->error() == QNetworkReply::NoError) {
             QByteArray imgData = reply->readAll();
@@ -12986,73 +13122,29 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
             if (pix.loadFromData(imgData)) {
                 m_mapTileCache.insert(tileKey, pix);
             } else {
-                m_mapTileErrors++;
+                if (trackedTile) m_mapTileErrors++;
             }
         } else {
-            m_mapTileErrors++;
+            if (trackedTile) m_mapTileErrors++;
         }
 
-        m_mapPendingTiles.remove(tileKey);
+        if (trackedTile) {
+            m_mapPendingTiles.remove(tileKey);
+            m_mapLoadedTiles++;
+        }
 
-        if (m_mapPendingTiles.isEmpty()) {
-            QPixmap mapPixmap(m_mapImageSize);
-            mapPixmap.fill(QColor(26, 18, 8));
-            QPainter painter(&mapPixmap);
-
-            const int tileSize = 256;
-            for (int x = m_mapTileX0; x <= m_mapTileX1; ++x) {
-                for (int y = m_mapTileY0; y <= m_mapTileY1; ++y) {
-                    QString key = QString("%1/%2/%3").arg(m_mapZoom).arg(x).arg(y);
-                    if (!m_mapTileCache.contains(key)) continue;
-                    int px = qRound((x * tileSize) - m_mapTopLeftX);
-                    int py = qRound((y * tileSize) - m_mapTopLeftY);
-                    painter.drawPixmap(px, py, m_mapTileCache.value(key));
+        if (trackedTile) {
+            renderOrderMap();
+            if (m_mapPendingTiles.isEmpty()) {
+                if (m_mapTileErrors > 0) {
+                    m_mapStatusLabel->setText("Map loaded with missing tiles.");
+                } else {
+                    m_mapStatusLabel->setText("Map loaded successfully.");
                 }
-            }
-
-            if (m_mapHasClientPin) {
-                const int n = 1 << m_mapZoom;
-                const double pinLatRad = qDegreesToRadians(m_mapClientPinLat);
-                const double pinWorldX = ((m_mapClientPinLon + 180.0) / 360.0 * n) * tileSize;
-                const double pinWorldY = ((1.0 - log(tan(pinLatRad) + 1.0 / cos(pinLatRad)) / M_PI) / 2.0 * n) * tileSize;
-                const int pinX = qRound(pinWorldX - m_mapTopLeftX);
-                const int pinY = qRound(pinWorldY - m_mapTopLeftY);
-
-                if (pinX >= -20 && pinX <= (m_mapImageSize.width() + 20) && pinY >= -30 && pinY <= (m_mapImageSize.height() + 20)) {
-                    painter.setRenderHint(QPainter::Antialiasing, true);
-
-                    painter.setPen(Qt::NoPen);
-                    painter.setBrush(QColor(0, 0, 0, 120));
-                    painter.drawEllipse(QPoint(pinX + 1, pinY + 2), 7, 3);
-
-                    QPolygon pinTip;
-                    pinTip << QPoint(pinX, pinY)
-                           << QPoint(pinX - 7, pinY - 14)
-                           << QPoint(pinX + 7, pinY - 14);
-                    painter.setBrush(QColor(220, 53, 69));
-                    painter.drawPolygon(pinTip);
-
-                    painter.setBrush(QColor(220, 53, 69));
-                    painter.drawEllipse(QPoint(pinX, pinY - 22), 10, 10);
-                    painter.setBrush(Qt::white);
-                    painter.drawEllipse(QPoint(pinX, pinY - 22), 4, 4);
-                }
-            }
-
-            m_mapCurrentPixmap = mapPixmap;
-            m_mapHasPixmap = true;
-            if (m_mapImageLabel) {
-                m_mapImageLabel->setPixmap(mapPixmap.scaled(
-                    m_mapImageLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            }
-            if (m_mapFullscreenDialog && m_mapFullscreenDialog->isVisible() && m_mapFullscreenLabel) {
-                m_mapFullscreenLabel->setPixmap(mapPixmap.scaled(
-                    m_mapFullscreenLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            }
-            if (m_mapTileErrors > 0) {
-                m_mapStatusLabel->setText("Map loaded with missing tiles.");
             } else {
-                m_mapStatusLabel->setText("Map loaded successfully.");
+                m_mapStatusLabel->setText(QString("Loading map tiles... %1/%2")
+                                          .arg(m_mapLoadedTiles)
+                                          .arg(m_mapExpectedTiles));
             }
         }
 
@@ -13065,6 +13157,16 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
 
 void MainWindow::requestMapTiles(double lat, double lon)
 {
+    if (!m_mapNet) return;
+
+    // Cancel in-flight tile requests from previous map views to free bandwidth.
+    const auto activeReplies = m_mapNet->findChildren<QNetworkReply*>();
+    for (QNetworkReply *active : activeReplies) {
+        if (!active) continue;
+        if (active->property("mapType").toString() != "tile") continue;
+        if (active->isRunning()) active->abort();
+    }
+
     const int tileSize = 256;
     const int zoom = m_mapZoom;
     const int n = 1 << zoom;
@@ -13087,9 +13189,14 @@ void MainWindow::requestMapTiles(double lat, double lon)
     m_mapTileX1 = static_cast<int>(floor((m_mapTopLeftX + m_mapImageSize.width() - 1) / tileSize));
     m_mapTileY1 = static_cast<int>(floor((m_mapTopLeftY + m_mapImageSize.height() - 1) / tileSize));
 
-    m_mapTileCache.clear();
     m_mapPendingTiles.clear();
     m_mapTileErrors = 0;
+    m_mapExpectedTiles = 0;
+    m_mapLoadedTiles = 0;
+
+    if (m_mapTileCache.size() > 600) {
+        m_mapTileCache.clear();
+    }
 
     for (int x = m_mapTileX0; x <= m_mapTileX1; ++x) {
         int wrappedX = ((x % n) + n) % n;
@@ -13097,6 +13204,13 @@ void MainWindow::requestMapTiles(double lat, double lon)
             if (y < 0 || y >= n) continue;
 
             QString key = QString("%1/%2/%3").arg(zoom).arg(x).arg(y);
+            m_mapExpectedTiles++;
+
+            if (m_mapTileCache.contains(key)) {
+                m_mapLoadedTiles++;
+                continue;
+            }
+
             m_mapPendingTiles.insert(key);
 
             QUrl tileUrl(QString("https://tile.openstreetmap.org/%1/%2/%3.png")
@@ -13111,8 +13225,79 @@ void MainWindow::requestMapTiles(double lat, double lon)
         }
     }
 
+    renderOrderMap();
+
     if (m_mapPendingTiles.isEmpty()) {
-        m_mapStatusLabel->setText("Map tiles not available for this location.");
+        if (m_mapExpectedTiles == 0) {
+            m_mapStatusLabel->setText("Map tiles not available for this location.");
+        } else {
+            m_mapStatusLabel->setText("Map loaded instantly from cache.");
+        }
+    } else {
+        m_mapStatusLabel->setText(QString("Loading map tiles... %1/%2")
+                                  .arg(m_mapLoadedTiles)
+                                  .arg(m_mapExpectedTiles));
+    }
+}
+
+void MainWindow::renderOrderMap()
+{
+    if (m_mapImageSize.width() <= 0 || m_mapImageSize.height() <= 0) return;
+
+    QPixmap mapPixmap(m_mapImageSize);
+    mapPixmap.fill(QColor(26, 18, 8));
+    QPainter painter(&mapPixmap);
+
+    const int tileSize = 256;
+    for (int x = m_mapTileX0; x <= m_mapTileX1; ++x) {
+        for (int y = m_mapTileY0; y <= m_mapTileY1; ++y) {
+            const QString key = QString("%1/%2/%3").arg(m_mapZoom).arg(x).arg(y);
+            if (!m_mapTileCache.contains(key)) continue;
+            const int px = qRound((x * tileSize) - m_mapTopLeftX);
+            const int py = qRound((y * tileSize) - m_mapTopLeftY);
+            painter.drawPixmap(px, py, m_mapTileCache.value(key));
+        }
+    }
+
+    if (m_mapHasClientPin) {
+        const int n = 1 << m_mapZoom;
+        const double pinLatRad = qDegreesToRadians(m_mapClientPinLat);
+        const double pinWorldX = ((m_mapClientPinLon + 180.0) / 360.0 * n) * tileSize;
+        const double pinWorldY = ((1.0 - log(tan(pinLatRad) + 1.0 / cos(pinLatRad)) / M_PI) / 2.0 * n) * tileSize;
+        const int pinX = qRound(pinWorldX - m_mapTopLeftX);
+        const int pinY = qRound(pinWorldY - m_mapTopLeftY);
+
+        if (pinX >= -20 && pinX <= (m_mapImageSize.width() + 20) && pinY >= -30 && pinY <= (m_mapImageSize.height() + 20)) {
+            painter.setRenderHint(QPainter::Antialiasing, true);
+
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0, 0, 0, 120));
+            painter.drawEllipse(QPoint(pinX + 1, pinY + 2), 7, 3);
+
+            QPolygon pinTip;
+            pinTip << QPoint(pinX, pinY)
+                   << QPoint(pinX - 7, pinY - 14)
+                   << QPoint(pinX + 7, pinY - 14);
+            painter.setBrush(QColor(220, 53, 69));
+            painter.drawPolygon(pinTip);
+
+            painter.setBrush(QColor(220, 53, 69));
+            painter.drawEllipse(QPoint(pinX, pinY - 22), 10, 10);
+            painter.setBrush(Qt::white);
+            painter.drawEllipse(QPoint(pinX, pinY - 22), 4, 4);
+        }
+    }
+
+    m_mapCurrentPixmap = mapPixmap;
+    m_mapHasPixmap = true;
+
+    if (m_mapImageLabel) {
+        m_mapImageLabel->setPixmap(mapPixmap.scaled(
+            m_mapImageLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    }
+    if (m_mapFullscreenDialog && m_mapFullscreenDialog->isVisible() && m_mapFullscreenLabel) {
+        m_mapFullscreenLabel->setPixmap(mapPixmap.scaled(
+            m_mapFullscreenLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     }
 }
 

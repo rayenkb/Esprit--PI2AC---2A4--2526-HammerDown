@@ -490,6 +490,7 @@ private:
     void requestMapForBuyerId();
     void populateMapClients();
     void requestMapTiles(double lat, double lon);
+    void renderOrderMap();
 
     QNetworkAccessManager *m_mapNet = nullptr;
     QLabel *m_mapImageLabel = nullptr;
@@ -514,6 +515,8 @@ private:
     int m_mapTileX1 = 0;
     int m_mapTileY1 = 0;
     int m_mapTileErrors = 0;
+    int m_mapExpectedTiles = 0;
+    int m_mapLoadedTiles = 0;
         double m_mapCenterLat = 36.8065;
         double m_mapCenterLon = 10.1815;
         bool m_mapHasClientPin = false;

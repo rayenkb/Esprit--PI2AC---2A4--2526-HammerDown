@@ -970,8 +970,10 @@ void GLViewport::drawOrientationCube()
     const int pad = 10;
     const int sideLabelGap = 4;
     const int sideLabelWidth = 34;
-    int x = width() - size - pad - sideLabelGap - sideLabelWidth;
-    int y = pad;
+    const int shiftRight = 12;
+    const int shiftDown = 28;
+    int x = width() - size - pad - sideLabelGap - sideLabelWidth + shiftRight;
+    int y = pad + shiftDown;
     QRect rect(x, y, size, size);
 
     glViewport(x, height() - y - size, size, size);
@@ -1098,7 +1100,9 @@ bool GLViewport::pickOrientationCube(const QPoint &pos, ViewPreset &outPreset) c
     const int pad = 10;
     const int sideLabelGap = 4;
     const int sideLabelWidth = 34;
-    QRect rect(width() - size - pad - sideLabelGap - sideLabelWidth, pad, size, size);
+    const int shiftRight = 12;
+    const int shiftDown = 28;
+    QRect rect(width() - size - pad - sideLabelGap - sideLabelWidth + shiftRight, pad + shiftDown, size, size);
     if (!rect.contains(pos)) return false;
 
     QPoint local = pos - rect.topLeft();

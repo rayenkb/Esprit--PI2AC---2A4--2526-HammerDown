@@ -6,7 +6,7 @@
 #include <QSqlQuery>
 #include <QDebug>
 
-static bool createConnection()
+[[maybe_unused]] static bool createConnection()
 {
     // METHOD 1: Try Oracle native driver first (QOCI)
     QSqlDatabase db = QSqlDatabase::addDatabase("QOCI");

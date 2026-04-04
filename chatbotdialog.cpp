@@ -10,6 +10,7 @@
 #include <QRandomGenerator>
 #include <QVector>
 #include <QSet>
+#include <QHash>
 #include <QtGlobal>
 #include <QRegularExpression>
 #include <QPixmap>
@@ -17,6 +18,136 @@
 #include <QResizeEvent>
 #include <QMouseEvent>
 #include <QEvent>
+
+namespace {
+QString generateWord(int minSyllables = 2, int maxSyllables = 4)
+{
+    static const QString consonants = "bcdfghjklmnpqrstvwxyz";
+    static const QString vowels = "aeiou";
+
+    int syllables = QRandomGenerator::global()->bounded(minSyllables, maxSyllables + 1);
+    QString out;
+    for (int i = 0; i < syllables; ++i) {
+        out += consonants.at(QRandomGenerator::global()->bounded(consonants.size()));
+        out += vowels.at(QRandomGenerator::global()->bounded(vowels.size()));
+        if (QRandomGenerator::global()->bounded(100) < 35) {
+            out += consonants.at(QRandomGenerator::global()->bounded(consonants.size()));
+        }
+    }
+    if (!out.isEmpty()) out[0] = out[0].toUpper();
+    return out;
+}
+
+QString generatePhoneLike()
+{
+    return QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
+}
+
+QString generateEmailLike(const QString &leftA, const QString &leftB, int seed, const QString &domain)
+{
+    QString a = leftA.toLower();
+    QString b = leftB.toLower();
+    a.remove(' ');
+    b.remove(' ');
+    return QString("%1.%2%3@%4").arg(a, b, QString::number(seed), domain);
+}
+
+QString generateTunisiaAddress()
+{
+    static const QStringList streets = {
+        "Avenue Habib Bourguiba", "Avenue Mohamed V", "Rue de Marseille", "Rue d'Alger",
+        "Rue de Palestine", "Avenue de la Liberte", "Avenue de Carthage", "Rue Ibn Khaldoun",
+        "Avenue Hedi Chaker", "Rue du Lac", "Avenue Taieb Mhiri", "Rue de l'Independance"
+    };
+    static const QStringList tunisiaCities = {
+        "Tunis", "Ariana", "Ben Arous", "Manouba", "Nabeul", "Sousse", "Monastir",
+        "Mahdia", "Sfax", "Kairouan", "Bizerte", "Beja", "Jendouba", "Le Kef",
+        "Siliana", "Kasserine", "Sidi Bouzid", "Gabes", "Medenine", "Tozeur", "Kebili",
+        "Gafsa", "Zaghouan", "Tataouine"
+    };
+    return QString("%1, %2, Tunisia")
+        .arg(QString("%1 %2")
+                 .arg(QRandomGenerator::global()->bounded(1, 260))
+                 .arg(streets.at(QRandomGenerator::global()->bounded(streets.size()))))
+        .arg(tunisiaCities.at(QRandomGenerator::global()->bounded(tunisiaCities.size())));
+}
+
+QString generateTunisianFirstName()
+{
+    static const QStringList firstNames = {
+        "Mohamed", "Ahmed", "Yassine", "Amine", "Sami", "Walid", "Karim", "Fares", "Aymen", "Nader",
+        "Ines", "Sarra", "Amira", "Meriem", "Rania", "Nour", "Asma", "Lina", "Yasmine", "Wafa"
+    };
+    return firstNames.at(QRandomGenerator::global()->bounded(firstNames.size()));
+}
+
+QString generateTunisianLastName()
+{
+    static const QStringList lastNames = {
+        "Ben Ali", "Trabelsi", "Mansour", "Gharbi", "Jaziri", "Ayari", "Mejri", "Kefi", "Chaari", "Bouazizi",
+        "Ben Salem", "Boussetta", "Sfaxi", "Mabrouk", "Haddad", "Cherif", "Khalfallah", "Dhaouadi", "Zribi", "Dridi"
+    };
+    return lastNames.at(QRandomGenerator::global()->bounded(lastNames.size()));
+}
+
+int getColumnMaxLength(const QString &tableName, const QString &columnName)
+{
+    static QHash<QString, int> cache;
+    const QString key = tableName.toUpper() + "." + columnName.toUpper();
+    if (cache.contains(key)) {
+        return cache.value(key);
+    }
+
+    QSqlQuery q;
+    q.prepare("SELECT NVL(CHAR_COL_DECL_LENGTH, DATA_LENGTH) "
+              "FROM USER_TAB_COLUMNS "
+              "WHERE TABLE_NAME = :tableName AND COLUMN_NAME = :columnName");
+    q.bindValue(":tableName", tableName.toUpper());
+    q.bindValue(":columnName", columnName.toUpper());
+
+    int maxLen = 0;
+    if (q.exec() && q.next()) {
+        maxLen = q.value(0).toInt();
+    }
+    cache.insert(key, maxLen);
+    return maxLen;
+}
+
+QString fitToColumn(const QString &tableName, const QString &columnName, const QString &value)
+{
+    const int maxLen = getColumnMaxLength(tableName, columnName);
+    if (maxLen <= 0 || value.size() <= maxLen) {
+        return value;
+    }
+    return value.left(maxLen);
+}
+
+QStringList fetchDistinctTextColumn(const QString &tableName, const QString &columnName)
+{
+    static const QRegularExpression identRx("^[A-Z0-9_]+$", QRegularExpression::CaseInsensitiveOption);
+    if (!identRx.match(tableName).hasMatch() || !identRx.match(columnName).hasMatch()) {
+        return {};
+    }
+
+    QSqlQuery q;
+    QString sql = QString("SELECT DISTINCT %1 FROM %2 WHERE %1 IS NOT NULL FETCH FIRST 200 ROWS ONLY")
+                      .arg(columnName, tableName);
+    QStringList out;
+    if (q.exec(sql)) {
+        while (q.next()) {
+            const QString v = q.value(0).toString().trimmed();
+            if (!v.isEmpty()) out << v;
+        }
+    }
+    return out;
+}
+
+QString pickRandomFrom(const QStringList &values, const QString &fallback)
+{
+    if (values.isEmpty()) return fallback;
+    return values.at(QRandomGenerator::global()->bounded(values.size()));
+}
+}
 
 ChatBotDialog::ChatBotDialog(QWidget *parent, bool isWeatherBot)
     : QDialog(parent),
@@ -540,6 +671,37 @@ bool ChatBotDialog::handleLocalCommand(const QString &text, QString *responseOut
         return true;
     }
 
+    // Flexible phrasing support, e.g.:
+    // "add random things to clients management"
+    // "add random suppliers"
+    // "add 8 random records in employee management"
+    QRegularExpression addRandomFlexibleRx(
+        "^add\\s+(?:(\\d+)\\s+)?random\\s+(?:things|records|entries)?\\s*(?:to|in)?\\s*"
+        "(orders?|employees?|clients?|suppliers?|equipment|equipments|equipement|equipements)\\s*(?:management)?\\s*$");
+    QRegularExpressionMatch addRandomFlexibleMatch = addRandomFlexibleRx.match(lower);
+    if (addRandomFlexibleMatch.hasMatch()) {
+        if (!QSqlDatabase::database().isOpen()) {
+            *responseOut = "Database connection is not available. Please check your DB settings.";
+            return true;
+        }
+
+        int count = addRandomFlexibleMatch.captured(1).isEmpty() ? 5 : addRandomFlexibleMatch.captured(1).toInt();
+        QString entity = addRandomFlexibleMatch.captured(2);
+
+        if (entity.startsWith("order")) {
+            *responseOut = handleAddRandomOrders(count);
+        } else if (entity.startsWith("employee")) {
+            *responseOut = handleAddRandomEmployees(count);
+        } else if (entity.startsWith("client")) {
+            *responseOut = handleAddRandomClients(count);
+        } else if (entity.startsWith("supplier")) {
+            *responseOut = handleAddRandomSuppliers(count);
+        } else {
+            *responseOut = handleAddRandomEquipment(count);
+        }
+        return true;
+    }
+
     QRegularExpression addOrdersRx("^add\\s+(\\d+)\\s+random\\s+orders?$");
     QRegularExpressionMatch addMatch = addOrdersRx.match(lower);
     if (addMatch.hasMatch()) {
@@ -632,7 +794,10 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
         return "Cannot add orders: CLIENTS or EMPLOYEES table is empty.";
     }
 
-    const QStringList orderTypes = {"Chair", "Table", "Cabinet", "Wardrobe", "Other"};
+    QStringList orderTypes = getAllowedColumnValues("ORDERS", "ORDER_TYPE");
+    if (orderTypes.isEmpty()) {
+        orderTypes = getDistinctColumnValues("ORDERS", "ORDER_TYPE");
+    }
     const QStringList orderStatuses = getAllowedColumnValues("ORDERS", "ORDER_STATUS");
     const QStringList paymentStatuses = getAllowedColumnValues("ORDERS", "PAYMENT_STATUS");
     if (orderStatuses.isEmpty() || paymentStatuses.isEmpty()) {
@@ -654,7 +819,9 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
     for (int i = 0; i < count; ++i) {
         int clientId = clientIds.at(QRandomGenerator::global()->bounded(clientIds.size()));
         int employeeId = employeeIds.at(QRandomGenerator::global()->bounded(employeeIds.size()));
-        QString type = orderTypes.at(QRandomGenerator::global()->bounded(orderTypes.size()));
+        QString type = orderTypes.isEmpty()
+                   ? QString("Item-%1").arg(generateWord(2, 3))
+                   : orderTypes.at(QRandomGenerator::global()->bounded(orderTypes.size()));
         QString status = orderStatuses.at(QRandomGenerator::global()->bounded(orderStatuses.size()));
         QString payment = paymentStatuses.at(QRandomGenerator::global()->bounded(paymentStatuses.size()));
         int quantity = QRandomGenerator::global()->bounded(1, 51);
@@ -853,14 +1020,15 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
     if (count <= 0) return "Please provide a positive number of employees to add.";
     if (count > 50) count = 50;
 
-    const QStringList firstNames = {"Adam", "Lina", "Sami", "Nour", "Youssef", "Maya", "Rami", "Salma"};
-    const QStringList lastNames = {"Ben Ali", "Trabelsi", "Mansour", "Haddad", "Gharbi", "Jaziri", "Ayari", "Kefi"};
-    const QStringList jobs = {"Carpenter", "Designer", "Technician", "Manager", "Installer"};
-    const QStringList departments = {"Production", "Design", "Operations", "Sales", "Maintenance"};
     const QStringList statuses = getAllowedColumnValues("EMPLOYEES", "EMPLOYEE_STATUS");
     if (statuses.isEmpty()) {
         return "Cannot add employees: no valid EMPLOYEE_STATUS values found in DB constraints/defaults/existing data.";
     }
+
+    QStringList firstNamePool = fetchDistinctTextColumn("EMPLOYEES", "FIRST_NAME") +
+                                fetchDistinctTextColumn("CLIENTS", "FIRST_NAME");
+    QStringList lastNamePool = fetchDistinctTextColumn("EMPLOYEES", "LAST_NAME") +
+                               fetchDistinctTextColumn("CLIENTS", "LAST_NAME");
 
     int nextId = getNextId("EMPLOYEES", "EMPLOYEE_ID");
 
@@ -871,15 +1039,15 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
     int success = 0;
     QStringList errors;
     for (int i = 0; i < count; ++i) {
-        QString first = firstNames.at(QRandomGenerator::global()->bounded(firstNames.size()));
-        QString last = lastNames.at(QRandomGenerator::global()->bounded(lastNames.size()));
-        QString job = jobs.at(QRandomGenerator::global()->bounded(jobs.size()));
-        QString dept = departments.at(QRandomGenerator::global()->bounded(departments.size()));
+        QString first = fitToColumn("EMPLOYEES", "FIRST_NAME", pickRandomFrom(firstNamePool, generateTunisianFirstName()));
+        QString last = fitToColumn("EMPLOYEES", "LAST_NAME", pickRandomFrom(lastNamePool, generateTunisianLastName()));
+        QString job = fitToColumn("EMPLOYEES", "JOB_TITLE", QString("Role-%1").arg(generateWord(2, 3)));
+        QString dept = fitToColumn("EMPLOYEES", "DEPARTMENT", QString("Unit-%1").arg(generateWord(2, 3)));
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
         int age = QRandomGenerator::global()->bounded(20, 56);
         double salary = 1200.0 + (QRandomGenerator::global()->generateDouble() * 3800.0);
-        QString email = QString("%1.%2%3@hammerdown.tn").arg(first.toLower().remove(' '), last.toLower().remove(' '), QString::number(nextId));
-        QString phone = QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
+        QString email = fitToColumn("EMPLOYEES", "EMAIL", generateEmailLike(first, last, nextId, "hammerdown.tn"));
+        QString phone = fitToColumn("EMPLOYEES", "PHONE_NUMBER", generatePhoneLike());
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -925,14 +1093,27 @@ QString ChatBotDialog::handleAddRandomClients(int count)
     if (count <= 0) return "Please provide a positive number of clients to add.";
     if (count > 50) count = 50;
 
-    const QStringList firstNames = {"Hedi", "Amira", "Karim", "Sarra", "Walid", "Ines", "Fares", "Rania"};
-    const QStringList lastNames = {"Mabrouk", "Cherif", "Ben Salem", "Khalfallah", "Mejri", "Boussetta", "Chaari", "Sfaxi"};
-    const QStringList genders = {"Male", "Female"};
+    QStringList genders = getAllowedColumnValues("CLIENTS", "GENDER");
+    if (genders.isEmpty()) {
+        genders = getDistinctColumnValues("CLIENTS", "GENDER");
+    }
+    if (genders.isEmpty()) {
+        genders << "Male" << "Female";
+    }
     const QStringList statuses = getAllowedColumnValues("CLIENTS", "STATUS");
     if (statuses.isEmpty()) {
         return "Cannot add clients: no valid STATUS values found in DB constraints/defaults/existing data.";
     }
-    const QStringList streets = {"Avenue Habib Bourguiba", "Rue de Marseille", "Avenue de la Liberte", "Rue d'Alger"};
+
+    QStringList firstNamePool = fetchDistinctTextColumn("CLIENTS", "FIRST_NAME") +
+                                fetchDistinctTextColumn("EMPLOYEES", "FIRST_NAME");
+    QStringList lastNamePool = fetchDistinctTextColumn("CLIENTS", "LAST_NAME") +
+                               fetchDistinctTextColumn("EMPLOYEES", "LAST_NAME");
+    QSet<QString> usedAddressKeys;
+    QSqlQuery usedAddressQuery("SELECT ADDRESS FROM CLIENTS WHERE ADDRESS IS NOT NULL");
+    while (usedAddressQuery.next()) {
+        usedAddressKeys.insert(usedAddressQuery.value(0).toString().trimmed().toUpper());
+    }
 
     int nextId = getNextId("CLIENTS", "CLIENT_ID");
 
@@ -943,15 +1124,28 @@ QString ChatBotDialog::handleAddRandomClients(int count)
     int success = 0;
     QStringList errors;
     for (int i = 0; i < count; ++i) {
-        QString first = firstNames.at(QRandomGenerator::global()->bounded(firstNames.size()));
-        QString last = lastNames.at(QRandomGenerator::global()->bounded(lastNames.size()));
+        QString first = fitToColumn("CLIENTS", "FIRST_NAME", pickRandomFrom(firstNamePool, generateTunisianFirstName()));
+        QString last = fitToColumn("CLIENTS", "LAST_NAME", pickRandomFrom(lastNamePool, generateTunisianLastName()));
         QString gender = genders.at(QRandomGenerator::global()->bounded(genders.size()));
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
-        QString address = QString("%1, Tunis").arg(streets.at(QRandomGenerator::global()->bounded(streets.size())));
+        QString address;
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            QString candidate = generateTunisiaAddress();
+            QString key = candidate.toUpper();
+            if (!usedAddressKeys.contains(key)) {
+                usedAddressKeys.insert(key);
+                address = candidate;
+                break;
+            }
+        }
+        if (address.isEmpty()) {
+            address = generateTunisiaAddress();
+        }
+                address = fitToColumn("CLIENTS", "ADDRESS", address);
         int age = QRandomGenerator::global()->bounded(21, 66);
         double balance = QRandomGenerator::global()->generateDouble() * 10000.0;
-        QString email = QString("%1.%2%3@client.tn").arg(first.toLower().remove(' '), last.toLower().remove(' '), QString::number(nextId));
-        QString phone = QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
+                QString email = fitToColumn("CLIENTS", "EMAIL", generateEmailLike(first, last, nextId, "client.tn"));
+                QString phone = fitToColumn("CLIENTS", "PHONE_NUMBER", generatePhoneLike());
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -997,11 +1191,21 @@ QString ChatBotDialog::handleAddRandomSuppliers(int count)
     if (count <= 0) return "Please provide a positive number of suppliers to add.";
     if (count > 50) count = 50;
 
-    const QStringList prefixes = {"Atlas", "Nord", "Cedar", "Prime", "Delta", "Sahara", "Olive", "Nova"};
-    const QStringList suffixes = {"Wood", "Supply", "Materials", "Trade", "Systems", "Partners"};
     const QStringList statuses = getAllowedColumnValues("SUPPLIERS", "ACCOUNT_STATUS");
     if (statuses.isEmpty()) {
         return "Cannot add suppliers: no valid ACCOUNT_STATUS values found in DB constraints/defaults/existing data.";
+    }
+
+    QStringList nameSeedPool = fetchDistinctTextColumn("SUPPLIERS", "SUPPLIER_NAME") +
+                               fetchDistinctTextColumn("CLIENTS", "LAST_NAME") +
+                               fetchDistinctTextColumn("EMPLOYEES", "LAST_NAME");
+
+    QSet<QString> usedNameKeys;
+    QSet<QString> usedAddressKeys;
+    QSqlQuery usedSupplierQuery("SELECT SUPPLIER_NAME, ADDRESS FROM SUPPLIERS");
+    while (usedSupplierQuery.next()) {
+        usedNameKeys.insert(usedSupplierQuery.value(0).toString().trimmed().toUpper());
+        usedAddressKeys.insert(usedSupplierQuery.value(1).toString().trimmed().toUpper());
     }
 
     int nextId = getNextId("SUPPLIERS", "SUPPLIER_ID");
@@ -1013,14 +1217,42 @@ QString ChatBotDialog::handleAddRandomSuppliers(int count)
     int success = 0;
     QStringList errors;
     for (int i = 0; i < count; ++i) {
-        QString name = QString("%1 %2").arg(prefixes.at(QRandomGenerator::global()->bounded(prefixes.size())),
-                                             suffixes.at(QRandomGenerator::global()->bounded(suffixes.size())));
+        QString name;
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            QString seed = pickRandomFrom(nameSeedPool, generateWord(2, 3));
+            seed = seed.split(' ').value(0);
+            QString candidate = QString("%1 %2").arg(seed, generateWord(2, 3));
+            QString key = candidate.toUpper();
+            if (!usedNameKeys.contains(key)) {
+                usedNameKeys.insert(key);
+                name = fitToColumn("SUPPLIERS", "SUPPLIER_NAME", candidate);
+                break;
+            }
+        }
+        if (name.isEmpty()) {
+            name = fitToColumn("SUPPLIERS", "SUPPLIER_NAME",
+                               QString("%1 %2").arg(generateWord(2, 3), QString::number(nextId)));
+        }
+
         QString normalizedName = name.toLower();
         normalizedName.replace(' ', '.');
-        QString email = QString("contact%1@%2.tn").arg(nextId).arg(normalizedName);
-        QString phone = QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
-        QString address = QString("Zone Industrielle %1, Tunis").arg(QRandomGenerator::global()->bounded(1, 25));
-        QString postal = QString::number(QRandomGenerator::global()->bounded(1000, 9999));
+        QString email = fitToColumn("SUPPLIERS", "EMAIL", QString("contact%1@%2.tn").arg(nextId).arg(normalizedName));
+        QString phone = fitToColumn("SUPPLIERS", "PHONE_NUMBER", generatePhoneLike());
+        QString address;
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            QString candidate = generateTunisiaAddress();
+            QString key = candidate.toUpper();
+            if (!usedAddressKeys.contains(key)) {
+                usedAddressKeys.insert(key);
+                address = candidate;
+                break;
+            }
+        }
+        if (address.isEmpty()) {
+            address = generateTunisiaAddress();
+        }
+        address = fitToColumn("SUPPLIERS", "ADDRESS", address);
+        QString postal = fitToColumn("SUPPLIERS", "POSTAL_CODE", QString::number(QRandomGenerator::global()->bounded(1000, 9999)));
         double delivery = 2.5 + (QRandomGenerator::global()->generateDouble() * 2.5);
         double quality = 2.5 + (QRandomGenerator::global()->generateDouble() * 2.5);
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
@@ -1077,12 +1309,11 @@ QString ChatBotDialog::handleAddRandomEquipment(int count)
         return "Cannot add equipment: EMPLOYEES table is empty (RESPONSABLE is required).";
     }
 
-    const QStringList types = {"Drill", "Saw", "Sander", "Compressor", "Workstation", "Safety Kit"};
+    QStringList types = getDistinctColumnValues("EQUIPMENT", "EQUIPMENT_TYPE");
     const QStringList statuses = getAllowedColumnValues("EQUIPMENT", "STATUS");
     if (statuses.isEmpty()) {
         return "Cannot add equipment: no valid STATUS values found in DB constraints/defaults/existing data.";
     }
-    const QStringList locations = {"Warehouse A", "Warehouse B", "Workshop 1", "Workshop 2", "Site Storage"};
 
     int nextId = getNextId("EQUIPMENT", "EQUIPMENT_ID");
 
@@ -1093,13 +1324,17 @@ QString ChatBotDialog::handleAddRandomEquipment(int count)
     int success = 0;
     QStringList errors;
     for (int i = 0; i < count; ++i) {
-        QString type = types.at(QRandomGenerator::global()->bounded(types.size()));
+        QString type = types.isEmpty()
+                           ? QString("Tool-%1").arg(generateWord(2, 3))
+                           : types.at(QRandomGenerator::global()->bounded(types.size()));
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
         int qty = QRandomGenerator::global()->bounded(1, 31);
         double unitPrice = 80.0 + (QRandomGenerator::global()->generateDouble() * 2920.0);
         double cout = unitPrice * qty;
-        QString description = QString("%1 for carpentry operations").arg(type);
-        QString location = locations.at(QRandomGenerator::global()->bounded(locations.size()));
+        QString description = fitToColumn("EQUIPMENT", "DESCRIPTION", QString("%1 for %2 operations").arg(type, generateWord(2, 3).toLower()));
+        QString location = fitToColumn("EQUIPMENT", "LOCATION", QString("Dock %1 - Zone %2")
+                               .arg(QRandomGenerator::global()->bounded(1, 30))
+                       .arg(generateWord(2, 3)));
         int responsable = employeeIds.at(QRandomGenerator::global()->bounded(employeeIds.size()));
 
         bool inserted = false;
