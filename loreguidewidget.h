@@ -43,6 +43,17 @@ protected:
 
 private:
     void setupUI();
+    bool handleLocalCommand(const QString &text, QString *responseOut);
+    QString handleAddRandomOrders(int count);
+    QString handleAddRandomEmployees(int count);
+    QString handleAddRandomClients(int count);
+    QString handleAddRandomSuppliers(int count);
+    QString handleAddRandomEquipment(int count);
+    int getNextId(const QString &tableName, const QString &idColumn, int fallback = 1);
+    QStringList getColumnValuesFromCheckConstraints(const QString &tableName, const QString &columnName);
+    QString getColumnDefaultValue(const QString &tableName, const QString &columnName);
+    QStringList getDistinctColumnValues(const QString &tableName, const QString &columnName);
+    QStringList getAllowedColumnValues(const QString &tableName, const QString &columnName);
     void callApi(const QString &userMessage);
     void retryWithNextModel();
     void callImageApi(const QString &prompt);
@@ -70,6 +81,7 @@ private:
     QString          m_apiKey;
     QStringList      m_modelList;
     int              m_retryCount;
+    int              m_rateLimitRetries;
     QString          m_pendingUserMessage;
 
     QMediaPlayer    *m_bgMusic;  // the botawk player to keep alive

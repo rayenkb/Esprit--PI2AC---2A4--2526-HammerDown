@@ -12893,6 +12893,7 @@ void MainWindow::requestMapForBuyerId()
 
     m_mapAddressLabel->setText("Address: " + address);
     m_mapStatusLabel->setText("Geocoding address...");
+    m_mapHasClientPin = false;
     m_mapImageSize = (m_mapFullscreenDialog && m_mapFullscreenDialog->isVisible() && m_mapFullscreenLabel)
         ? m_mapFullscreenLabel->size()
         : m_mapImageLabel->size();
@@ -12967,6 +12968,9 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
 
         m_mapCenterLat = lat.toDouble();
         m_mapCenterLon = lon.toDouble();
+        m_mapClientPinLat = m_mapCenterLat;
+        m_mapClientPinLon = m_mapCenterLon;
+        m_mapHasClientPin = true;
         m_mapStatusLabel->setText("Loading map tiles...");
         requestMapTiles(m_mapCenterLat, m_mapCenterLon);
         reply->deleteLater();
@@ -13003,6 +13007,35 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
                     int px = qRound((x * tileSize) - m_mapTopLeftX);
                     int py = qRound((y * tileSize) - m_mapTopLeftY);
                     painter.drawPixmap(px, py, m_mapTileCache.value(key));
+                }
+            }
+
+            if (m_mapHasClientPin) {
+                const int n = 1 << m_mapZoom;
+                const double pinLatRad = qDegreesToRadians(m_mapClientPinLat);
+                const double pinWorldX = ((m_mapClientPinLon + 180.0) / 360.0 * n) * tileSize;
+                const double pinWorldY = ((1.0 - log(tan(pinLatRad) + 1.0 / cos(pinLatRad)) / M_PI) / 2.0 * n) * tileSize;
+                const int pinX = qRound(pinWorldX - m_mapTopLeftX);
+                const int pinY = qRound(pinWorldY - m_mapTopLeftY);
+
+                if (pinX >= -20 && pinX <= (m_mapImageSize.width() + 20) && pinY >= -30 && pinY <= (m_mapImageSize.height() + 20)) {
+                    painter.setRenderHint(QPainter::Antialiasing, true);
+
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(QColor(0, 0, 0, 120));
+                    painter.drawEllipse(QPoint(pinX + 1, pinY + 2), 7, 3);
+
+                    QPolygon pinTip;
+                    pinTip << QPoint(pinX, pinY)
+                           << QPoint(pinX - 7, pinY - 14)
+                           << QPoint(pinX + 7, pinY - 14);
+                    painter.setBrush(QColor(220, 53, 69));
+                    painter.drawPolygon(pinTip);
+
+                    painter.setBrush(QColor(220, 53, 69));
+                    painter.drawEllipse(QPoint(pinX, pinY - 22), 10, 10);
+                    painter.setBrush(Qt::white);
+                    painter.drawEllipse(QPoint(pinX, pinY - 22), 4, 4);
                 }
             }
 

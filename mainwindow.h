@@ -516,6 +516,9 @@ private:
     int m_mapTileErrors = 0;
         double m_mapCenterLat = 36.8065;
         double m_mapCenterLon = 10.1815;
+        bool m_mapHasClientPin = false;
+        double m_mapClientPinLat = 0.0;
+        double m_mapClientPinLon = 0.0;
         bool m_mapDragging = false;
         QPoint m_mapDragStart;
         double m_mapDragCenterX = 0.0;
