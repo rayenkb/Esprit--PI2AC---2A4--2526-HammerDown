@@ -7981,6 +7981,24 @@ void MainWindow::onClientRefreshView()
         "}"
         "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { border: none; background: none; }"
     );
+
+    // Modern Animation for Client View
+    QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(ui_client->tableView);
+    ui_client->tableView->setGraphicsEffect(eff);
+    QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity");
+    a->setDuration(600);
+    a->setStartValue(0.0);
+    a->setEndValue(1.0);
+    a->setEasingCurve(QEasingCurve::OutCubic);
+    a->start(QAbstractAnimation::DeleteWhenStopped);
+
+    QPropertyAnimation *slide = new QPropertyAnimation(ui_client->tableView, "pos");
+    slide->setDuration(600);
+    QPoint currentPos = ui_client->tableView->pos();
+    slide->setStartValue(currentPos + QPoint(0, 20));
+    slide->setEndValue(currentPos);
+    slide->setEasingCurve(QEasingCurve::OutCubic);
+    slide->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void MainWindow::onClientAdd()
@@ -8228,6 +8246,15 @@ void MainWindow::onClientSearch()
         "}"
         "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { border: none; background: none; }"
     );
+
+    // Animation for Search result
+    QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(ui_client->tableView);
+    ui_client->tableView->setGraphicsEffect(eff);
+    QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity");
+    a->setDuration(400);
+    a->setStartValue(0.0);
+    a->setEndValue(1.0);
+    a->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void MainWindow::onClientRowSelected(const QModelIndex &index)
@@ -8369,6 +8396,25 @@ void MainWindow::onEmployeeRefreshView()
     ui_employee->tableView_employes->setItemDelegate(hoverDelegate);
     ui_employee->tableView_employes->viewport()->installEventFilter(this);
 
+    // Modern Animation for the View Section
+    QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(ui_employee->tableView_employes);
+    ui_employee->tableView_employes->setGraphicsEffect(eff);
+    QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity");
+    a->setDuration(600);
+    a->setStartValue(0.0);
+    a->setEndValue(1.0);
+    a->setEasingCurve(QEasingCurve::OutCubic);
+    a->start(QAbstractAnimation::DeleteWhenStopped);
+
+    // Slide-up animation
+    QPropertyAnimation *slide = new QPropertyAnimation(ui_employee->tableView_employes, "pos");
+    slide->setDuration(600);
+    QPoint currentPos = ui_employee->tableView_employes->pos();
+    slide->setStartValue(currentPos + QPoint(0, 30));
+    slide->setEndValue(currentPos);
+    slide->setEasingCurve(QEasingCurve::OutCubic);
+    slide->start(QAbstractAnimation::DeleteWhenStopped);
+
     // Summary Stats Calculation
     QSqlQuery q;
     if (q.exec("SELECT COUNT(*), AVG(SALARY), AVG(AGE) FROM EMPLOYEES")) {
@@ -8380,6 +8426,15 @@ void MainWindow::onEmployeeRefreshView()
             ui_employee->lbl_stat_total->setText(QString("Total Personnel: %1").arg(total));
             ui_employee->lbl_stat_avg_salary->setText(QString("Avg Market Value: $%1").arg(avgSalary, 0, 'f', 0));
             ui_employee->lbl_stat_avg_age->setText(QString("Avg Team Age: %1").arg(avgAge, 0, 'f', 1));
+            
+            // Animate stats frame
+            QGraphicsOpacityEffect *statsEff = new QGraphicsOpacityEffect(ui_employee->frame_view_stats);
+            ui_employee->frame_view_stats->setGraphicsEffect(statsEff);
+            QPropertyAnimation *statsAnim = new QPropertyAnimation(statsEff, "opacity");
+            statsAnim->setDuration(800);
+            statsAnim->setStartValue(0.0);
+            statsAnim->setEndValue(1.0);
+            statsAnim->start(QAbstractAnimation::DeleteWhenStopped);
         }
     }
 
@@ -8413,6 +8468,15 @@ void MainWindow::onEmployeeSearch()
         model->setQuery(std::move(q));
     }
     ui_employee->tableView_employes->setModel(model);
+
+    // Simple Animation for search results
+    QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(ui_employee->tableView_employes);
+    ui_employee->tableView_employes->setGraphicsEffect(eff);
+    QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity");
+    a->setDuration(400);
+    a->setStartValue(0.0);
+    a->setEndValue(1.0);
+    a->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void MainWindow::onEmployeeRefreshHistory()
