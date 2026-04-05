@@ -9432,7 +9432,11 @@ void MainWindow::onEquipmentDelete()
         QMessageBox::warning(this, "Not Found", "No equipment found with this ID.");
         return;
     }
-    logActivity("Deleted equipment: " + type + " (ID: " + eqId + ")", "Equipment");
+    QString deleteLabel = type;
+    if (!desc.isEmpty()) {
+        deleteLabel += " - " + desc;
+    }
+    logActivity("Deleted equipment: " + deleteLabel + " (ID: " + eqId + ")", "Equipment");
 
     QMessageBox::information(this, "Deleted", "Equipment deleted successfully.");
     onEquipmentClearFields();
@@ -9643,8 +9647,82 @@ void MainWindow::onEquipmentHistoryRefresh()
 void MainWindow::onEquipmentHistorySearch()
 {
     QString search = ui_equipment->le_history_search->text().trimmed();
+    const QString searchUpper = search.toUpper();
 
     auto setupSection = [&](QTableView* view, const QString& operation) {
+        if (operation == "DELETE") {
+            QStandardItemModel *deleteModel = new QStandardItemModel(this);
+            deleteModel->setHorizontalHeaderLabels({"ID", "Type", "Description", "Status", "Price", "Date"});
+
+            QJsonArray auditArray;
+            QFile file("hammerdown_audit_log.json");
+            if (file.open(QIODevice::ReadOnly)) {
+                const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+                if (doc.isArray()) {
+                    auditArray = doc.array();
+                }
+                file.close();
+            }
+
+            const QRegularExpression deleteRx(
+                "^Deleted\\s+equipment:\\s*(.*?)\\s*\\(ID:\\s*(\\d+)\\)\\s*$",
+                QRegularExpression::CaseInsensitiveOption);
+
+            for (int i = auditArray.size() - 1; i >= 0; --i) {
+                if (!auditArray.at(i).isObject()) {
+                    continue;
+                }
+
+                const QJsonObject entry = auditArray.at(i).toObject();
+                if (entry.value("module_name").toString().compare("Equipment", Qt::CaseInsensitive) != 0) {
+                    continue;
+                }
+
+                const QString action = entry.value("action_details").toString();
+                const QRegularExpressionMatch match = deleteRx.match(action);
+                if (!match.hasMatch()) {
+                    continue;
+                }
+
+                const QString id = match.captured(2).trimmed();
+                const QString typeAndDesc = match.captured(1).trimmed();
+
+                QString type = typeAndDesc;
+                QString description;
+                const int splitAt = typeAndDesc.indexOf(" - ");
+                if (splitAt >= 0) {
+                    type = typeAndDesc.left(splitAt).trimmed();
+                    description = typeAndDesc.mid(splitAt + 3).trimmed();
+                }
+
+                QDateTime dt = QDateTime::fromMSecsSinceEpoch(entry.value("timestamp_ms").toVariant().toLongLong());
+                if (!dt.isValid()) {
+                    dt = QDateTime::fromString(entry.value("timestamp_iso").toString(), Qt::ISODate);
+                }
+                const QString dateStr = dt.isValid() ? dt.date().toString("yyyy-MM-dd") : QString();
+
+                if (!searchUpper.isEmpty()) {
+                    const QString haystack = (id + " " + type + " " + description).toUpper();
+                    if (!haystack.contains(searchUpper)) {
+                        continue;
+                    }
+                }
+
+                QList<QStandardItem*> row;
+                row << new QStandardItem(id)
+                    << new QStandardItem(type)
+                    << new QStandardItem(description)
+                    << new QStandardItem("Deleted")
+                    << new QStandardItem("-")
+                    << new QStandardItem(dateStr);
+                deleteModel->appendRow(row);
+            }
+
+            view->setModel(deleteModel);
+            view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+            return;
+        }
+
         QString sql;
         if (operation == "ADD") {
             sql = "SELECT EQUIPMENT_ID AS \"ID\", EQUIPMENT_TYPE AS \"Type\", DESCRIPTION AS \"Description\", "
@@ -9654,10 +9732,6 @@ void MainWindow::onEquipmentHistorySearch()
             sql = "SELECT EQUIPMENT_ID AS \"ID\", EQUIPMENT_TYPE AS \"Type\", DESCRIPTION AS \"Description\", "
                   "STATUS AS \"Status\", UNIT_PRICE AS \"Price\", TO_CHAR(NEXT_MAINTENANCE, 'YYYY-MM-DD') AS \"Date\" "
                   "FROM EQUIPMENT WHERE NEXT_MAINTENANCE IS NOT NULL AND STATUS != 'Retired'";
-        } else if (operation == "DELETE") {
-            sql = "SELECT EQUIPMENT_ID AS \"ID\", EQUIPMENT_TYPE AS \"Type\", DESCRIPTION AS \"Description\", "
-                  "STATUS AS \"Status\", UNIT_PRICE AS \"Price\", TO_CHAR(SYSDATE, 'YYYY-MM-DD') AS \"Date\" "
-                  "FROM EQUIPMENT WHERE STATUS = 'Retired'";
         }
         
         if (!search.isEmpty()) {

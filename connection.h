@@ -1,3 +1,4 @@
+
 #ifndef CONNECTION_H
 #define CONNECTION_H
 
@@ -6,15 +7,15 @@
 #include <QSqlQuery>
 #include <QDebug>
 
-[[maybe_unused]] static bool createConnection()
+static bool createConnection()
 {
     // METHOD 1: Try Oracle native driver first (QOCI)
     QSqlDatabase db = QSqlDatabase::addDatabase("QOCI");
     db.setHostName("localhost");
     db.setPort(1521);
-    db.setDatabaseName("source_2a4");
-    db.setUserName("SYSTEM");
-    db.setPassword("esprit");
+    db.setDatabaseName("Source_Projetc2a");
+    db.setUserName("RAMII");
+    db.setPassword("rami123");
 
     if (!db.open()) {
         qDebug() << "QOCI driver failed, trying ODBC...";
@@ -24,7 +25,7 @@
         db = QSqlDatabase::addDatabase("QODBC");
         
         // Option A: Use TNS name (if configured in tnsnames.ora)
-        db.setDatabaseName("source_2a4");
+        db.setDatabaseName("Source_Projetc2a");
         
         /* Option B: Full connection string (uncomment if Option A doesn't work)
         db.setDatabaseName(
@@ -35,8 +36,8 @@
         );
         */
         
-        db.setUserName("SYSTEM");
-        db.setPassword("esprit");
+        db.setUserName("RAMII");
+        db.setPassword("rami123");
         
         if (!db.open()) {
             qDebug() << "Database connection failed!";
