@@ -802,11 +802,14 @@ QPushButton:hover { background: #A0825A; }</string>
       </rect>
      </property>
      <property name="styleSheet">
-      <string notr="true">QPushButton { background-color: #4CAF50; border-radius: 20px; color: white; font-weight: bold; font-size: 13px; border: 2px solid #D4AF37; }
-QPushButton:hover { background-color: #66BB6A; border: 2px solid #FFF; box-shadow: 0px 0px 15px rgba(76, 175, 80, 0.8); }</string>
+      <string notr="true">QPushButton { background-color: #5D3FD3; border-radius: 20px; color: white; font-weight: bold; font-size: 13px; border: 2px solid #D4AF37; }
+QPushButton:hover { background-color: #7B68EE; border: 2px solid #FFF; box-shadow: 0px 0px 15px rgba(93, 63, 211, 0.8); }</string>
      </property>
      <property name="text">
-      <string>⚡ Company AI Pulse Tracker</string>
+      <string>🧠 AI Workforce Strategy Planner</string>
+     </property>
+     <property name="toolTip">
+      <string>Analyze workforce distribution and get strategic growth recommendations</string>
      </property>
     </widget>
     <widget class="QLabel" name="lbl_ai_pulse_result">

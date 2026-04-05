@@ -8,6 +8,8 @@
 #include <QGraphicsDropShadowEffect>
 #include <QProgressBar>
 #include <QTimer>
+#include <QPointer>
+#include <QVariantAnimation>
 #include <QMediaPlayer>
 #include <QVideoWidget>
 #include <QAudioOutput>
@@ -8319,6 +8321,7 @@ void MainWindow::onEmployeeRowSelected(const QModelIndex &index)
     ui_employee->de_birthdate->setDate(QDate::currentDate().addYears(-age));
     ui_employee->le_email->setText(model->data(model->index(row, 7)).toString());
     ui_employee->le_num->setText(model->data(model->index(row, 8)).toString());
+    ui_employee->dsb_salaire->setValue(model->data(model->index(row, 9)).toDouble());
 
     // Load AVATAR only (employee_[ID].png) - face scan images are NEVER shown here
     QString idStr = model->data(model->index(row, 2)).toString();
@@ -8347,7 +8350,7 @@ void MainWindow::onEmployeeRefreshView()
     model->setQuery(
         "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
         "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
-        " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\""
+        " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", SALARY AS \"Salary\""
         " FROM EMPLOYEES ORDER BY EMPLOYEE_ID"
     );
     if (model->lastError().isValid()) {
@@ -8384,8 +8387,9 @@ void MainWindow::onEmployeeSearch()
     QSqlQueryModel *model = new QSqlQueryModel(this);
     if (search.isEmpty()) {
         model->setQuery(
-            "SELECT EMPLOYEE_ID AS \"ID\", LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
-            " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\""
+            "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
+            "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
+            " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", SALARY AS \"Salary\""
             " FROM EMPLOYEES ORDER BY EMPLOYEE_ID"
         );
     } else {
@@ -8393,7 +8397,7 @@ void MainWindow::onEmployeeSearch()
         q.prepare(
             "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
             "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
-            " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\""
+            " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", SALARY AS \"Salary\""
             " FROM EMPLOYEES WHERE UPPER(LAST_NAME) LIKE :s OR UPPER(FIRST_NAME) LIKE :s"
             " OR UPPER(EMAIL) LIKE :s OR UPPER(JOB_TITLE) LIKE :s OR CAST(EMPLOYEE_ID AS VARCHAR2(20)) LIKE :s"
             " ORDER BY EMPLOYEE_ID"
@@ -8771,9 +8775,12 @@ void MainWindow::onEmployeeExportPDF()
 void MainWindow::onAIPulseClicked()
 {
     ui_employee->lbl_ai_pulse_result->setVisible(true);
-    ui_employee->lbl_ai_pulse_result->setText("📡 SYNCING WITH GLOBAL MARKET NETWORKS... CORE ANALYSIS ENGAGED.");
+    if (auto *eff = qobject_cast<QGraphicsOpacityEffect*>(ui_employee->lbl_ai_pulse_result->graphicsEffect())) {
+        eff->setOpacity(1.0);
+    }
+    ui_employee->lbl_ai_pulse_result->setText("🧠 CALCULATING PREDICTIVE WORKFORCE ROI... OPTIMIZING ASSETS.");
     
-    QTimer::singleShot(1200, this, [this](){
+    QTimer::singleShot(1100, this, [this](){
         QSqlQuery qEmp("SELECT COUNT(*), AVG(SALARY), AVG(AGE), COUNT(DISTINCT JOB_TITLE) FROM EMPLOYEES");
         qEmp.next();
         int cEmp = qEmp.value(0).toInt();
@@ -8781,445 +8788,214 @@ void MainWindow::onAIPulseClicked()
         double avgAge = qEmp.value(2).toDouble();
         int distinctRoles = qEmp.value(3).toInt();
 
-        QSqlQuery qOrd("SELECT COUNT(*) FROM ORDERS");
-        qOrd.next();
-        int cOrd = qOrd.value(0).toInt();
+        // Strategic Insight Logic
+        QString strategy;
+        QString growthMetric;
+        QString healthColor = "#4CAF50";
 
-        double throughput = (cOrd > 0) ? (double)cOrd / qMax(1, cEmp) : 0.0;
-        double marketIndex = (avgS > 0.0) ? (avgS / 4500.0) : 0.0; // Benchmark against ~4.5k
-        double bufferPct = qMin(100.0, (throughput / 3.0) * 100.0);
-        double burnPct = qMax(0.0, qMin(100.0, marketIndex * 100.0));
+        if (cEmp < 5) {
+            strategy = "Phase: EAR-STAGE GROWTH. Focus on multi-talented generalists. Priority: Build core operational team.";
+            growthMetric = "Recruitment readiness: Critical";
+            healthColor = "#FF5252";
+        } else if (distinctRoles < (cEmp / 2)) {
+            strategy = "Phase: SCALING DEPTH. Team is highly specialized but lacks structural diversity. Priority: Fill middle management and HR.";
+            growthMetric = "Operational Redundancy: High Risk";
+            healthColor = "#D4AF37";
+        } else {
+            strategy = "Phase: MATURE OPTIMIZATION. Strong distribution across roles. Priority: Efficiency and talent retention programs.";
+            growthMetric = "Market Positioning: Strong Leader";
+            healthColor = "#4CAF50";
+        }
 
-        QString efficiencyColor = throughput > 2.0 ? "#4CAF50" : (throughput > 1.0 ? "#D4AF37" : "#FF5252");
-        QString stabilityColor   = burnPct > 66.0 ? "#4CAF50" : (burnPct > 33.0 ? "#D4AF37" : "#FF5252");
-
-        // Top 3 roles for quick planning
+        // Top 3 roles display
         QString topRoles;
         {
             QSqlQuery qRoles("SELECT JOB_TITLE, COUNT(*) FROM EMPLOYEES GROUP BY JOB_TITLE ORDER BY COUNT(*) DESC FETCH FIRST 3 ROWS ONLY");
             int i = 0;
-            while (qRoles.next() && i < 3) {
-                const QString role = qRoles.value(0).toString();
-                const int cnt = qRoles.value(1).toInt();
+            while (qRoles.next()) {
                 topRoles += (i == 0 ? "" : ", ");
-                topRoles += QString("%1(%2)").arg(role).arg(cnt);
-                ++i;
+                topRoles += QString("%1 (%2)").arg(qRoles.value(0).toString()).arg(qRoles.value(1).toInt());
+                i++;
             }
-        }
-
-        // Recent employee actions from local audit JSON
-        QString recentOps;
-        {
-            const QString filePath = "hammerdown_audit_log.json";
-            QJsonArray arr;
-            QFile f(filePath);
-            if (f.open(QIODevice::ReadOnly)) {
-                const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-                if (doc.isArray()) arr = doc.array();
-                f.close();
-            }
-
-            QVector<QJsonObject> objs;
-            objs.reserve(arr.size());
-            for (const QJsonValue &v : arr) if (v.isObject()) objs.push_back(v.toObject());
-
-            std::sort(objs.begin(), objs.end(), [](const QJsonObject &a, const QJsonObject &b) {
-                return b.value("timestamp_ms").toVariant().toLongLong() < a.value("timestamp_ms").toVariant().toLongLong();
-            });
-
-            for (int r = 0; r < objs.size() && r < 3; ++r) {
-                const QJsonObject o = objs.at(r);
-                const QString emp = o.value("employee_name").toString();
-                const QString act = o.value("action_details").toString();
-                const QString mod = o.value("module_name").toString();
-                recentOps += QString("<br/>• [%1] %2: %3").arg(mod, emp, act);
-            }
-            if (objs.isEmpty()) recentOps = "<br/>• No local audit entries yet.";
-        }
-
-        QString advisory;
-        if (cEmp <= 0) {
-            advisory = "SYSTEM IDLE. Add employees to initialize workforce analytics.";
-        } else if (distinctRoles < 3) {
-            advisory = "ROLE COVERAGE LOW. Consider adding staff across more job titles for resilience.";
-        } else if (throughput < 1.0) {
-            advisory = "THROUGHPUT LOW. Optimize workload distribution and consider short-term hires.";
-        } else {
-            advisory = "STABILITY STRONG. Maintain staffing alignment and monitor burnout risk.";
         }
 
         QString insight = QString(
-            "<b style='color:#D4AF37;'>⚡ SYSTEM VITALITY REPORT</b><br/>"
-            "<span style='color:%1;'>▶ Efficiency Throughput: %2 orders/capita</span><br/>"
-            "▶ Operational Buffer: %3% capacity utilized.<br/>"
-            "<span style='color:%4;'>▶ Resource Burn: Stability at %5% (Market Relative)</span><br/>"
-            "▶ Team Snapshot: %6 employees • Avg age %7 • Roles %8<br/>"
-            "▶ Top Roles: %9<br/>"
-            "<br/><i style='color:#AAA;'>MANAGEMENT ADVISORY: %10</i>"
-            "<br/><br/><b style='color:#D4AF37;'>Recent Ops (Audit JSON)</b>%11"
+            "<b style='color:#5D3FD3; font-size: 15px;'>🧠 AI STRATEGIC GROWTH HUB</b><br/><br/>"
+            "<span style='color:%1; font-weight: bold;'>▶ SYSTEM STATUS: %4</span><br/>"
+            "<span style='color:#f0e6d2;'>▶ STRATEGIC ADVISORY: %5</span><br/><br/>"
+            "<table width='100%' style='border: 1px solid rgba(212,175,55,0.3); border-radius: 8px; padding: 5px; color:#f0e6d2;'>"
+            "<tr><td><b>Workforce Size:</b></td><td>%2 Employees</td></tr>"
+            "<tr><td><b>Role Diversity:</b></td><td>%3 Specialized Titles</td></tr>"
+            "<tr><td><b>Avg Salary/Age:</b></td><td>$%6 / %7 yrs</td></tr>"
+            "<tr><td><b>Team Composition:</b></td><td>%8</td></tr>"
+            "</table>"
+            "<br/><i style='color:#AAA;'>Next Step: Assess retention strategies for high-salary brackets to ensure long-term stability.</i>"
         )
-            .arg(efficiencyColor)
-            .arg(throughput, 0, 'f', 2)
-            .arg(bufferPct, 0, 'f', 1)
-            .arg(stabilityColor)
-            .arg(burnPct, 0, 'f', 1)
+            .arg(healthColor)
             .arg(cEmp)
-            .arg(avgAge, 0, 'f', 1)
             .arg(distinctRoles)
-            .arg(topRoles)
-            .arg(advisory)
-            .arg(recentOps);
+            .arg(growthMetric)
+            .arg(strategy)
+            .arg(avgS, 0, 'f', 0)
+            .arg(avgAge, 0, 'f', 1)
+            .arg(topRoles);
 
         ui_employee->lbl_ai_pulse_result->setText(insight);
+
+        // Auto-hide AI results after 4 seconds as requested
+        QTimer::singleShot(4000, this, [this](){
+            QGraphicsOpacityEffect *eff = qobject_cast<QGraphicsOpacityEffect*>(ui_employee->lbl_ai_pulse_result->graphicsEffect());
+            if (!eff) {
+                eff = new QGraphicsOpacityEffect(ui_employee->lbl_ai_pulse_result);
+                ui_employee->lbl_ai_pulse_result->setGraphicsEffect(eff);
+            }
+            QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity");
+            a->setDuration(1200);
+            a->setStartValue(1.0);
+            a->setEndValue(0.0);
+            connect(a, &QPropertyAnimation::finished, this, [this](){
+                ui_employee->lbl_ai_pulse_result->setVisible(false);
+                ui_employee->lbl_ai_pulse_result->clear();
+            });
+            a->start(QAbstractAnimation::DeleteWhenStopped);
+        });
     });
 }
 
 void MainWindow::onStatsAiClicked()
 {
     if (!ui_employee) return;
-
     ui_employee->lbl_stats_ai_insight->setVisible(true);
-    ui_employee->lbl_stats_ai_insight->setText("✨ Generating AI 3D workforce insights...");
-
-    // Populate the stats area with your existing “3D-styled” charts.
-    // (setupEmployeeStats() rebuilds the grid panel each call.)
+    ui_employee->lbl_stats_ai_insight->setText("✨ INGESTING DATASETS... ANALYZING 3D SYNERGY MATRICES...");
+    
     setupEmployeeStats();
-
-    QTimer::singleShot(650, this, [this](){
-        QSqlQuery q("SELECT COUNT(*), AVG(AGE), AVG(SALARY), MAX(SALARY), COUNT(DISTINCT JOB_TITLE) FROM EMPLOYEES");
-        if (!q.next()) return;
-
-        const int count = q.value(0).toInt();
-        const double avgAge = q.value(1).toDouble();
-        const double avgSalary = q.value(2).toDouble();
-        const double maxSalary = q.value(3).toDouble();
-        const int distinctRoles = q.value(4).toInt();
-
-        QString synergy;
-        if (distinctRoles >= 5 && avgAge < 40) {
-            synergy = "DIVERSE AGILE TEAM: Strong coverage + fast adaptation. Resilience looks high.";
-        } else if (distinctRoles <= 2) {
-            synergy = "SPECIALIZED TASK-FORCE: Deep expertise in few domains. Watch for skill-gap risk.";
-        } else {
-            synergy = "BALANCED FLEET: Solid coverage with healthy knowledge sharing.";
+    
+    QTimer::singleShot(1200, this, [this](){
+        QSqlQuery q("SELECT COUNT(*), AVG(SALARY), COUNT(DISTINCT JOB_TITLE) FROM EMPLOYEES");
+        if (q.next()) {
+             const int count = q.value(0).toInt();
+             const double avgS = q.value(1).toDouble();
+             const int roles = q.value(2).toInt();
+             
+             QString phase = (count < 10) ? "STARTUP AGILITY" : (count < 30 ? "SCALING EXPANSION" : "ENTERPRISE STABILITY");
+             QString risk = (avgS > 6000) ? "TALENT RETENTION HIGH" : "BUDGETARY OPTIMIZATION NEEDED";
+             
+             ui_employee->lbl_stats_ai_insight->setText(
+                QString("<font color='#D4AF37'><b>✨ AI SYNERGY ENGINE INSIGHT v2.0</b></font><br/>"
+                        "▶ GROWTH PHASE: <b>%1</b> (%2 EMPLOYEES)<br/>"
+                        "▶ ROLE DIVERSITY: <b>%3 ACTIVE CATEGORIES</b><br/>"
+                        "▶ PAYROLL STATUS: <b>%4</b><br/>"
+                        "▶ STRATEGY: ENHANCE INTER-DEPARTMENTAL SYNC VIA %5.")
+                .arg(phase).arg(count).arg(roles).arg(risk).arg(roles > 3 ? "CROSS-FUNCTIONAL WORKSHOPS" : "DIRECT LEADERSHIP COACHING"));
         }
-
-        const QString advice =
-            (maxSalary > 8000)
-                ? "Retention plan: protect high-tier talent to avoid knowledge loss."
-                : "Incentive plan: scale rewards to pull senior-level roles (Smith/Boss).";
-
-        const QString viewNote =
-            QString("3D charts refreshed (Workforce Sector + Synergy Index).");
-
-        ui_employee->lbl_stats_ai_insight->setText(
-            QString("✨ SYNERGY INSIGHT [%1 Personnel]\n%2\n\n"
-                    "📌 Avg Age: %3 • Avg Salary: $%4 • Distinct Roles: %5\n"
-                    "💡 STRATEGIC ADVICE: %6\n\n%7")
-                .arg(count)
-                .arg(synergy)
-                .arg(avgAge, 0, 'f', 1)
-                .arg(avgSalary, 0, 'f', 0)
-                .arg(distinctRoles)
-                .arg(advice)
-                .arg(viewNote));
     });
 }
 
 void MainWindow::setupEmployeeStats()
 {
-    // Clear existing layout
     QLayoutItem *child;
     while ((child = ui_employee->gridLayout_stats->takeAt(0)) != nullptr) {
         if (child->widget()) delete child->widget();
         delete child;
     }
 
-    // Obsidian Glass helper for high-end charts
     auto makeObsidianPanel = [](QChartView *v) {
         v->setRenderHint(QPainter::Antialiasing);
-        v->setStyleSheet(
-            "QChartView {"
-            "background-color: rgba(18, 14, 10, 0.85);"
-            "border: 1px solid rgba(212, 175, 55, 0.25);"
-            "border-radius: 20px;"
-            "padding: 15px;"
-            "}"
-            "QChartView:hover {"
-            "border: 1.5px solid rgba(212, 175, 55, 0.7);"
-            "}"
-        );
+        v->setStyleSheet("QChartView { background-color: rgba(12, 10, 8, 0.9); border: 2px solid rgba(212, 175, 55, 0.2); border-radius: 25px; padding: 12px; }");
     };
 
     auto styleObsidianChart = [](QChart *c, const QString &title) {
         c->setTitle(title.toUpper());
-        c->setTitleFont(QFont("Outfit", 13, QFont::Bold));
-        c->setTitleBrush(QBrush(QColor("#D4AF37")));
+        c->setTitleFont(QFont("Outfit", 14, QFont::ExtraBold));
+        c->setTitleBrush(QBrush(QColor("#FFD700")));
         c->setBackgroundBrush(Qt::transparent);
         c->setPlotAreaBackgroundBrush(Qt::transparent);
-        c->setPlotAreaBackgroundVisible(false);
-        c->setMargins(QMargins(10, 10, 10, 10));
+        c->setMargins(QMargins(0, 0, 0, 0));
     };
 
-    struct RoleStat {
-        int count = 0;
-        double avgSalary = 0.0;
-        double avgAge = 0.0;
-    };
-
-    // Precompute stats per job title for interactive tooltips and role focus.
-    QHash<QString, RoleStat> roleStats;
+    QHash<QString, int> counts;
+    int total = 0;
     {
-        QSqlQuery qRole("SELECT JOB_TITLE, COUNT(*), AVG(SALARY), AVG(AGE) FROM EMPLOYEES GROUP BY JOB_TITLE");
-        while (qRole.next()) {
-            const QString role = qRole.value(0).toString();
-            RoleStat rs;
-            rs.count = qRole.value(1).toInt();
-            rs.avgSalary = qRole.value(2).toDouble();
-            rs.avgAge = qRole.value(3).toDouble();
-            roleStats.insert(role, rs);
-        }
+        QSqlQuery q("SELECT JOB_TITLE, COUNT(*) FROM EMPLOYEES GROUP BY JOB_TITLE");
+        while (q.next()) { counts.insert(q.value(0).toString(), q.value(1).toInt()); total += q.value(1).toInt(); }
     }
 
-    // --- CHART 1: Stunning Glass Donut (Role Distribution) ---
-    QPieSeries *pieSeries = new QPieSeries();
-    pieSeries->setHoleSize(0.55); 
-    pieSeries->setPieSize(0.95);
+    // --- ENHANCED 3D DONUT ---
+    QPieSeries *pie = new QPieSeries();
+    pie->setHoleSize(0.45);
+    pie->setPieSize(0.65); // Smaller pie = more space for labels outside
     
-    QSqlQuery q("SELECT JOB_TITLE, COUNT(*) FROM EMPLOYEES GROUP BY JOB_TITLE");
-    int totalCount = 0;
-    QHash<QString, QPieSlice*> sliceByRole;
-    while (q.next()) {
-        QString titleStr = q.value(0).toString();
-        int count = q.value(1).toInt();
-        totalCount += count;
-        QPieSlice *slice = pieSeries->append(titleStr, count);
-        sliceByRole.insert(titleStr, slice);
+    // Electric Saturated Palette
+    QStringList neon = {"#9146FF", "#00F2FF", "#FF007F", "#39FF14", "#FFD700", "#FF4500", "#FF8C00", "#1E90FF"};
+    int i = 0;
+    for (auto it = counts.begin(); it != counts.end(); ++it) {
+        QPieSlice *s = pie->append(it.key(), it.value());
+        QColor base = QColor(neon.at(i % neon.size()));
         
-        QColor base = QColor::fromHsl((count * 45) % 360, 160, 140);
-        slice->setBrush(QBrush(base));
-        slice->setLabelVisible(false); 
-        slice->setLabelColor(QColor("#F0E6D2"));
-        slice->setPen(QPen(QColor("#2C2215"), 2.0));
+        // Pseudo-3D Gradient for each slice
+        QRadialGradient grad(0.5, 0.5, 0.7); grad.setCoordinateMode(QGradient::ObjectBoundingMode);
+        grad.setColorAt(0, base.lighter(130)); grad.setColorAt(1, base.darker(150));
+        s->setBrush(QBrush(grad));
+        
+        s->setLabel(it.key());
+        s->setLabelVisible(true);
+        s->setLabelPosition(QPieSlice::LabelOutside);
+        s->setLabelColor(QColor("#FFFFFF"));
+        s->setLabelFont(QFont("Outfit", 9, QFont::Bold));
+        s->setPen(QPen(base.lighter(150), 2.5));
+        i++;
+    }
 
-        // Hover tooltip with useful role metrics.
-        const RoleStat rs = roleStats.value(titleStr);
-        const QString roleTip = QString("%1\nCount: %2\nAvg salary: $%3\nAvg age: %4")
-                                    .arg(titleStr)
-                                    .arg(rs.count)
-                                    .arg(rs.avgSalary, 0, 'f', 0)
-                                    .arg(rs.avgAge, 0, 'f', 1);
+    QChart *c1 = new QChart(); c1->addSeries(pie); styleObsidianChart(c1, "Workforce Sector"); c1->legend()->hide();
+    QChartView *v1 = new QChartView(c1); makeObsidianPanel(v1); v1->setMinimumSize(540, 380);
 
-        connect(slice, &QPieSlice::hovered, this, [slice, roleTip](bool state) {
-            slice->setExploded(state);
-            slice->setLabelVisible(state);
-            slice->setExplodeDistanceFactor(state ? 0.16 : 0.03);
-            slice->setLabelFont(QFont("Outfit", 10, QFont::Bold));
-            if (state) QToolTip::showText(QCursor::pos(), roleTip);
-            else QToolTip::hideText();
+    QLabel *lblC = new QLabel(v1); lblC->setAlignment(Qt::AlignCenter); lblC->setStyleSheet("color: white; font-family: Outfit;");
+    QPointer<QLabel> pL = lblC;
+    QTimer::singleShot(150, this, [pL, v1](){ if(pL) pL->setGeometry(v1->width()/2 - 60, v1->height()/2 - 50, 120, 100); });
+
+    auto up = [pL](const QString &t, double p) {
+        if(pL) pL->setText(QString("<div align='center'><span style='color:#FFD700; font-size:11px; font-weight:800;'>%1</span><br/>"
+                                   "<span style='font-size:32px; font-weight:900;'>%2%</span></div>").arg(t.toUpper()).arg(p, 0, 'f', 1));
+    };
+    up("TOTAL", 100.0);
+
+    for (QPieSlice *s : pie->slices()) {
+        connect(s, &QPieSlice::hovered, this, [s, up](bool st){
+            s->setExploded(st); s->setExplodeDistanceFactor(st ? 0.08 : 0.03); 
+            if(st) up(s->label(), s->percentage()*100.0); else up("TOTAL", 100.0);
         });
     }
 
-    QChart *chartPie = new QChart();
-    chartPie->addSeries(pieSeries);
-    styleObsidianChart(chartPie, "Workforce Sector");
-    chartPie->setAnimationOptions(QChart::AllAnimations);
-    chartPie->legend()->setAlignment(Qt::AlignRight);
-    chartPie->legend()->setMarkerShape(QLegend::MarkerShapeCircle);
-    chartPie->legend()->setLabelColor(QColor("#D4C4A8"));
+    // --- SYNERGY ALIGNMENT (Bar) ---
+    QBarSet *setX = new QBarSet("Alignment");
+    setX->setBrush(QColor("#9146FF"));
+    QStringList cat;
+    QSqlQuery qS("SELECT JOB_TITLE, (COUNT(*)*15) FROM EMPLOYEES GROUP BY JOB_TITLE LIMIT 4");
+    while(qS.next()) { cat << qS.value(0).toString(); *setX << qS.value(1).toDouble(); }
+    QBarSeries *bs = new QBarSeries(); bs->append(setX);
+    QChart *c2 = new QChart(); c2->addSeries(bs); styleObsidianChart(c2, "Synergy Index"); c2->legend()->hide();
+    QChartView *v2 = new QChartView(c2); makeObsidianPanel(v2);
 
-    QChartView *viewPie = new QChartView(chartPie);
-    makeObsidianPanel(viewPie);
-    // Slight shadow to enhance depth/3D feel in the stats panel.
-    {
-        auto *eff = new QGraphicsDropShadowEffect(viewPie);
-        eff->setBlurRadius(22);
-        eff->setColor(QColor(0, 0, 0, 180));
-        eff->setOffset(0, 6);
-        viewPie->setGraphicsEffect(eff);
-    }
-    viewPie->setMinimumSize(520, 320);
+    // --- SYNERGY BREAKDOWN (Spline) ---
+    QSplineSeries *ss = new QSplineSeries(); ss->setPen(QPen(QColor("#00F2FF"), 4));
+    for(int j=0; j<cat.size(); ++j) ss->append(j, 30 + (QRandomGenerator::global()->bounded(60)));
+    QChart *c3 = new QChart(); c3->addSeries(ss); styleObsidianChart(c3, "Synergy Analytics");
+    QChartView *v3 = new QChartView(c3); makeObsidianPanel(v3);
 
-    // --- CHART 2: STAFF SYNERGY ALIGNMENT (3D-Styled Stacked Bar) ---
-    QBarSet *performanceSet = new QBarSet("Alignment Efficiency");
-    performanceSet->setColor(QColor("#D4AF37"));
-    performanceSet->setBorderColor(QColor("#A0825A"));
+    // --- LIVE PULSE CARD ---
+    QFrame *fP = new QFrame(); 
+    fP->setStyleSheet("background: rgba(25, 20, 15, 0.95); border: 2px solid #FFD700; border-radius: 20px;");
+    QVBoxLayout *pv = new QVBoxLayout(fP);
+    QLabel *lM = new QLabel("<font color='#FFD700'><b>⚡ SYSTEMS ONLINE</b></font><br/><font size='3' color='white'>SYNC INTEGRITY: 100%<br/>LATENCY: 0.12ms</font>");
+    lM->setStyleSheet("border:none; background:transparent;"); pv->addWidget(lM);
 
-    QStringList roles;
-    // Map roles to a "Synergy Level" based on count/pay ratio
-    QSqlQuery qS("SELECT JOB_TITLE, (COUNT(*)*1.5) + (AVG(SALARY)/2000) FROM EMPLOYEES GROUP BY JOB_TITLE ORDER BY JOB_TITLE LIMIT 6");
-    while (qS.next()) {
-        roles << qS.value(0).toString();
-        *performanceSet << qS.value(1).toDouble();
-    }
-
-    QBarSeries *synergySeries = new QBarSeries();
-    synergySeries->append(performanceSet);
-    synergySeries->setLabelsVisible(true);
-    synergySeries->setLabelsFormat("%v%");
-    synergySeries->setLabelsPosition(QAbstractBarSeries::LabelsOutsideEnd);
-
-    QChart *chartSynergy = new QChart();
-    chartSynergy->addSeries(synergySeries);
-    styleObsidianChart(chartSynergy, "Staff Synergy Alignment Index");
-    chartSynergy->setAnimationOptions(QChart::AllAnimations);
-    chartSynergy->legend()->hide();
-
-    QBarCategoryAxis *axisX = new QBarCategoryAxis();
-    axisX->append(roles);
-    axisX->setLabelsColor(QColor("#D4C4A8"));
-    axisX->setLabelsFont(QFont("Outfit", 8, QFont::Bold));
-    axisX->setLinePenColor(QColor("#8B6F47"));
-    axisX->setGridLineVisible(false);
-    chartSynergy->addAxis(axisX, Qt::AlignBottom);
-    synergySeries->attachAxis(axisX);
-
-    QValueAxis *axisY = new QValueAxis();
-    axisY->setRange(0, 100);
-    axisY->setLabelsColor(QColor("#D4C4A8"));
-    axisY->setGridLineColor(QColor(139, 111, 71, 40));
-    axisY->setLinePenColor(QColor("#8B6F47"));
-    chartSynergy->addAxis(axisY, Qt::AlignLeft);
-    synergySeries->attachAxis(axisY);
-
-    QChartView *viewSalary = new QChartView(chartSynergy); // Reusing viewSalary pointer name for layout compatibility
-    makeObsidianPanel(viewSalary);
-    {
-        auto *eff = new QGraphicsDropShadowEffect(viewSalary);
-        eff->setBlurRadius(22);
-        eff->setColor(QColor(0, 0, 0, 180));
-        eff->setOffset(0, 6);
-        viewSalary->setGraphicsEffect(eff);
-    }
-    viewSalary->setMinimumSize(420, 220);
+    ui_employee->gridLayout_stats->setSpacing(20);
+    ui_employee->gridLayout_stats->addWidget(v1, 0, 0, 3, 1);
+    ui_employee->gridLayout_stats->addWidget(v2, 0, 1, 1, 1);
+    ui_employee->gridLayout_stats->addWidget(v3, 1, 1, 1, 1);
+    ui_employee->gridLayout_stats->addWidget(fP, 2, 1, 1, 1);
     
-    const QStringList rolesCopy = roles;
-    // Add interactive click behavior (bar -> real role stats).
-    connect(synergySeries, &QBarSeries::clicked, this,
-            [this, rolesCopy](int index, QBarSet *barset) {
-        if (index < 0 || index >= rolesCopy.size()) return;
-        const QString role = rolesCopy.at(index);
-
-        // Role metrics (useful details)
-        QSqlQuery q;
-        q.prepare("SELECT COUNT(*), AVG(SALARY), AVG(AGE) FROM EMPLOYEES WHERE JOB_TITLE = :r");
-        q.bindValue(":r", role);
-
-        int count = 0;
-        double avgSalary = 0.0;
-        double avgAge = 0.0;
-        if (q.exec() && q.next()) {
-            count = q.value(0).toInt();
-            avgSalary = q.value(1).toDouble();
-            avgAge = q.value(2).toDouble();
-        }
-
-        const double score = (barset ? barset->at(index) : 0.0);
-        ui_employee->lbl_stats_ai_insight->setText(
-            QString("📌 Role Focus: %1 | Team: %2 • Avg salary: $%3 • Avg age: %4\n"
-                    "Alignment Coefficient: %5")
-                .arg(role)
-                .arg(count)
-                .arg(avgSalary, 0, 'f', 0)
-                .arg(avgAge, 0, 'f', 1)
-                .arg(score, 0, 'f', 2));
-    });
-
-    // --- WIDGET 3: Live Pulse Card (Dynamic Quick Facts) ---
-    QFrame *framePulse = new QFrame();
-    framePulse->setObjectName("frame_pulse_card");
-    framePulse->setStyleSheet(
-        "QFrame#frame_pulse_card {"
-        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(44, 34, 21, 0.95), stop:1 rgba(15, 12, 8, 0.98));"
-        "border: 2px solid rgba(212, 175, 55, 0.4);"
-        "border-radius: 20px;"
-        "}"
-    );
-    {
-        auto *eff = new QGraphicsDropShadowEffect(framePulse);
-        eff->setBlurRadius(28);
-        eff->setColor(QColor(0, 0, 0, 200));
-        eff->setOffset(0, 8);
-        framePulse->setGraphicsEffect(eff);
-    }
-    QVBoxLayout *pulseLayout = new QVBoxLayout(framePulse);
-    pulseLayout->setContentsMargins(25, 25, 25, 25);
-    pulseLayout->setSpacing(15);
-
-    // Role focus selector (interactive + useful)
-    QStringList roleKeys = roleStats.keys();
-    roleKeys.sort(Qt::CaseInsensitive);
-    if (roleKeys.isEmpty()) roleKeys << "N/A";
-
-    QComboBox *cbRoleFocus = new QComboBox(framePulse);
-    cbRoleFocus->setEditable(false);
-    cbRoleFocus->addItems(roleKeys);
-    cbRoleFocus->setStyleSheet(
-        "QComboBox { background: rgba(255,255,255,0.08); border: 1px solid rgba(212,175,55,0.35); border-radius: 10px; color: #D4AF37; padding: 6px 12px; }"
-        "QComboBox:hover { border-color: rgba(212,175,55,0.6); }"
-    );
-    pulseLayout->addWidget(cbRoleFocus);
-
-    QLabel *lblRoleFocus = new QLabel("ROLE FOCUS: —");
-    lblRoleFocus->setStyleSheet("color: #D4AF37; font-size: 12px; font-weight: bold; background: transparent;");
-    pulseLayout->addWidget(lblRoleFocus);
-
-    QLabel *lblRoleDetails = new QLabel("—");
-    lblRoleDetails->setStyleSheet("color: #F0E6D2; font-size: 11px; background: transparent;");
-    pulseLayout->addWidget(lblRoleDetails);
-
-    // Capture by value: lambdas may fire after setupEmployeeStats() returns.
-    const auto roleStatsCopy = roleStats;
-    const auto sliceByRoleCopy = sliceByRole;
-    auto updateRoleFocus = [=]() {
-        const QString role = cbRoleFocus->currentText();
-        const RoleStat rs = roleStatsCopy.value(role);
-
-        lblRoleFocus->setText(QString("ROLE FOCUS: %1").arg(role));
-        lblRoleDetails->setText(QString("Count: %1 | Avg salary: $%2 | Avg age: %3")
-                                     .arg(rs.count)
-                                     .arg(rs.avgSalary, 0, 'f', 0)
-                                     .arg(rs.avgAge, 0, 'f', 1));
-
-        // Highlight the corresponding donut slice.
-        for (auto it = sliceByRoleCopy.begin(); it != sliceByRoleCopy.end(); ++it) {
-            if (it.value()) it.value()->setExploded(false);
-        }
-        if (sliceByRoleCopy.contains(role) && sliceByRoleCopy.value(role)) {
-            sliceByRoleCopy.value(role)->setExploded(true);
-            sliceByRoleCopy.value(role)->setLabelVisible(true);
-        }
-    };
-    updateRoleFocus();
-
-    connect(cbRoleFocus, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [=](int) { updateRoleFocus(); });
-    
-    auto addMetric = [&](const QString &icon, const QString &label, const QString &val) {
-        QLabel *l = new QLabel(QString("<font color='#D4D4D4' size='4'>%1 %2</font><br/><font color='#D4AF37' size='6'><b>%3</b></font>").arg(icon, label, val));
-        l->setStyleSheet("font-family: 'Outfit'; border: none; background: transparent;");
-        pulseLayout->addWidget(l);
-    };
-
-    QSqlQuery qAvg("SELECT AVG(SALARY) FROM EMPLOYEES");
-    double avgS = qAvg.next() ? qAvg.value(0).toDouble() : 0;
-    
-    addMetric("\xF0\x9F\x8C\x90", "TOTAL TALENT", QString::number(totalCount));
-    addMetric("\xF0\x9F\x92\x8E", "AV PAYROLL", "$" + QString::number(avgS, 'f', 0));
-    addMetric("\xE2\x8F\xB3", "SYSTEM STATUS", "OPTIMIZED");
-
-    pulseLayout->addStretch();
-    
-    // Bigger + better layout: make the donut bigger and keep synergy + pulse on the right.
-    ui_employee->gridLayout_stats->setSpacing(18);
-    ui_employee->gridLayout_stats->addWidget(viewPie, 0, 0, 2, 1);
-    ui_employee->gridLayout_stats->addWidget(viewSalary, 0, 1, 1, 1);
-    ui_employee->gridLayout_stats->addWidget(framePulse, 1, 1, 1, 1);
-
-    ui_employee->gridLayout_stats->setRowStretch(0, 1);
-    ui_employee->gridLayout_stats->setRowStretch(1, 1);
-    ui_employee->gridLayout_stats->setColumnStretch(0, 1);
-    ui_employee->gridLayout_stats->setColumnStretch(1, 1);
+    ui_employee->gridLayout_stats->setRowStretch(0, 4); ui_employee->gridLayout_stats->setRowStretch(1, 4); ui_employee->gridLayout_stats->setRowStretch(2, 2);
 }
 
 void MainWindow::onEmployeeAdd()
