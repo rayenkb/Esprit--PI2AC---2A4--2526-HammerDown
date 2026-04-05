@@ -889,7 +889,7 @@ QPushButton:hover { background-color: #7B68EE; border-color: #FFF; }</string>
       <string>✨ Generate AI Insights</string>
      </property>
     </widget>
-    <widget class="QLabel" name="lbl_stats_ai_insight">
+    <widget class="QTextEdit" name="lbl_stats_ai_insight">
      <property name="geometry">
       <rect>
        <x>260</x>
@@ -899,16 +899,20 @@ QPushButton:hover { background-color: #7B68EE; border-color: #FFF; }</string>
       </rect>
      </property>
      <property name="styleSheet">
-      <string notr="true">color: #D4AF37; font-size: 13px; font-style: italic; background: rgba(93, 63, 211, 0.1); padding: 10px; border-radius: 12px; border: 1px solid rgba(212, 175, 55, 0.3);</string>
+      <string notr="true">QTextEdit { color: #D4AF37; font-size: 13px; font-style: italic; background: rgba(93, 63, 211, 0.1); padding: 10px; border-radius: 12px; border: 1px solid rgba(212, 175, 55, 0.3); }
+QScrollBar:vertical { width: 8px; background: transparent; }
+QScrollBar::handle:vertical { background: rgba(212, 175, 55, 0.5); border-radius: 4px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }</string>
      </property>
-     <property name="text">
-      <string>Your automated workforce analysis will appear here. Click the button to get started.</string>
-     </property>
-     <property name="alignment">
-      <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
-     </property>
-     <property name="wordWrap">
+     <property name="readOnly">
       <bool>true</bool>
+     </property>
+     <property name="html">
+      <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
+&lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
+p, li { white-space: pre-wrap; }
+&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'MS Shell Dlg 2'; font-size:13px; font-weight:400; font-style:italic;&quot;&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Your automated workforce analysis will appear here. Click the button to get started.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
     </widget>
    </widget>

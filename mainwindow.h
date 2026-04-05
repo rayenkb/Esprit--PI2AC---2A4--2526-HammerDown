@@ -12,6 +12,10 @@
 #include <QBarCategoryAxis>
 #include <QValueAxis>
 #include <QChart>
+#include <QStyledItemDelegate>
+#include <QGraphicsDropShadowEffect>
+#include <QToolTip>
+#include <QMouseEvent>
 #include <QTabWidget>
 #include <QMediaPlayer>
 #include <QAudioOutput>
@@ -200,6 +204,52 @@ private:
     QLabel *m_titleLbl;
     QLabel *m_valLbl;
     QLabel *m_trendLbl;
+};
+
+// --- Hover Highlighter for Tables ---
+class RowHoverDelegate : public QStyledItemDelegate {
+    Q_OBJECT
+public:
+    RowHoverDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent), m_hoveredRow(-1) {}
+    void setHoveredRow(int row) { m_hoveredRow = row; }
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        QStyleOptionViewItem opt = option;
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+
+        bool isSelected = opt.state & QStyle::State_Selected;
+        bool isHovered = (index.row() == m_hoveredRow);
+
+        if (isSelected || isHovered) {
+            QRect r = opt.rect.adjusted(2, 2, -2, -2);
+            QLinearGradient grad(r.topLeft(), r.bottomRight());
+            
+            if (isSelected && isHovered) {
+                grad.setColorAt(0, QColor(212, 175, 55, 120)); // Super Gold
+                grad.setColorAt(1, QColor(139, 111, 71, 60));
+                painter->setPen(QPen(QColor("#D4AF37"), 2));
+            } else if (isSelected) {
+                grad.setColorAt(0, QColor(139, 111, 71, 100)); // Deep Amber
+                grad.setColorAt(1, QColor(44, 34, 21, 80));
+                painter->setPen(QPen(QColor(212, 175, 55, 100), 1));
+            } else { // Hovered only
+                grad.setColorAt(0, QColor(212, 175, 55, 60));
+                grad.setColorAt(1, QColor(212, 175, 55, 15));
+                painter->setPen(QPen(QColor(212, 175, 55, 80), 0.5));
+            }
+            
+            painter->setBrush(grad);
+            painter->drawRoundedRect(r, 8, 8);
+        }
+        
+        painter->restore();
+        
+        // Remove standard selection drawing
+        opt.state &= ~QStyle::State_Selected;
+        QStyledItemDelegate::paint(painter, opt, index);
+    }
+private:
+    int m_hoveredRow;
 };
 
 class MainWindow : public QMainWindow

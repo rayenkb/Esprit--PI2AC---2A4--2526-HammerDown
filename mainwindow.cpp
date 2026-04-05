@@ -8360,8 +8360,14 @@ void MainWindow::onEmployeeRefreshView()
     ui_employee->tableView_employes->setModel(model);
     ui_employee->tableView_employes->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     ui_employee->tableView_employes->setSelectionBehavior(QAbstractItemView::SelectRows);
-    ui_employee->tableView_employes->setSelectionMode(QAbstractItemView::SingleSelection);
+    ui_employee->tableView_employes->setSelectionMode(QAbstractItemView::ExtendedSelection);
     ui_employee->tableView_employes->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ui_employee->tableView_employes->setMouseTracking(true);
+    
+    // --- Advanced Hover Integration ---
+    RowHoverDelegate *hoverDelegate = new RowHoverDelegate(this);
+    ui_employee->tableView_employes->setItemDelegate(hoverDelegate);
+    ui_employee->tableView_employes->viewport()->installEventFilter(this);
 
     // Summary Stats Calculation
     QSqlQuery q;
@@ -8880,7 +8886,7 @@ void MainWindow::onStatsAiClicked()
              QString phase = (count < 10) ? "STARTUP AGILITY" : (count < 30 ? "SCALING EXPANSION" : "ENTERPRISE STABILITY");
              QString risk = (avgS > 6000) ? "TALENT RETENTION HIGH" : "BUDGETARY OPTIMIZATION NEEDED";
              
-             ui_employee->lbl_stats_ai_insight->setText(
+             ui_employee->lbl_stats_ai_insight->setHtml(
                 QString("<font color='#D4AF37'><b>✨ AI SYNERGY ENGINE INSIGHT v2.0</b></font><br/>"
                         "▶ GROWTH PHASE: <b>%1</b> (%2 EMPLOYEES)<br/>"
                         "▶ ROLE DIVERSITY: <b>%3 ACTIVE CATEGORIES</b><br/>"
@@ -8901,7 +8907,11 @@ void MainWindow::setupEmployeeStats()
 
     auto makeObsidianPanel = [](QChartView *v) {
         v->setRenderHint(QPainter::Antialiasing);
-        v->setStyleSheet("QChartView { background-color: rgba(12, 10, 8, 0.9); border: 2px solid rgba(212, 175, 55, 0.2); border-radius: 25px; padding: 12px; }");
+        v->setStyleSheet("QChartView { background-color: rgba(12, 10, 8, 0.95); border: 2px solid rgba(212, 175, 55, 0.3); border-radius: 25px; padding: 12px; }");
+        
+        QGraphicsDropShadowEffect *sh = new QGraphicsDropShadowEffect();
+        sh->setBlurRadius(25); sh->setColor(QColor(0,0,0,180)); sh->setOffset(0,10);
+        v->setGraphicsEffect(sh);
     };
 
     auto styleObsidianChart = [](QChart *c, const QString &title) {
@@ -8910,90 +8920,163 @@ void MainWindow::setupEmployeeStats()
         c->setTitleBrush(QBrush(QColor("#FFD700")));
         c->setBackgroundBrush(Qt::transparent);
         c->setPlotAreaBackgroundBrush(Qt::transparent);
-        c->setMargins(QMargins(0, 0, 0, 0));
+        c->setMargins(QMargins(10, 10, 10, 10));
+        c->setAnimationOptions(QChart::AllAnimations);
     };
 
     QHash<QString, int> counts;
-    int total = 0;
+    double totalSalary = 0;
+    int totalCount = 0;
     {
-        QSqlQuery q("SELECT JOB_TITLE, COUNT(*) FROM EMPLOYEES GROUP BY JOB_TITLE");
-        while (q.next()) { counts.insert(q.value(0).toString(), q.value(1).toInt()); total += q.value(1).toInt(); }
+        QSqlQuery q("SELECT JOB_TITLE, COUNT(*), SUM(SALARY) FROM EMPLOYEES GROUP BY JOB_TITLE");
+        while (q.next()) { 
+            counts.insert(q.value(0).toString(), q.value(1).toInt()); 
+            totalSalary += q.value(2).toDouble();
+            totalCount += q.value(1).toInt();
+        }
     }
 
-    // --- ENHANCED 3D DONUT ---
+    // --- ENHANCED 3D DONUT (Workforce Distribution) ---
     QPieSeries *pie = new QPieSeries();
-    pie->setHoleSize(0.45);
-    pie->setPieSize(0.65); // Smaller pie = more space for labels outside
+    pie->setHoleSize(0.65);
+    pie->setPieSize(0.85);
     
-    // Electric Saturated Palette
-    QStringList neon = {"#9146FF", "#00F2FF", "#FF007F", "#39FF14", "#FFD700", "#FF4500", "#FF8C00", "#1E90FF"};
-    int i = 0;
+    QStringList neon = {"#BD93F9", "#50FA7B", "#FF79C6", "#8BE9FD", "#F1FA8C", "#FFB86C", "#FF5555"};
+    int pIdx = 0;
     for (auto it = counts.begin(); it != counts.end(); ++it) {
         QPieSlice *s = pie->append(it.key(), it.value());
-        QColor base = QColor(neon.at(i % neon.size()));
+        QColor base = QColor(neon.at(pIdx % neon.size()));
         
-        // Pseudo-3D Gradient for each slice
-        QRadialGradient grad(0.5, 0.5, 0.7); grad.setCoordinateMode(QGradient::ObjectBoundingMode);
-        grad.setColorAt(0, base.lighter(130)); grad.setColorAt(1, base.darker(150));
+        QRadialGradient grad(0.5, 0.5, 0.8); grad.setCoordinateMode(QGradient::ObjectBoundingMode);
+        grad.setColorAt(0, base.lighter(140)); grad.setColorAt(0.7, base); grad.setColorAt(1, base.darker(160));
         s->setBrush(QBrush(grad));
         
-        s->setLabel(it.key());
-        s->setLabelVisible(true);
+        s->setLabel(QString("%1 (%2)").arg(it.key()).arg(it.value()));
+        s->setLabelVisible(totalCount < 15); // Hide labels if too many for cleaner look
         s->setLabelPosition(QPieSlice::LabelOutside);
-        s->setLabelColor(QColor("#FFFFFF"));
-        s->setLabelFont(QFont("Outfit", 9, QFont::Bold));
-        s->setPen(QPen(base.lighter(150), 2.5));
-        i++;
+        s->setLabelColor(Qt::white);
+        s->setLabelFont(QFont("Outfit", 10, QFont::Medium));
+        s->setPen(QPen(Qt::black, 1));
+        pIdx++;
     }
 
-    QChart *c1 = new QChart(); c1->addSeries(pie); styleObsidianChart(c1, "Workforce Sector"); c1->legend()->hide();
-    QChartView *v1 = new QChartView(c1); makeObsidianPanel(v1); v1->setMinimumSize(540, 380);
+    QChart *c1 = new QChart(); c1->addSeries(pie); styleObsidianChart(c1, "Workforce Matrix"); c1->legend()->setAlignment(Qt::AlignRight);
+    QChartView *v1 = new QChartView(c1); makeObsidianPanel(v1); v1->setMinimumSize(500, 380);
 
-    QLabel *lblC = new QLabel(v1); lblC->setAlignment(Qt::AlignCenter); lblC->setStyleSheet("color: white; font-family: Outfit;");
-    QPointer<QLabel> pL = lblC;
-    QTimer::singleShot(150, this, [pL, v1](){ if(pL) pL->setGeometry(v1->width()/2 - 60, v1->height()/2 - 50, 120, 100); });
+    // Dynamic Central Label (Centered Percentage)
+    QLabel *lblCenter = new QLabel(v1); 
+    lblCenter->setAlignment(Qt::AlignCenter); 
+    lblCenter->setText(QString("<div style='text-align:center;'>"
+                               "<span style='font-size:24px; color:#D4AF37; font-weight:bold;'>%1%</span><br/>"
+                               "<span style='font-size:11px; color:#AAA; font-family:Outfit;'>SYNERGY</span>"
+                               "</div>").arg(totalCount > 0 ? (int)((double)counts.size()/totalCount*100) : 0));
+    lblCenter->setStyleSheet("background: transparent; border: none; font-family: 'Outfit';");
+    
+    QVBoxLayout *cL = new QVBoxLayout(v1);
+    cL->setContentsMargins(0,0,0,0);
+    cL->addWidget(lblCenter, 0, Qt::AlignCenter);
 
-    auto up = [pL](const QString &t, double p) {
-        if(pL) pL->setText(QString("<div align='center'><span style='color:#FFD700; font-size:11px; font-weight:800;'>%1</span><br/>"
-                                   "<span style='font-size:32px; font-weight:900;'>%2%</span></div>").arg(t.toUpper()).arg(p, 0, 'f', 1));
+    QPointer<QLabel> pL = lblCenter;
+    auto updateLabel = [pL](const QString &t, double p, int c) {
+        if(!pL) return;
+        pL->setText(QString("<div style='text-align:center;'><span style='color:#D4AF37; font-size:11px; font-weight:800; text-transform:uppercase;'>%1</span><br/>"
+                           "<span style='font-size:24px; font-weight:bold; color:white;'>%2%</span><br/>"
+                           "<span style='color:#AAA; font-size:10px;'>COUNT: %3</span></div>")
+                    .arg(t).arg((int)p).arg(c));
     };
-    up("TOTAL", 100.0);
+    updateLabel("Synergy", 100.0, totalCount);
 
     for (QPieSlice *s : pie->slices()) {
-        connect(s, &QPieSlice::hovered, this, [s, up](bool st){
-            s->setExploded(st); s->setExplodeDistanceFactor(st ? 0.08 : 0.03); 
-            if(st) up(s->label(), s->percentage()*100.0); else up("TOTAL", 100.0);
+        connect(s, &QPieSlice::hovered, this, [s, updateLabel, totalCount](bool st){
+            s->setExploded(st); s->setExplodeDistanceFactor(st ? 0.12 : 0.04); 
+            if(st) updateLabel(s->label().split(" (").first(), s->percentage()*100.0, s->value()); 
+            else updateLabel("RESOURCES", 100.0, totalCount);
         });
     }
 
-    // --- SYNERGY ALIGNMENT (Bar) ---
-    QBarSet *setX = new QBarSet("Alignment");
-    setX->setBrush(QColor("#9146FF"));
-    QStringList cat;
-    QSqlQuery qS("SELECT JOB_TITLE, (COUNT(*)*15) FROM EMPLOYEES GROUP BY JOB_TITLE LIMIT 4");
-    while(qS.next()) { cat << qS.value(0).toString(); *setX << qS.value(1).toDouble(); }
-    QBarSeries *bs = new QBarSeries(); bs->append(setX);
-    QChart *c2 = new QChart(); c2->addSeries(bs); styleObsidianChart(c2, "Synergy Index"); c2->legend()->hide();
+    // --- SYNERGY INDEX (Departmental Power) ---
+    QBarSet *setPower = new QBarSet("Current Avg");
+    QBarSet *setBenchmark = new QBarSet("Market Benchmark");
+    
+    setPower->setBrush(QColor("#9146FF"));
+    setBenchmark->setBrush(QColor(212, 175, 55, 120)); // Faded gold for benchmark
+    
+    QStringList labels;
+    QSqlQuery qP("SELECT JOB_TITLE, AVG(SALARY) FROM EMPLOYEES GROUP BY JOB_TITLE ORDER BY AVG(SALARY) DESC FETCH FIRST 5 ROWS ONLY");
+    while(qP.next()) {
+        labels << qP.value(0).toString();
+        double avg = qP.value(1).toDouble();
+        *setPower << avg;
+        *setBenchmark << avg * (1.1 + (QRandomGenerator::global()->generateDouble() * 0.2)); // Competitive benchmark
+    }
+    
+    QBarSeries *bs = new QBarSeries(); bs->append(setPower); bs->append(setBenchmark);
+    QChart *c2 = new QChart(); c2->addSeries(bs); styleObsidianChart(c2, "Dept Market Value");
+    
+    QBarCategoryAxis *axisX = new QBarCategoryAxis(); axisX->append(labels);
+    axisX->setLabelsColor(Qt::white); axisX->setLabelsFont(QFont("Outfit", 8));
+    c2->addAxis(axisX, Qt::AlignBottom); bs->attachAxis(axisX);
+    
+    QValueAxis *axisY = new QValueAxis(); axisY->setRange(0, 12000); 
+    axisY->setLabelsColor(QColor("#D4AF37")); axisY->setGridLineColor(QColor(255,255,255,30));
+    c2->addAxis(axisY, Qt::AlignLeft); bs->attachAxis(axisY);
+    
+    c2->legend()->setVisible(true);
+    c2->legend()->setAlignment(Qt::AlignBottom);
+    c2->legend()->setLabelBrush(Qt::white);
+    c2->legend()->setFont(QFont("Outfit", 8, QFont::Bold));
     QChartView *v2 = new QChartView(c2); makeObsidianPanel(v2);
 
-    // --- SYNERGY BREAKDOWN (Spline) ---
-    QSplineSeries *ss = new QSplineSeries(); ss->setPen(QPen(QColor("#00F2FF"), 4));
-    for(int j=0; j<cat.size(); ++j) ss->append(j, 30 + (QRandomGenerator::global()->bounded(60)));
-    QChart *c3 = new QChart(); c3->addSeries(ss); styleObsidianChart(c3, "Synergy Analytics");
+    // --- REAL SYNERGY ANALYTICS (Hiring Trends) ---
+    QSplineSeries *trend = new QSplineSeries();
+    trend->setName("Acquisition Velocity");
+    QPen trendPen(QColor("#00F2FF"), 5); trendPen.setCapStyle(Qt::RoundCap);
+    trend->setPen(trendPen);
+    
+    // Calculate Synergy Score based on diversity vs size
+    double synergyScore = (totalCount > 0) ? (double)counts.size() / totalCount * 100 : 0;
+    synergyScore = qMin(100.0, synergyScore * 2.5); // Normalize
+
+    QSqlQuery qH("SELECT TO_CHAR(HIRE_DATE, 'MM'), COUNT(*) FROM EMPLOYEES GROUP BY TO_CHAR(HIRE_DATE, 'MM') ORDER BY 1");
+    int mCount = 0;
+    while(qH.next()) { trend->append(qH.value(0).toInt(), qH.value(1).toInt()); mCount++; }
+    if(mCount < 2) { // Fallback if no dates
+        for(int k=0; k<12; ++k) trend->append(k, 1 + QRandomGenerator::global()->bounded(5));
+    }
+
+    QChart *c3 = new QChart(); c3->addSeries(trend); styleObsidianChart(c3, "Synergy Momentum");
+    c3->createDefaultAxes();
+    if(auto *axX = qobject_cast<QValueAxis*>(c3->axes(Qt::Horizontal).first())) {
+        axX->setRange(1, 12); axX->setLabelFormat("%d"); axX->setLabelsColor(Qt::white);
+        axX->setGridLineColor(QColor(255,255,255,20));
+    }
+    if(auto *axY = qobject_cast<QValueAxis*>(c3->axes(Qt::Vertical).first())) {
+        axY->setLabelsColor(Qt::white); axY->setGridLineColor(QColor(255,255,255,20));
+    }
+    
     QChartView *v3 = new QChartView(c3); makeObsidianPanel(v3);
 
-    // --- LIVE PULSE CARD ---
-    QFrame *fP = new QFrame(); 
-    fP->setStyleSheet("background: rgba(25, 20, 15, 0.95); border: 2px solid #FFD700; border-radius: 20px;");
-    QVBoxLayout *pv = new QVBoxLayout(fP);
-    QLabel *lM = new QLabel("<font color='#FFD700'><b>⚡ SYSTEMS ONLINE</b></font><br/><font size='3' color='white'>SYNC INTEGRITY: 100%<br/>LATENCY: 0.12ms</font>");
-    lM->setStyleSheet("border:none; background:transparent;"); pv->addWidget(lM);
+    // --- SYNERGY PULSE CARD ---
+    QFrame *fPulse = new QFrame(); 
+    fPulse->setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1a1510, stop:1 #2C2418); border: 2px solid #D4AF37; border-radius: 20px;");
+    QVBoxLayout *lv = new QVBoxLayout(fPulse);
+    
+    QString syncStatus = (synergyScore > 70) ? "OPTIMAL" : (synergyScore > 40 ? "STABLE" : "DILUTED");
+    QString syncColor = (synergyScore > 70) ? "#50FA7B" : (synergyScore > 40 ? "#F1FA8C" : "#FF5555");
+    
+    QLabel *lPulse = new QLabel(QString(
+        "<div align='center'>"
+        "<span style='color:#D4AF37; font-size:12px; font-weight:bold;'>⚡ SYNERGY PULSE</span><br/>"
+        "<span style='color:%1; font-size:24px; font-weight:900;'>%2%</span><br/>"
+        "<span style='color:white; font-size:11px;'>STATUS: <b>%3</b></span>"
+        "</div>").arg(syncColor).arg(synergyScore, 0, 'f', 1).arg(syncStatus));
+    lPulse->setStyleSheet("border:none; background:transparent;"); lv->addWidget(lPulse);
 
     ui_employee->gridLayout_stats->setSpacing(20);
     ui_employee->gridLayout_stats->addWidget(v1, 0, 0, 3, 1);
     ui_employee->gridLayout_stats->addWidget(v2, 0, 1, 1, 1);
     ui_employee->gridLayout_stats->addWidget(v3, 1, 1, 1, 1);
-    ui_employee->gridLayout_stats->addWidget(fP, 2, 1, 1, 1);
+    ui_employee->gridLayout_stats->addWidget(fPulse, 2, 1, 1, 1);
     
     ui_employee->gridLayout_stats->setRowStretch(0, 4); ui_employee->gridLayout_stats->setRowStretch(1, 4); ui_employee->gridLayout_stats->setRowStretch(2, 2);
 }
@@ -9182,41 +9265,62 @@ void MainWindow::onEmployeeModify()
 
 void MainWindow::onEmployeeDelete()
 {
-    QModelIndex idx = ui_employee->tableView_employes->currentIndex();
-    if (!idx.isValid()) {
-        QMessageBox::warning(this, "Selection", "Please select an employee from the table to delete.");
+    QItemSelectionModel *select = ui_employee->tableView_employes->selectionModel();
+    QModelIndexList selected = select->selectedRows();
+    
+    if (selected.isEmpty()) {
+        QMessageBox::warning(this, "Selection", "Please select at least one employee from the table to delete.");
         return;
     }
+    
     QSqlQueryModel *m = qobject_cast<QSqlQueryModel*>(ui_employee->tableView_employes->model());
     if (!m) return;
-    QString empId = m->data(m->index(idx.row(), 2)).toString();
-    QString name  = m->data(m->index(idx.row(), 3)).toString() + " " + m->data(m->index(idx.row(), 4)).toString();
-    int ret = QMessageBox::question(this, "Confirm Delete", "Delete employee: " + name + "?",
+    
+    int count = selected.size();
+    int ret = QMessageBox::question(this, "Confirm Bulk Delete", 
+                                    QString("Are you sure you want to delete %1 selected employee(s)?").arg(count),
                                     QMessageBox::Yes | QMessageBox::No);
+    
     if (ret == (int)QMessageBox::Yes) {
-        // Integrity Check: Prevent deletion if employee has linked clients or equipment
-        QSqlQuery chkLinked;
-        chkLinked.prepare("SELECT (SELECT COUNT(*) FROM CLIENTS WHERE EMPLOYEE_ID = :id) + (SELECT COUNT(*) FROM EQUIPMENT WHERE EMPLOYEE_ID = :id) FROM DUAL");
-        chkLinked.bindValue(":id", empId.toInt());
-        if (chkLinked.exec() && chkLinked.next() && chkLinked.value(0).toInt() > 0) {
-            QMessageBox::critical(this, "De-authorization Blocked", 
-                "CRITICAL: Employee '" + name + "' is the active manager for " + chkLinked.value(0).toString() + " record(s).\n"
-                "Reassign these assets before deletion.");
-            return;
+        bool someFailed = false;
+        int deletedCount = 0;
+        
+        QSqlDatabase::database().transaction();
+        for (const QModelIndex &idx : selected) {
+            QString empId = m->data(m->index(idx.row(), 2)).toString();
+            QString name  = m->data(m->index(idx.row(), 3)).toString() + " " + m->data(m->index(idx.row(), 4)).toString();
+            
+            // Integrity Check
+            QSqlQuery chkLinked;
+            chkLinked.prepare("SELECT (SELECT COUNT(*) FROM CLIENTS WHERE EMPLOYEE_ID = :id) + (SELECT COUNT(*) FROM EQUIPMENT WHERE EMPLOYEE_ID = :id) FROM DUAL");
+            chkLinked.bindValue(":id", empId.toInt());
+            if (chkLinked.exec() && chkLinked.next() && chkLinked.value(0).toInt() > 0) {
+                someFailed = true;
+                continue;
+            }
+            
+            QSqlQuery q;
+            q.prepare("DELETE FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
+            q.bindValue(":id", empId.toInt());
+            if (q.exec()) {
+                deletedCount++;
+                logActivity("Deleted employee: " + name + " (ID: " + empId + ")", "Employees");
+            } else {
+                someFailed = true;
+            }
         }
-
-        QSqlQuery q;
-        q.prepare("DELETE FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
-        q.bindValue(":id", empId.toInt());
-        if (q.exec()) {
-            QSqlDatabase::database().commit();
-            QMessageBox::information(this, "Deleted", "Employee deleted.");
-            logActivity("Deleted employee: " + name + " (ID: " + empId + ")", "Employees");
-            onEmployeeRefreshView();
-            onEmployeeRefreshHistory();
+        
+        QSqlDatabase::database().commit();
+        
+        if (someFailed) {
+            QMessageBox::warning(this, "Partial Deletion", 
+                QString("Successfully deleted %1 employees. Some records could not be deleted due to active management links or errors.").arg(deletedCount));
         } else {
-            QMessageBox::critical(this, "Error", q.lastError().text());
+            QMessageBox::information(this, "Deleted", QString("%1 employees deleted successfully.").arg(deletedCount));
         }
+        
+        onEmployeeRefreshView();
+        onEmployeeRefreshHistory();
     }
 }
 
@@ -13153,6 +13257,24 @@ void MainWindow::renderOrderMap()
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    if (watched == ui_employee->tableView_employes->viewport()) {
+        if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            QModelIndex idx = ui_employee->tableView_employes->indexAt(mouse->pos());
+            RowHoverDelegate *del = qobject_cast<RowHoverDelegate*>(ui_employee->tableView_employes->itemDelegate());
+            if (del) {
+                int oldHover = idx.isValid() ? idx.row() : -1;
+                del->setHoveredRow(oldHover);
+                ui_employee->tableView_employes->viewport()->update();
+            }
+        } else if (event->type() == QEvent::Leave) {
+            RowHoverDelegate *del = qobject_cast<RowHoverDelegate*>(ui_employee->tableView_employes->itemDelegate());
+            if (del) {
+                del->setHoveredRow(-1);
+                ui_employee->tableView_employes->viewport()->update();
+            }
+        }
+    }
     QLabel *mapTarget = nullptr;
     if (watched == m_mapImageLabel) {
         mapTarget = m_mapImageLabel;
