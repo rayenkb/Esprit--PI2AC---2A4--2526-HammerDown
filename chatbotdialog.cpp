@@ -142,6 +142,57 @@ QStringList fetchDistinctTextColumn(const QString &tableName, const QString &col
     return out;
 }
 
+QSet<QString> fetchUsedUpperValues(const QString &tableName, const QString &columnName)
+{
+    static const QRegularExpression identRx("^[A-Z0-9_]+$", QRegularExpression::CaseInsensitiveOption);
+    QSet<QString> used;
+    if (!identRx.match(tableName).hasMatch() || !identRx.match(columnName).hasMatch()) {
+        return used;
+    }
+
+    QSqlQuery q;
+    const QString sql = QString("SELECT %1 FROM %2 WHERE %1 IS NOT NULL")
+                            .arg(columnName, tableName);
+    if (q.exec(sql)) {
+        while (q.next()) {
+            const QString v = q.value(0).toString().trimmed();
+            if (!v.isEmpty()) {
+                used.insert(v.toUpper());
+            }
+        }
+    }
+    return used;
+}
+
+QString uniqueValueWithFallback(const QString &tableName,
+                                const QString &columnName,
+                                QSet<QString> &usedUpper,
+                                const std::function<QString()> &generator,
+                                const QString &fallbackSeed)
+{
+    for (int i = 0; i < 12; ++i) {
+        const QString candidate = fitToColumn(tableName, columnName, generator());
+        const QString key = candidate.trimmed().toUpper();
+        if (!candidate.trimmed().isEmpty() && !usedUpper.contains(key)) {
+            usedUpper.insert(key);
+            return candidate;
+        }
+    }
+
+    QString fallback = fitToColumn(tableName, columnName, fallbackSeed);
+    if (fallback.trimmed().isEmpty()) {
+        fallback = fitToColumn(tableName, columnName, QString("X%1").arg(QRandomGenerator::global()->bounded(10000, 99999)));
+    }
+    QString key = fallback.trimmed().toUpper();
+    int suffix = 1;
+    while (usedUpper.contains(key)) {
+        fallback = fitToColumn(tableName, columnName, QString("%1%2").arg(fallback.left(qMax(1, fallback.size() - 3))).arg(suffix++));
+        key = fallback.trimmed().toUpper();
+    }
+    usedUpper.insert(key);
+    return fallback;
+}
+
 QString pickRandomFrom(const QStringList &values, const QString &fallback)
 {
     if (values.isEmpty()) return fallback;
@@ -824,6 +875,9 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
                    : orderTypes.at(QRandomGenerator::global()->bounded(orderTypes.size()));
         QString status = orderStatuses.at(QRandomGenerator::global()->bounded(orderStatuses.size()));
         QString payment = paymentStatuses.at(QRandomGenerator::global()->bounded(paymentStatuses.size()));
+        type = fitToColumn("ORDERS", "ORDER_TYPE", type);
+        status = fitToColumn("ORDERS", "ORDER_STATUS", status);
+        payment = fitToColumn("ORDERS", "PAYMENT_STATUS", payment);
         int quantity = QRandomGenerator::global()->bounded(1, 51);
         double price = 50.0 + (QRandomGenerator::global()->generateDouble() * 1950.0);
 
@@ -1029,6 +1083,8 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
                                 fetchDistinctTextColumn("CLIENTS", "FIRST_NAME");
     QStringList lastNamePool = fetchDistinctTextColumn("EMPLOYEES", "LAST_NAME") +
                                fetchDistinctTextColumn("CLIENTS", "LAST_NAME");
+    QSet<QString> usedEmployeeEmails = fetchUsedUpperValues("EMPLOYEES", "EMAIL");
+    QSet<QString> usedEmployeePhones = fetchUsedUpperValues("EMPLOYEES", "PHONE_NUMBER");
 
     int nextId = getNextId("EMPLOYEES", "EMPLOYEE_ID");
 
@@ -1044,10 +1100,17 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
         QString job = fitToColumn("EMPLOYEES", "JOB_TITLE", QString("Role-%1").arg(generateWord(2, 3)));
         QString dept = fitToColumn("EMPLOYEES", "DEPARTMENT", QString("Unit-%1").arg(generateWord(2, 3)));
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        status = fitToColumn("EMPLOYEES", "EMPLOYEE_STATUS", status);
         int age = QRandomGenerator::global()->bounded(20, 56);
         double salary = 1200.0 + (QRandomGenerator::global()->generateDouble() * 3800.0);
-        QString email = fitToColumn("EMPLOYEES", "EMAIL", generateEmailLike(first, last, nextId, "hammerdown.tn"));
-        QString phone = fitToColumn("EMPLOYEES", "PHONE_NUMBER", generatePhoneLike());
+        QString email = uniqueValueWithFallback(
+            "EMPLOYEES", "EMAIL", usedEmployeeEmails,
+            [&]() { return generateEmailLike(first, last, nextId + QRandomGenerator::global()->bounded(1, 9999), "hammerdown.tn"); },
+            QString("employee%1@hammerdown.tn").arg(nextId));
+        QString phone = uniqueValueWithFallback(
+            "EMPLOYEES", "PHONE_NUMBER", usedEmployeePhones,
+            [&]() { return generatePhoneLike(); },
+            QString::number(80000000 + (nextId % 10000000)));
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -1109,6 +1172,8 @@ QString ChatBotDialog::handleAddRandomClients(int count)
                                 fetchDistinctTextColumn("EMPLOYEES", "FIRST_NAME");
     QStringList lastNamePool = fetchDistinctTextColumn("CLIENTS", "LAST_NAME") +
                                fetchDistinctTextColumn("EMPLOYEES", "LAST_NAME");
+    QSet<QString> usedClientEmails = fetchUsedUpperValues("CLIENTS", "EMAIL");
+    QSet<QString> usedClientPhones = fetchUsedUpperValues("CLIENTS", "PHONE_NUMBER");
     QSet<QString> usedAddressKeys;
     QSqlQuery usedAddressQuery("SELECT ADDRESS FROM CLIENTS WHERE ADDRESS IS NOT NULL");
     while (usedAddressQuery.next()) {
@@ -1128,6 +1193,8 @@ QString ChatBotDialog::handleAddRandomClients(int count)
         QString last = fitToColumn("CLIENTS", "LAST_NAME", pickRandomFrom(lastNamePool, generateTunisianLastName()));
         QString gender = genders.at(QRandomGenerator::global()->bounded(genders.size()));
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        gender = fitToColumn("CLIENTS", "GENDER", gender);
+        status = fitToColumn("CLIENTS", "STATUS", status);
         QString address;
         for (int attempt = 0; attempt < 8; ++attempt) {
             QString candidate = generateTunisiaAddress();
@@ -1144,8 +1211,14 @@ QString ChatBotDialog::handleAddRandomClients(int count)
                 address = fitToColumn("CLIENTS", "ADDRESS", address);
         int age = QRandomGenerator::global()->bounded(21, 66);
         double balance = QRandomGenerator::global()->generateDouble() * 10000.0;
-                QString email = fitToColumn("CLIENTS", "EMAIL", generateEmailLike(first, last, nextId, "client.tn"));
-                QString phone = fitToColumn("CLIENTS", "PHONE_NUMBER", generatePhoneLike());
+        QString email = uniqueValueWithFallback(
+            "CLIENTS", "EMAIL", usedClientEmails,
+            [&]() { return generateEmailLike(first, last, nextId + QRandomGenerator::global()->bounded(1, 9999), "client.tn"); },
+            QString("client%1@client.tn").arg(nextId));
+        QString phone = uniqueValueWithFallback(
+            "CLIENTS", "PHONE_NUMBER", usedClientPhones,
+            [&]() { return generatePhoneLike(); },
+            QString::number(90000000 + (nextId % 10000000)));
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -1202,6 +1275,8 @@ QString ChatBotDialog::handleAddRandomSuppliers(int count)
 
     QSet<QString> usedNameKeys;
     QSet<QString> usedAddressKeys;
+    QSet<QString> usedSupplierEmails = fetchUsedUpperValues("SUPPLIERS", "EMAIL");
+    QSet<QString> usedSupplierPhones = fetchUsedUpperValues("SUPPLIERS", "PHONE_NUMBER");
     QSqlQuery usedSupplierQuery("SELECT SUPPLIER_NAME, ADDRESS FROM SUPPLIERS");
     while (usedSupplierQuery.next()) {
         usedNameKeys.insert(usedSupplierQuery.value(0).toString().trimmed().toUpper());
@@ -1236,8 +1311,14 @@ QString ChatBotDialog::handleAddRandomSuppliers(int count)
 
         QString normalizedName = name.toLower();
         normalizedName.replace(' ', '.');
-        QString email = fitToColumn("SUPPLIERS", "EMAIL", QString("contact%1@%2.tn").arg(nextId).arg(normalizedName));
-        QString phone = fitToColumn("SUPPLIERS", "PHONE_NUMBER", generatePhoneLike());
+        QString email = uniqueValueWithFallback(
+            "SUPPLIERS", "EMAIL", usedSupplierEmails,
+            [&]() { return QString("contact%1@%2.tn").arg(nextId + QRandomGenerator::global()->bounded(1, 9999)).arg(normalizedName); },
+            QString("contact%1@supplier.tn").arg(nextId));
+        QString phone = uniqueValueWithFallback(
+            "SUPPLIERS", "PHONE_NUMBER", usedSupplierPhones,
+            [&]() { return generatePhoneLike(); },
+            QString::number(70000000 + (nextId % 10000000)));
         QString address;
         for (int attempt = 0; attempt < 8; ++attempt) {
             QString candidate = generateTunisiaAddress();
@@ -1256,6 +1337,7 @@ QString ChatBotDialog::handleAddRandomSuppliers(int count)
         double delivery = 2.5 + (QRandomGenerator::global()->generateDouble() * 2.5);
         double quality = 2.5 + (QRandomGenerator::global()->generateDouble() * 2.5);
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        status = fitToColumn("SUPPLIERS", "ACCOUNT_STATUS", status);
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -1328,6 +1410,8 @@ QString ChatBotDialog::handleAddRandomEquipment(int count)
                            ? QString("Tool-%1").arg(generateWord(2, 3))
                            : types.at(QRandomGenerator::global()->bounded(types.size()));
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        type = fitToColumn("EQUIPMENT", "EQUIPMENT_TYPE", type);
+        status = fitToColumn("EQUIPMENT", "STATUS", status);
         int qty = QRandomGenerator::global()->bounded(1, 31);
         double unitPrice = 80.0 + (QRandomGenerator::global()->generateDouble() * 2920.0);
         double cout = unitPrice * qty;
