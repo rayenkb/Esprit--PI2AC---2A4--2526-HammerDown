@@ -442,6 +442,7 @@ private:
     void configureOrderCatalogTable(QTableWidget *table);
     bool populateOrderCatalogTable(QTableWidget *table, const QString &searchText, bool resolvedOnly);
     void markOrderAsPaid(int orderId);
+    void markOrderAsUnpaid(int orderId);
 
     void retranslateDynamicRadios(QWidget *container);
     void setTabTextTr(QTabWidget *tabWidget, QWidget *tabPage, const QString &key);

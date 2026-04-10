@@ -2970,20 +2970,39 @@ static QPixmap generateQrPixmap(const QString &text, int pixelSize = 8, int bord
 {
     using namespace qrcodegen;
     QrCode qr = QrCode::encodeText(text.toUtf8().constData(), QrCode::Ecc::MEDIUM);
-    int qrSize = qr.getSize();
-    int imgSize = (qrSize + border * 2) * pixelSize;
+    const int qrSize = qr.getSize();
+    const int qrPixelSize = (qrSize + border * 2) * pixelSize;
+    const int framePadding = qMax(6, pixelSize * 2);
+    const int imgSize = qrPixelSize + framePadding * 2;
 
-    QImage img(imgSize, imgSize, QImage::Format_RGB32);
-    img.fill(Qt::white);
+    // Use app palette shades with high contrast to remain scanner-friendly.
+    const QColor bgColor(245, 236, 219);      // warm parchment
+    const QColor moduleColor(34, 29, 22);     // near-black umber
+    const QColor frameColor(139, 111, 71);    // app accent brown
+
+    QImage img(imgSize, imgSize, QImage::Format_ARGB32_Premultiplied);
+    img.fill(bgColor);
+
+    QPainter painter(&img);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(frameColor, qMax(2, pixelSize / 2)));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(framePadding / 2,
+                            framePadding / 2,
+                            imgSize - framePadding,
+                            imgSize - framePadding,
+                            framePadding * 0.55,
+                            framePadding * 0.55);
+    painter.end();
 
     for (int y = 0; y < qrSize; y++) {
         for (int x = 0; x < qrSize; x++) {
             if (qr.getModule(x, y)) {
                 for (int dy = 0; dy < pixelSize; dy++) {
                     for (int dx = 0; dx < pixelSize; dx++) {
-                        img.setPixel((x + border) * pixelSize + dx,
-                                     (y + border) * pixelSize + dy,
-                                     qRgb(0, 0, 0));
+                        img.setPixelColor(framePadding + (x + border) * pixelSize + dx,
+                                          framePadding + (y + border) * pixelSize + dy,
+                                          moduleColor);
                     }
                 }
             }
@@ -3176,9 +3195,14 @@ bool MainWindow::populateOrderCatalogTable(QTableWidget *table, const QString &s
 
         auto *actionBtn = new QPushButton(table);
         if (resolvedOnly) {
-            actionBtn->setText("Paid");
-            actionBtn->setEnabled(false);
-            actionBtn->setStyleSheet("QPushButton { background: #2E6B3E; color: #F5E6C8; border-radius: 6px; padding: 4px 8px; }");
+            actionBtn->setText("Mark Unpaid");
+            actionBtn->setStyleSheet(
+                "QPushButton { background: #8B2F2F; color: #F5E6C8; border-radius: 6px; padding: 4px 8px; font-weight: bold; }"
+                "QPushButton:hover { background: #A43A3A; }"
+            );
+            connect(actionBtn, &QPushButton::clicked, this, [this, orderId]() {
+                markOrderAsUnpaid(orderId);
+            });
         } else {
             actionBtn->setText("Mark Paid");
             actionBtn->setStyleSheet(
@@ -3203,6 +3227,20 @@ void MainWindow::markOrderAsPaid(int orderId)
 {
     QSqlQuery query;
     query.prepare("UPDATE ORDERS SET payment_status = 'Paid' WHERE order_id = :id");
+    query.bindValue(":id", orderId);
+    if (!query.exec()) {
+        QMessageBox::critical(this, "Database Error",
+            "Failed to update payment status.\n\nTechnical details: " + query.lastError().databaseText());
+        return;
+    }
+
+    onOrderSearchCatalog();
+}
+
+void MainWindow::markOrderAsUnpaid(int orderId)
+{
+    QSqlQuery query;
+    query.prepare("UPDATE ORDERS SET payment_status = 'Unpaid' WHERE order_id = :id");
     query.bindValue(":id", orderId);
     if (!query.exec()) {
         QMessageBox::critical(this, "Database Error",
