@@ -346,6 +346,7 @@ private slots:
     void onSuggestSalary();
     void onStatsAiClicked();
     void onAIPulseClicked();
+    void onAiPerformanceClicked();
     void onEmployeeSearch();
     void onEmployeeRowSelected(const QModelIndex &index);
     void onEmployeeSendMail();
@@ -354,6 +355,7 @@ private slots:
     void onEmployeeHistorySearch();
     void onEmployeeMailTemplateChanged(int index);
     void processEmpCameraFrame();
+    void callAiModel(const QString &sysPrompt, const QString &userPrompt, std::function<void(QString)> callback);
     
     // --- Supplier Management ---
     void onSupplierClearFields();
@@ -637,6 +639,8 @@ private:
     
     // AI Summarization network manager
     QNetworkAccessManager *chatSummaryNetManager = nullptr;
+    QNetworkAccessManager *aiNetworkManager = nullptr;
+    QString aiApiKey;
 
     // Client Management Dynamic UIs
     QTableView *m_clientCyberTable = nullptr;
