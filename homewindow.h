@@ -7,6 +7,8 @@
 #include <QVideoWidget>
 #include <QAudioOutput>
 
+class QVariantAnimation;
+
 class ChatBotDialog;
 
 namespace Ui {
@@ -53,6 +55,9 @@ private slots:
     void handleChatBot();
     void handleHelp();
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     Ui::HomeFrame *ui;
     ChatBotDialog *chatBotDialog;
@@ -68,6 +73,9 @@ private:
     QMediaPlayer *m_animationAudioPlayer; // Persistent audio for animation sequence
     QAudioOutput *m_animationAudioOutput; // Matching output for animation audio
     class LoreGuideWidget *m_currentGuide; // Track the guide widget
+    QVariantAnimation *m_settingsTiltAnim = nullptr;
+    QPixmap m_settingsGearPixmap;
+    bool m_settingsHoverActive = false;
     
     void setupHomeButtons();
     void stopAnimationAudio();

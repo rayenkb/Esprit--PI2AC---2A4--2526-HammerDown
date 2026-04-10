@@ -1606,44 +1606,7 @@ MainWindow::MainWindow(QWidget *parent)
     priceValidator->setNotation(QDoubleValidator::StandardNotation);
     ui_order->le_prix->setValidator(priceValidator);
     
-    ui_order->table_catalog->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    ui_order->table_catalog->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    ui_order->table_catalog->setAlternatingRowColors(false);
-    ui_order->table_catalog->setSelectionBehavior(QAbstractItemView::SelectRows);
-    ui_order->table_catalog->setSelectionMode(QAbstractItemView::SingleSelection);
-    ui_order->table_catalog->setShowGrid(true);
-    ui_order->table_catalog->setFocusPolicy(Qt::NoFocus);
-    ui_order->table_catalog->setIconSize(QSize(54, 54));
-    ui_order->table_catalog->verticalHeader()->setVisible(false);
-    ui_order->table_catalog->horizontalHeader()->setFixedHeight(42);
-    ui_order->table_catalog->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
-    ui_order->table_catalog->setStyleSheet(
-        "QTableWidget {"
-        "  background: rgba(255, 255, 255, 0.94);"
-        "  border: 1px solid #8B6F47;"
-        "  border-radius: 0px;"
-        "  color: #1D1D1D;"
-        "  gridline-color: #8B6F47;"
-        "  selection-background-color: #E0E0E0;"
-        "  selection-color: #1D1D1D;"
-        "}"
-        "QTableWidget::item {"
-        "  padding: 5px 8px;"
-        "  border-right: 1px solid #8B6F47;"
-        "  border-bottom: 1px solid #8B6F47;"
-        "}"
-        "QHeaderView::section {"
-        "  background: #8B6F47;"
-        "  color: #1F2A44;"
-        "  border: 1px solid #705a39;"
-        "  padding: 6px;"
-        "  font-weight: bold;"
-        "}"
-        "QTableCornerButton::section {"
-        "  background: #8B6F47;"
-        "  border: 1px solid #705a39;"
-        "}"
-    );
+    setupOrderCatalogResolutionTabs();
 
     ui_order->le_catalog_search->setStyleSheet(
         "QLineEdit {"
@@ -3062,152 +3025,220 @@ static QString buildOrderQrContent(int orderId, const QString &orderType, int qu
     return content;
 }
 
+void MainWindow::setupOrderCatalogResolutionTabs()
+{
+    if (!ui_order || !ui_order->tab_catalog || !ui_order->table_catalog)
+        return;
+
+    m_orderCatalogUnresolvedTable = ui_order->table_catalog;
+
+    const QRect catalogRect = m_orderCatalogUnresolvedTable->geometry();
+    m_orderCatalogStatusTabs = new QTabWidget(ui_order->tab_catalog);
+    m_orderCatalogStatusTabs->setObjectName("orderCatalogStatusTabs");
+    m_orderCatalogStatusTabs->setGeometry(catalogRect);
+    m_orderCatalogStatusTabs->setStyleSheet(
+        "QTabWidget::pane { border: 1px solid #8B6F47; background: transparent; }"
+        "QTabBar::tab { background: rgba(255,255,255,0.88); color: #2E261C; border: 1px solid #8B6F47;"
+        " padding: 7px 14px; min-width: 120px; }"
+        "QTabBar::tab:selected { background: #8B6F47; color: white; }"
+    );
+
+    auto *unresolvedPage = new QWidget(m_orderCatalogStatusTabs);
+    auto *resolvedPage = new QWidget(m_orderCatalogStatusTabs);
+
+    auto *unresolvedLayout = new QVBoxLayout(unresolvedPage);
+    unresolvedLayout->setContentsMargins(0, 0, 0, 0);
+    unresolvedLayout->setSpacing(0);
+    unresolvedLayout->addWidget(m_orderCatalogUnresolvedTable);
+
+    auto *resolvedLayout = new QVBoxLayout(resolvedPage);
+    resolvedLayout->setContentsMargins(0, 0, 0, 0);
+    resolvedLayout->setSpacing(0);
+    m_orderCatalogResolvedTable = new QTableWidget(resolvedPage);
+    resolvedLayout->addWidget(m_orderCatalogResolvedTable);
+
+    m_orderCatalogStatusTabs->addTab(unresolvedPage, "Unresolved");
+    m_orderCatalogStatusTabs->addTab(resolvedPage, "Resolved");
+
+    configureOrderCatalogTable(m_orderCatalogUnresolvedTable);
+    configureOrderCatalogTable(m_orderCatalogResolvedTable);
+}
+
+void MainWindow::configureOrderCatalogTable(QTableWidget *table)
+{
+    if (!table)
+        return;
+
+    table->setColumnCount(8);
+    table->setHorizontalHeaderLabels({"Order ID", "Type", "Quantity", "Unit Price", "Total Price", "Buyer ID", "Payment", "Action"});
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setAlternatingRowColors(false);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setShowGrid(true);
+    table->setFocusPolicy(Qt::NoFocus);
+    table->setIconSize(QSize(54, 54));
+    table->verticalHeader()->setVisible(false);
+    table->horizontalHeader()->setFixedHeight(42);
+    table->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    table->setStyleSheet(
+        "QTableWidget {"
+        "  background: rgba(255, 255, 255, 0.94);"
+        "  border: 1px solid #8B6F47;"
+        "  border-radius: 0px;"
+        "  color: #1D1D1D;"
+        "  gridline-color: #8B6F47;"
+        "  selection-background-color: #E0E0E0;"
+        "  selection-color: #1D1D1D;"
+        "}"
+        "QTableWidget::item {"
+        "  padding: 5px 8px;"
+        "  border-right: 1px solid #8B6F47;"
+        "  border-bottom: 1px solid #8B6F47;"
+        "}"
+        "QHeaderView::section {"
+        "  background: #8B6F47;"
+        "  color: #1F2A44;"
+        "  border: 1px solid #705a39;"
+        "  padding: 6px;"
+        "  font-weight: bold;"
+        "}"
+        "QTableCornerButton::section {"
+        "  background: #8B6F47;"
+        "  border: 1px solid #705a39;"
+        "}"
+    );
+}
+
+bool MainWindow::populateOrderCatalogTable(QTableWidget *table, const QString &searchText, bool resolvedOnly)
+{
+    if (!table)
+        return true;
+
+    QSqlQuery query;
+    const QString paymentCondition = resolvedOnly
+        ? "UPPER(NVL(payment_status, 'UNPAID')) = 'PAID'"
+        : "UPPER(NVL(payment_status, 'UNPAID')) <> 'PAID'";
+
+    QString sql = "SELECT order_id, order_type, total_quantity, total_price, client_id, NVL(payment_status, 'Unpaid') "
+                  "FROM ORDERS WHERE " + paymentCondition;
+    const QString trimmedSearch = searchText.trimmed();
+    if (!trimmedSearch.isEmpty()) {
+        sql += " AND (CAST(order_id AS VARCHAR2(50)) LIKE :search "
+               "OR UPPER(order_type) LIKE :search "
+               "OR CAST(client_id AS VARCHAR2(50)) LIKE :search)";
+    }
+    sql += " ORDER BY order_id";
+
+    query.prepare(sql);
+    if (!trimmedSearch.isEmpty())
+        query.bindValue(":search", "%" + trimmedSearch.toUpper() + "%");
+
+    if (!query.exec()) {
+        QMessageBox::critical(this, "Database Error",
+            "Failed to load catalog orders.\n\nTechnical details: " + query.lastError().databaseText());
+        return false;
+    }
+
+    table->setRowCount(0);
+    int row = 0;
+    while (query.next()) {
+        table->insertRow(row);
+
+        const int orderId = query.value(0).toInt();
+        const QString orderType = query.value(1).toString();
+        const int quantity = query.value(2).toInt();
+        const double unitPrice = query.value(3).toDouble();
+        const double totalPrice = unitPrice * quantity;
+        const QString buyerId = query.value(4).toString();
+        const QString paymentStatus = query.value(5).toString();
+
+        QTableWidgetItem *orderIdItem = new QTableWidgetItem(QString::number(orderId));
+        orderIdItem->setTextAlignment(Qt::AlignCenter);
+        table->setItem(row, 0, orderIdItem);
+
+        QTableWidgetItem *typeItem = new QTableWidgetItem(trKey(orderType));
+        typeItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+        table->setItem(row, 1, typeItem);
+
+        QTableWidgetItem *qtyItem = new QTableWidgetItem(QString::number(quantity));
+        qtyItem->setTextAlignment(Qt::AlignCenter);
+        table->setItem(row, 2, qtyItem);
+
+        QTableWidgetItem *unitPriceItem = new QTableWidgetItem(QString::number(unitPrice, 'f', 2));
+        unitPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
+        table->setItem(row, 3, unitPriceItem);
+
+        QTableWidgetItem *totalPriceItem = new QTableWidgetItem(QString::number(totalPrice, 'f', 2));
+        totalPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
+        table->setItem(row, 4, totalPriceItem);
+
+        QTableWidgetItem *buyerItem = new QTableWidgetItem(buyerId);
+        buyerItem->setTextAlignment(Qt::AlignCenter);
+        table->setItem(row, 5, buyerItem);
+
+        QTableWidgetItem *paymentItem = new QTableWidgetItem(paymentStatus);
+        paymentItem->setTextAlignment(Qt::AlignCenter);
+        table->setItem(row, 6, paymentItem);
+
+        auto *actionBtn = new QPushButton(table);
+        if (resolvedOnly) {
+            actionBtn->setText("Paid");
+            actionBtn->setEnabled(false);
+            actionBtn->setStyleSheet("QPushButton { background: #2E6B3E; color: #F5E6C8; border-radius: 6px; padding: 4px 8px; }");
+        } else {
+            actionBtn->setText("Mark Paid");
+            actionBtn->setStyleSheet(
+                "QPushButton { background: #2E6B3E; color: #F5E6C8; border-radius: 6px; padding: 4px 8px; font-weight: bold; }"
+                "QPushButton:hover { background: #3A8A4F; }"
+            );
+            connect(actionBtn, &QPushButton::clicked, this, [this, orderId]() {
+                markOrderAsPaid(orderId);
+            });
+        }
+        table->setCellWidget(row, 7, actionBtn);
+
+        table->setRowHeight(row, 56);
+        ++row;
+    }
+
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    return true;
+}
+
+void MainWindow::markOrderAsPaid(int orderId)
+{
+    QSqlQuery query;
+    query.prepare("UPDATE ORDERS SET payment_status = 'Paid' WHERE order_id = :id");
+    query.bindValue(":id", orderId);
+    if (!query.exec()) {
+        QMessageBox::critical(this, "Database Error",
+            "Failed to update payment status.\n\nTechnical details: " + query.lastError().databaseText());
+        return;
+    }
+
+    onOrderSearchCatalog();
+}
+
 void MainWindow::onOrderRefreshCatalog()
 {
     if (!ui_order) return;
-    
-    QSqlQuery query;
-    if (!query.exec("SELECT order_id, order_type, total_quantity, total_price, client_id FROM ORDERS ORDER BY order_id")) {
-        QMessageBox::critical(this, "Database Error", 
-            "Failed to load orders.\n\nTechnical details: " + query.lastError().databaseText());
+
+    const QString searchText = ui_order->le_catalog_search ? ui_order->le_catalog_search->text().trimmed() : QString();
+    if (!populateOrderCatalogTable(m_orderCatalogUnresolvedTable, searchText, false))
         return;
-    }
-    
-    // Clear existing rows
-    ui_order->table_catalog->setRowCount(0);
-    
-    int row = 0;
-    while (query.next()) {
-        ui_order->table_catalog->insertRow(row);
-        
-        // Order ID
-        QTableWidgetItem *orderIdItem = new QTableWidgetItem(query.value(0).toString());
-        orderIdItem->setTextAlignment(Qt::AlignCenter);
-        ui_order->table_catalog->setItem(row, 0, orderIdItem);
-        
-        // Type
-        QTableWidgetItem *typeItem = new QTableWidgetItem(trKey(query.value(1).toString()));
-        typeItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignLeft);
-        ui_order->table_catalog->setItem(row, 1, typeItem);
-        
-        // Quantity
-        QTableWidgetItem *qtyItem = new QTableWidgetItem(query.value(2).toString());
-        qtyItem->setTextAlignment(Qt::AlignCenter);
-        ui_order->table_catalog->setItem(row, 2, qtyItem);
-        
-        double unitPrice = query.value(3).toDouble();
-        double totalPrice = unitPrice * query.value(2).toInt();
-        QTableWidgetItem *unitPriceItem = new QTableWidgetItem(QString::number(unitPrice, 'f', 2));
-        unitPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
-        ui_order->table_catalog->setItem(row, 3, unitPriceItem);
-        
-        // Total Price
-        QTableWidgetItem *totalPriceItem = new QTableWidgetItem(QString::number(totalPrice, 'f', 2));
-        totalPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
-        ui_order->table_catalog->setItem(row, 4, totalPriceItem);
-        
-        // Buyer ID
-        QTableWidgetItem *buyerItem = new QTableWidgetItem(query.value(4).toString());
-        buyerItem->setTextAlignment(Qt::AlignCenter);
-        ui_order->table_catalog->setItem(row, 5, buyerItem);
-        
-        // QR Code thumbnail
-        QString qrText = "Order #" + query.value(0).toString()
-                        + " | Type: " + query.value(1).toString()
-                        + " | Qty: " + query.value(2).toString()
-                        + " | Unit: $" + QString::number(unitPrice, 'f', 2)
-                        + " | Total: $" + QString::number(totalPrice, 'f', 2)
-                        + " | Client: " + query.value(4).toString();
-        QPixmap qrPix = generateQrPixmap(qrText, 2, 1);
-        QTableWidgetItem *qrItem = new QTableWidgetItem();
-        qrItem->setData(Qt::DecorationRole, qrPix.scaled(50, 50, Qt::KeepAspectRatio, Qt::FastTransformation));
-        qrItem->setTextAlignment(Qt::AlignCenter);
-        ui_order->table_catalog->setItem(row, 6, qrItem);
-        ui_order->table_catalog->setRowHeight(row, 62);
-        
-        row++;
-    }
-    
-    // Keep columns stretched so the table always fills available width.
-    ui_order->table_catalog->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    populateOrderCatalogTable(m_orderCatalogResolvedTable, searchText, true);
 }
 
 void MainWindow::onOrderSearchCatalog()
 {
     if (!ui_order) return;
-    
-    QString searchText = ui_order->le_catalog_search->text().trimmed();
-    
-    if (searchText.isEmpty()) {
-        onOrderRefreshCatalog();
-        return;
-    }
-    
-    QSqlQuery query;
-    query.prepare("SELECT order_id, order_type, total_quantity, total_price, client_id FROM ORDERS "
-                  "WHERE CAST(order_id AS VARCHAR2(50)) LIKE :search "
-                  "OR UPPER(order_type) LIKE :search "
-                  "OR CAST(client_id AS VARCHAR2(50)) LIKE :search "
-                  "ORDER BY order_id");
-    query.bindValue(":search", "%" + searchText.toUpper() + "%");
-    
-    if (!query.exec()) {
-        QMessageBox::critical(this, "Database Error", 
-            "Failed to search orders.\n\nTechnical details: " + query.lastError().databaseText());
-        return;
-    }
-    
-    // Clear existing rows
-    ui_order->table_catalog->setRowCount(0);
-    
-    int row = 0;
-    while (query.next()) {
-        ui_order->table_catalog->insertRow(row);
-        
-        QTableWidgetItem *orderIdItem = new QTableWidgetItem(query.value(0).toString());
-        orderIdItem->setTextAlignment(Qt::AlignCenter);
-        ui_order->table_catalog->setItem(row, 0, orderIdItem);
 
-        QTableWidgetItem *typeItem = new QTableWidgetItem(trKey(query.value(1).toString()));
-        typeItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignLeft);
-        ui_order->table_catalog->setItem(row, 1, typeItem);
-
-        QTableWidgetItem *qtyItem = new QTableWidgetItem(query.value(2).toString());
-        qtyItem->setTextAlignment(Qt::AlignCenter);
-        ui_order->table_catalog->setItem(row, 2, qtyItem);
-        
-        double unitPrice = query.value(3).toDouble();
-        double totalPrice = unitPrice * query.value(2).toInt();
-        QTableWidgetItem *unitPriceItem = new QTableWidgetItem(QString::number(unitPrice, 'f', 2));
-        unitPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
-        ui_order->table_catalog->setItem(row, 3, unitPriceItem);
-        
-        QTableWidgetItem *totalPriceItem = new QTableWidgetItem(QString::number(totalPrice, 'f', 2));
-        totalPriceItem->setTextAlignment(Qt::AlignVCenter | Qt::AlignRight);
-        ui_order->table_catalog->setItem(row, 4, totalPriceItem);
-        
-        QTableWidgetItem *buyerItem = new QTableWidgetItem(query.value(4).toString());
-        buyerItem->setTextAlignment(Qt::AlignCenter);
-        ui_order->table_catalog->setItem(row, 5, buyerItem);
-        
-        // QR Code thumbnail
-        QString qrText = "Order #" + query.value(0).toString()
-                        + " | Type: " + query.value(1).toString()
-                        + " | Qty: " + query.value(2).toString()
-                        + " | Unit: $" + QString::number(unitPrice, 'f', 2)
-                        + " | Total: $" + QString::number(totalPrice, 'f', 2)
-                        + " | Client: " + query.value(4).toString();
-        QPixmap qrPix = generateQrPixmap(qrText, 2, 1);
-        QTableWidgetItem *qrItem = new QTableWidgetItem();
-        qrItem->setData(Qt::DecorationRole, qrPix.scaled(50, 50, Qt::KeepAspectRatio, Qt::FastTransformation));
-        qrItem->setTextAlignment(Qt::AlignCenter);
-        ui_order->table_catalog->setItem(row, 6, qrItem);
-        ui_order->table_catalog->setRowHeight(row, 62);
-        
-        row++;
-    }
-    
-    ui_order->table_catalog->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    const QString searchText = ui_order->le_catalog_search ? ui_order->le_catalog_search->text().trimmed() : QString();
+    if (!populateOrderCatalogTable(m_orderCatalogUnresolvedTable, searchText, false))
+        return;
+    populateOrderCatalogTable(m_orderCatalogResolvedTable, searchText, true);
 }
 
 void MainWindow::onOrderExportCatalog()

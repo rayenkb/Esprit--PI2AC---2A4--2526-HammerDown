@@ -22,6 +22,10 @@
 #include <QParallelAnimationGroup>
 #include <QPauseAnimation>
 #include <QStackedWidget>
+#include <QVariantAnimation>
+#include <QTransform>
+#include <QEvent>
+#include <QtMath>
 
 HomeWindow::HomeWindow(QWidget *parent) :
     QFrame(parent),
@@ -58,6 +62,27 @@ HomeWindow::HomeWindow(QWidget *parent) :
 HomeWindow::~HomeWindow()
 {
     delete ui;
+}
+
+bool HomeWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (ui && watched == ui->btn_settings) {
+        if (event->type() == QEvent::Enter) {
+            m_settingsHoverActive = true;
+            if (m_settingsTiltAnim) {
+                m_settingsTiltAnim->start();
+            }
+        } else if (event->type() == QEvent::Leave) {
+            m_settingsHoverActive = false;
+            if (m_settingsTiltAnim) {
+                m_settingsTiltAnim->stop();
+            }
+            if (!m_settingsGearPixmap.isNull()) {
+                ui->btn_settings->setIcon(QIcon(m_settingsGearPixmap));
+            }
+        }
+    }
+    return QFrame::eventFilter(watched, event);
 }
 
 void HomeWindow::retranslateUI()
@@ -845,6 +870,49 @@ void HomeWindow::stopAnimationAudio()
 
 void HomeWindow::setupHomeButtons()
 {
+    m_settingsGearPixmap = QPixmap(":/assets/gear.png");
+    if (!m_settingsGearPixmap.isNull()) {
+        ui->btn_settings->setText("");
+        ui->btn_settings->setIcon(QIcon(m_settingsGearPixmap));
+        ui->btn_settings->setIconSize(QSize(30, 30));
+        ui->btn_settings->setStyleSheet(R"(
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 25px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.2);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.3);
+            }
+        )");
+
+        ui->btn_settings->installEventFilter(this);
+
+        if (!m_settingsTiltAnim) {
+            m_settingsTiltAnim = new QVariantAnimation(this);
+            m_settingsTiltAnim->setStartValue(0.0);
+            m_settingsTiltAnim->setEndValue(1.0);
+            m_settingsTiltAnim->setDuration(700);
+            m_settingsTiltAnim->setLoopCount(-1);
+
+            connect(m_settingsTiltAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+                if (!ui || !ui->btn_settings || m_settingsGearPixmap.isNull() || !m_settingsHoverActive)
+                    return;
+
+                const qreal t = value.toReal();
+                const qreal angle = qSin(t * (2.0 * M_PI)) * 8.0;
+
+                QTransform transform;
+                transform.rotate(angle);
+                QPixmap rotated = m_settingsGearPixmap.transformed(transform, Qt::SmoothTransformation);
+                ui->btn_settings->setIcon(QIcon(rotated));
+            });
+        }
+    }
+
     // Employee button - Completely invisible
     QString employeeStyle = R"(
         QPushButton {

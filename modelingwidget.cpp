@@ -15,10 +15,12 @@
 #include <QPainter>
 #include <QLineEdit>
 #include <QShortcut>
+#include <QRandomGenerator>
 #include <cfloat>
 #include <functional>
 #include <QSet>
 #include <QMap>
+#include <QSignalBlocker>
 #include <cmath>
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -30,6 +32,7 @@ GLViewport::GLViewport(QWidget *parent)
 {
     setMinimumSize(400, 300);
     setFocusPolicy(Qt::StrongFocus);
+    setMouseTracking(true);
 
     m_camAnimTimer.setInterval(16);
     connect(&m_camAnimTimer, &QTimer::timeout, this, &GLViewport::updateCameraAnimation);
@@ -37,16 +40,70 @@ GLViewport::GLViewport(QWidget *parent)
     m_inertiaTimer.setInterval(16);
     connect(&m_inertiaTimer, &QTimer::timeout, this, &GLViewport::updateInertia);
 
+    m_walkTimer.setInterval(16);
+    connect(&m_walkTimer, &QTimer::timeout, this, &GLViewport::updateWalkNavigation);
+
     m_fpsTimer.start();
 }
 
 void GLViewport::resetCamera()
 {
+    setWalkMode(false);
     setPresetView(ViewPreset::Perspective);
+}
+
+void GLViewport::setWalkMode(bool enabled)
+{
+    if (m_walkMode == enabled)
+        return;
+
+    if (enabled) {
+        if (m_hasSpawnAnchor) {
+            m_freeCamPos = m_spawnAnchor;
+        } else {
+            QMatrix4x4 invView = computeViewMatrix().inverted();
+            m_freeCamPos = invView.map(QVector3D(0, 0, 0));
+        }
+        m_pressedKeys.clear();
+        m_rightMouseLook = false;
+        m_ctrlLookLock = false;
+        m_mouseLook = false;
+        m_cursorWarpInProgress = false;
+        m_walkTimer.start();
+        setCursor(Qt::CrossCursor);
+        setFocus(Qt::OtherFocusReason);
+    } else {
+        m_walkTimer.stop();
+        m_pressedKeys.clear();
+        m_mouseLook = false;
+        m_rightMouseLook = false;
+        m_ctrlLookLock = false;
+        m_cursorWarpInProgress = false;
+        unsetCursor();
+    }
+
+    m_walkMode = enabled;
+    emit walkModeChanged(enabled);
+    update();
+}
+
+void GLViewport::setWalkStart(const QVector3D &position, float yawDeg, float pitchDeg, bool enableWalk)
+{
+    m_freeCamPos = position;
+    m_camYaw = yawDeg;
+    m_camPitch = qBound(-85.0f, pitchDeg, 85.0f);
+    if (enableWalk) {
+        setWalkMode(true);
+    } else {
+        update();
+    }
 }
 
 void GLViewport::setPresetView(ViewPreset preset)
 {
+    if (m_walkMode)
+        setWalkMode(false);
+
     float targetYaw = m_camYaw;
     float targetPitch = m_camPitch;
     float targetDist = qMax(6.0f, m_camDist);
@@ -172,6 +229,20 @@ QMatrix4x4 GLViewport::computeProjectionMatrix() const
 
 QMatrix4x4 GLViewport::computeViewMatrix() const
 {
+    if (m_walkMode) {
+        const float yawRad = qDegreesToRadians(m_camYaw);
+        const float pitchRad = qDegreesToRadians(m_camPitch);
+
+        QVector3D forward(cosf(pitchRad) * sinf(yawRad),
+                          sinf(pitchRad),
+                          cosf(pitchRad) * cosf(yawRad));
+        forward.normalize();
+
+        QMatrix4x4 view;
+        view.lookAt(m_freeCamPos, m_freeCamPos + forward, QVector3D(0, 1, 0));
+        return view;
+    }
+
     float yawRad   = qDegreesToRadians(m_camYaw);
     float pitchRad = qDegreesToRadians(m_camPitch);
     float cx = m_camTarget.x() + m_camDist * cosf(pitchRad) * sinf(yawRad);
@@ -955,7 +1026,10 @@ void GLViewport::drawStatsOverlay()
                  .arg(camPos.y(), 0, 'f', 2)
                  .arg(camPos.z(), 0, 'f', 2)
           << QString("Yaw/Pitch: %1 / %2").arg(m_camYaw, 0, 'f', 1).arg(m_camPitch, 0, 'f', 1)
-          << QString("FPS: %1").arg(m_fps, 0, 'f', 1);
+            << QString("Mode: %1").arg(m_walkMode ? "Walk" : "Orbit")
+             << QString("Look Lock: %1").arg(m_ctrlLookLock ? "On" : "Off")
+            << QString("Speed: %1").arg(m_walkSpeed, 0, 'f', 1)
+            << QString("FPS: %1").arg(m_fps, 0, 'f', 1);
 
     int y = 48;
     for (const QString &line : lines) {
@@ -1236,6 +1310,33 @@ bool GLViewport::pickObject(const QPoint &pos, int &outIndex)
     return false;
 }
 
+bool GLViewport::screenToGroundPoint(const QPoint &pos, QVector3D &outPoint) const
+{
+    const float w = float(width() > 0 ? width() : 1);
+    const float h = float(height() > 0 ? height() : 1);
+    const float ndcX = (2.0f * pos.x()) / w - 1.0f;
+    const float ndcY = 1.0f - (2.0f * pos.y()) / h;
+
+    const QMatrix4x4 view = computeViewMatrix();
+    const QMatrix4x4 proj = computeProjectionMatrix();
+    const QMatrix4x4 inv = (proj * view).inverted();
+
+    const QVector3D nearPoint = inv.map(QVector3D(ndcX, ndcY, -1.0f));
+    const QVector3D farPoint = inv.map(QVector3D(ndcX, ndcY, 1.0f));
+    const QVector3D dir = (farPoint - nearPoint);
+
+    // Intersect with ground plane y = 0.
+    if (qFuzzyIsNull(dir.y()))
+        return false;
+
+    const float t = (0.0f - nearPoint.y()) / dir.y();
+    if (t < 0.0f)
+        return false;
+
+    outPoint = nearPoint + dir * t;
+    return true;
+}
+
 GLViewport::GizmoAxis GLViewport::pickGizmoAxis(const QPoint &pos, GizmoMode mode) const
 {
     Q_UNUSED(mode);
@@ -1368,7 +1469,34 @@ void GLViewport::mousePressEvent(QMouseEvent *e)
     m_inertiaTimer.stop();
     m_orbitVelocity = QVector2D(0, 0);
 
+    if (m_walkMode) {
+        if (e->button() == Qt::RightButton) {
+            m_rightMouseLook = true;
+            m_mouseLook = true;
+            setCursor(Qt::BlankCursor);
+            setFocus(Qt::OtherFocusReason);
+            return;
+        }
+        if (e->button() == Qt::LeftButton && m_tool == Select) {
+            buildWorldMatrices();
+            int picked = -1;
+            if (pickObject(e->pos(), picked))
+                emit objectPicked(picked, e->modifiers());
+            else
+                emit objectPicked(-1, e->modifiers());
+            return;
+        }
+    }
+
     buildWorldMatrices();
+
+    if (e->button() == Qt::LeftButton) {
+        QVector3D groundPoint;
+        if (screenToGroundPoint(e->pos(), groundPoint)) {
+            m_spawnAnchor = groundPoint + QVector3D(0.0f, 1.72f, 0.0f);
+            m_hasSpawnAnchor = true;
+        }
+    }
 
     ViewPreset preset;
     if (e->button() == Qt::LeftButton && pickOrientationCube(e->pos(), preset)) {
@@ -1424,6 +1552,37 @@ void GLViewport::mousePressEvent(QMouseEvent *e)
 
 void GLViewport::mouseMoveEvent(QMouseEvent *e)
 {
+    if (m_walkMode && m_mouseLook) {
+        if (m_ctrlLookLock && m_cursorWarpInProgress) {
+            m_cursorWarpInProgress = false;
+            m_lastMouse = e->pos();
+            return;
+        }
+
+        QPoint delta;
+        if (m_ctrlLookLock) {
+            const QPoint center(width() / 2, height() / 2);
+            delta = e->pos() - center;
+            m_lastMouse = center;
+        } else {
+            delta = e->pos() - m_lastMouse;
+            m_lastMouse = e->pos();
+        }
+
+        // Natural FPS-style direction: mouse left turns camera left.
+        m_camYaw -= delta.x() * 0.25f;
+        m_camPitch -= delta.y() * 0.18f;
+        m_camPitch = qBound(-85.0f, m_camPitch, 85.0f);
+        update();
+
+        if (m_ctrlLookLock && isVisible()) {
+            const QPoint center(width() / 2, height() / 2);
+            m_cursorWarpInProgress = true;
+            QCursor::setPos(mapToGlobal(center));
+        }
+        return;
+    }
+
     QPoint delta = e->pos() - m_lastMouse;
     m_lastMouse = e->pos();
 
@@ -1510,6 +1669,16 @@ void GLViewport::mouseMoveEvent(QMouseEvent *e)
 
 void GLViewport::mouseReleaseEvent(QMouseEvent *)
 {
+    if (m_walkMode) {
+        m_rightMouseLook = false;
+        m_mouseLook = m_ctrlLookLock;
+        if (m_mouseLook)
+            setCursor(Qt::BlankCursor);
+        else
+            setCursor(Qt::CrossCursor);
+        return;
+    }
+
     m_rotating = false;
     m_panning = false;
     if (m_dragging || m_gizmoDragging)
@@ -1524,11 +1693,125 @@ void GLViewport::mouseReleaseEvent(QMouseEvent *)
 
 void GLViewport::wheelEvent(QWheelEvent *e)
 {
+    if (m_walkMode) {
+        const float delta = e->angleDelta().y();
+        if (delta > 0)
+            m_walkSpeed = qMin(14.0f, m_walkSpeed + 0.4f);
+        else if (delta < 0)
+            m_walkSpeed = qMax(1.2f, m_walkSpeed - 0.4f);
+        update();
+        return;
+    }
+
     m_camAnimTimer.stop();
     float d = e->angleDelta().y();
     m_camDist *= (d > 0) ? 0.9f : 1.1f;
     m_camDist = qBound(1.0f, m_camDist, 100.0f);
     update();
+}
+
+void GLViewport::keyPressEvent(QKeyEvent *e)
+{
+    if (e->isAutoRepeat()) {
+        QOpenGLWidget::keyPressEvent(e);
+        return;
+    }
+
+    if (e->key() == Qt::Key_F) {
+        setWalkMode(!m_walkMode);
+        e->accept();
+        return;
+    }
+
+    if (m_walkMode) {
+        if (e->key() == Qt::Key_Shift) {
+            m_ctrlLookLock = !m_ctrlLookLock;
+            m_mouseLook = (m_ctrlLookLock || m_rightMouseLook);
+            if (m_mouseLook)
+                setCursor(Qt::BlankCursor);
+            else
+                setCursor(Qt::CrossCursor);
+
+            if (m_ctrlLookLock && isVisible()) {
+                const QPoint center(width() / 2, height() / 2);
+                m_lastMouse = center;
+                m_cursorWarpInProgress = true;
+                QCursor::setPos(mapToGlobal(center));
+            }
+            update();
+            e->accept();
+            return;
+        }
+        m_pressedKeys.insert(e->key());
+        e->accept();
+        return;
+    }
+
+    QOpenGLWidget::keyPressEvent(e);
+}
+
+void GLViewport::keyReleaseEvent(QKeyEvent *e)
+{
+    if (e->isAutoRepeat()) {
+        QOpenGLWidget::keyReleaseEvent(e);
+        return;
+    }
+
+    if (m_walkMode) {
+        if (e->key() == Qt::Key_Shift) {
+            e->accept();
+            return;
+        }
+        m_pressedKeys.remove(e->key());
+        e->accept();
+        return;
+    }
+
+    QOpenGLWidget::keyReleaseEvent(e);
+}
+
+void GLViewport::updateWalkNavigation()
+{
+    if (!m_walkMode)
+        return;
+
+    const float dt = 0.016f;
+    const float yawRad = qDegreesToRadians(m_camYaw);
+    const float pitchRad = qDegreesToRadians(m_camPitch);
+
+    QVector3D forward(cosf(pitchRad) * sinf(yawRad),
+                      sinf(pitchRad),
+                      cosf(pitchRad) * cosf(yawRad));
+    forward.normalize();
+
+    QVector3D right = QVector3D::crossProduct(forward, QVector3D(0, 1, 0)).normalized();
+    QVector3D move(0, 0, 0);
+
+    if (m_pressedKeys.contains(Qt::Key_Z) || m_pressedKeys.contains(Qt::Key_W) || m_pressedKeys.contains(Qt::Key_Up))
+        move += QVector3D(forward.x(), 0.0f, forward.z()).normalized();
+    if (m_pressedKeys.contains(Qt::Key_S) || m_pressedKeys.contains(Qt::Key_Down))
+        move -= QVector3D(forward.x(), 0.0f, forward.z()).normalized();
+    if (m_pressedKeys.contains(Qt::Key_Q) || m_pressedKeys.contains(Qt::Key_A) || m_pressedKeys.contains(Qt::Key_Left))
+        move -= right;
+    if (m_pressedKeys.contains(Qt::Key_D) || m_pressedKeys.contains(Qt::Key_Right))
+        move += right;
+    if (m_pressedKeys.contains(Qt::Key_Space))
+        move += QVector3D(0, 1, 0);
+    if (m_pressedKeys.contains(Qt::Key_Control) || m_pressedKeys.contains(Qt::Key_C))
+        move -= QVector3D(0, 1, 0);
+
+    if (!qFuzzyIsNull(move.lengthSquared())) {
+        move.normalize();
+        const bool boost = m_pressedKeys.contains(Qt::Key_Alt);
+        const float speed = boost ? (m_walkSpeed * 1.8f) : m_walkSpeed;
+        m_freeCamPos += move * speed * dt;
+
+        // Keep the camera in a practical room-testing range.
+        m_freeCamPos.setY(qBound(0.6f, m_freeCamPos.y(), 8.0f));
+        m_freeCamPos.setX(qBound(-24.0f, m_freeCamPos.x(), 24.0f));
+        m_freeCamPos.setZ(qBound(-24.0f, m_freeCamPos.z(), 24.0f));
+        update();
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1625,6 +1908,10 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     m_boundsCheck->setStyleSheet("color: #F5E6C8; font-weight: bold;");
     tbRowTop->addWidget(m_boundsCheck);
 
+    auto *walkModeCheck = new QCheckBox("Walk Mode");
+    walkModeCheck->setStyleSheet("color: #F5E6C8; font-weight: bold;");
+    tbRowTop->addWidget(walkModeCheck);
+
     auto *shadeLabel = new QLabel("Shading");
     shadeLabel->setStyleSheet("color: #F5E6C8; font-weight: bold;");
     tbRowTop->addWidget(shadeLabel);
@@ -1671,7 +1958,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     vpLayout->addWidget(toolbar);
 
     // Help text
-    auto *helpLabel = new QLabel("Alt+Left: Orbit  |  Right: Pan  |  Scroll: Zoom  |  Left: Use Tool  |  Shift+Drag: Y-axis");
+    auto *helpLabel = new QLabel("Alt+Left: Orbit | Right: Pan | Scroll: Zoom | Click scene then Add/Preset to spawn there | Walk: ZQSD, Space up, Ctrl/C down, Shift toggles look lock, Alt boost");
     helpLabel->setStyleSheet("color: #999; font-size: 11px; padding: 2px 8px;");
     helpLabel->setAlignment(Qt::AlignCenter);
     vpLayout->addWidget(helpLabel);
@@ -1705,7 +1992,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     sideLayout->addWidget(addGroup);
 
     // ── Presets ──
-    auto *presetGroup = new QGroupBox("Furniture Presets");
+    auto *presetGroup = new QGroupBox("Furniture & Test Presets");
     presetGroup->setStyleSheet(kGroupStyle);
     auto *presetLayout = new QVBoxLayout(presetGroup);
     auto *presetRow1 = new QHBoxLayout;
@@ -1714,12 +2001,16 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     auto *btnTable    = new QPushButton("Table");
     auto *btnCabinet  = new QPushButton("Cabinet");
     auto *btnWardrobe = new QPushButton("Wardrobe");
-    for (auto *b : {btnChair, btnTable, btnCabinet, btnWardrobe})
+    auto *btnHouseOnly = new QPushButton("House (Empty)");
+    auto *btnSimRoom  = new QPushButton("House Sim Room");
+    for (auto *b : {btnChair, btnTable, btnCabinet, btnWardrobe, btnHouseOnly, btnSimRoom})
         b->setStyleSheet(kBtnStyle);
     presetRow1->addWidget(btnChair);
     presetRow1->addWidget(btnTable);
     presetRow2->addWidget(btnCabinet);
     presetRow2->addWidget(btnWardrobe);
+    presetLayout->addWidget(btnHouseOnly);
+    presetLayout->addWidget(btnSimRoom);
     presetLayout->addLayout(presetRow1);
     presetLayout->addLayout(presetRow2);
     sideLayout->addWidget(presetGroup);
@@ -1890,6 +2181,11 @@ ModelingWidget::ModelingWidget(QWidget *parent)
 
     connect(m_gridCheck, &QCheckBox::toggled, m_viewport, &GLViewport::setShowGrid);
     connect(m_boundsCheck, &QCheckBox::toggled, m_viewport, &GLViewport::setShowBounds);
+    connect(walkModeCheck, &QCheckBox::toggled, m_viewport, &GLViewport::setWalkMode);
+    connect(m_viewport, &GLViewport::walkModeChanged, this, [walkModeCheck](bool enabled) {
+        QSignalBlocker blocker(walkModeCheck);
+        walkModeCheck->setChecked(enabled);
+    });
     connect(m_shadingCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
         m_viewport->setShadingMode(static_cast<GLViewport::ShadingMode>(idx));
     });
@@ -1904,6 +2200,8 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     connect(btnTable,    &QPushButton::clicked, this, [this]() { loadPreset("Table"); });
     connect(btnCabinet,  &QPushButton::clicked, this, [this]() { loadPreset("Cabinet"); });
     connect(btnWardrobe, &QPushButton::clicked, this, [this]() { loadPreset("Wardrobe"); });
+    connect(btnHouseOnly,&QPushButton::clicked, this, [this]() { loadPreset("House"); });
+    connect(btnSimRoom,  &QPushButton::clicked, this, [this]() { loadPreset("HouseSimRoom"); });
 
     // Object list — handle both single and multi selection
     connect(m_objectList, &QListWidget::itemSelectionChanged, this, [this]() {
@@ -1972,8 +2270,15 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     auto *redoShortcut = new QShortcut(QKeySequence::Redo, this);
     redoShortcut->setKey(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Z));
     connect(redoShortcut, &QShortcut::activated, this, &ModelingWidget::onRedo);
+    auto *selectWholeShortcut = new QShortcut(QKeySequence::SelectAll, this);
+    connect(selectWholeShortcut, &QShortcut::activated, this, &ModelingWidget::selectWholeObjectFromCurrent);
 
     connect(m_viewport, &GLViewport::transformStarted, this, &ModelingWidget::pushUndoSnapshot);
+
+    // Keep first-load defaults predictable for embedded flows (e.g. order management).
+    m_gridCheck->setChecked(true);
+    m_viewport->setShowGrid(true);
+    m_viewport->setPresetView(GLViewport::ViewPreset::Perspective);
 }
 
 // ─── Add a single primitive ───
@@ -1982,11 +2287,19 @@ void ModelingWidget::addPrimitive(PrimitiveType type)
 {
     pushUndoSnapshot();
     static const char *names[] = {"Cube", "Cylinder", "Sphere", "Plane", "Cone", "Pyramid", "Capsule", "Torus"};
+    const int groupId = m_nextGroupId++;
     SceneObject obj;
     obj.type = type;
     obj.name = QString("%1_%2").arg(names[int(type)]).arg(m_nextId++);
-    obj.position = QVector3D(0, 0.5f, 0);
+    if (m_viewport->hasPlacementAnchor()) {
+        const QVector3D ground = m_viewport->placementAnchorGround();
+        const float lift = (type == PrimitiveType::Plane) ? 0.01f : 0.5f;
+        obj.position = ground + QVector3D(0.0f, lift, 0.0f);
+    } else {
+        obj.position = QVector3D(0, 0.5f, 0);
+    }
     obj.color = QColor(200, 160, 100);
+    obj.groupId = groupId;
     m_objects.append(obj);
     refreshObjectList();
     int row = rowFromObjectIndex(m_objects.size() - 1);
@@ -2097,11 +2410,13 @@ void ModelingWidget::saveScene()
         obj["color"]    = o.color.name();
         obj["visible"]  = o.visible;
         obj["parentIndex"] = o.parentIndex;
+        obj["groupId"] = o.groupId;
         arr.append(obj);
     }
     QJsonObject root;
     root["objects"] = arr;
     root["nextId"]  = m_nextId;
+    root["nextGroupId"] = m_nextGroupId;
 
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
@@ -2146,9 +2461,11 @@ void ModelingWidget::loadScene()
         obj.color    = QColor(o["color"].toString());
         obj.visible  = o["visible"].toBool(true);
         obj.parentIndex = o.contains("parentIndex") ? o["parentIndex"].toInt(-1) : -1;
+        obj.groupId = o.contains("groupId") ? o["groupId"].toInt(-1) : -1;
         m_objects.append(obj);
     }
     m_nextId = root["nextId"].toInt(m_objects.size() + 1);
+    m_nextGroupId = root["nextGroupId"].toInt(1);
 
     m_viewport->setSelectedIndex(-1);
     m_viewport->setSelectedIndices({});
@@ -2322,6 +2639,67 @@ void ModelingWidget::onRedo()
     applySnapshot(snap);
 }
 
+void ModelingWidget::selectWholeObjectFromCurrent()
+{
+    int idx = m_viewport->selectedIndex();
+    if ((idx < 0 || idx >= m_objects.size()) && m_objectList->currentRow() >= 0) {
+        idx = objectIndexFromRow(m_objectList->currentRow());
+    }
+    if (idx < 0 || idx >= m_objects.size()) return;
+
+    QList<int> indices;
+    const int groupId = m_objects[idx].groupId;
+    if (groupId >= 0) {
+        for (int i = 0; i < m_objects.size(); ++i) {
+            if (m_objects[i].groupId == groupId)
+                indices.append(i);
+        }
+    } else {
+        int root = idx;
+        while (root >= 0 && root < m_objects.size() && m_objects[root].parentIndex >= 0) {
+            root = m_objects[root].parentIndex;
+        }
+
+        auto isInRootSubtree = [&](int node) {
+            int cur = node;
+            QSet<int> visited;
+            while (cur >= 0 && cur < m_objects.size()) {
+                if (cur == root) return true;
+                if (visited.contains(cur)) break;
+                visited.insert(cur);
+                cur = m_objects[cur].parentIndex;
+            }
+            return false;
+        };
+
+        for (int i = 0; i < m_objects.size(); ++i) {
+            if (isInRootSubtree(i))
+                indices.append(i);
+        }
+    }
+
+    if (indices.isEmpty()) {
+        indices.append(idx);
+    }
+
+    m_objectList->clearSelection();
+    for (int objIndex : indices) {
+        int row = rowFromObjectIndex(objIndex);
+        if (row >= 0) {
+            if (auto *item = m_objectList->item(row))
+                item->setSelected(true);
+        }
+    }
+
+    int currentRow = rowFromObjectIndex(idx);
+    if (currentRow >= 0)
+        m_objectList->setCurrentRow(currentRow);
+
+    m_viewport->setSelectedIndex(idx);
+    m_viewport->setSelectedIndices(indices);
+    updatePropertyPanel();
+}
+
 void ModelingWidget::updatePropertyPanel()
 {
     int idx = m_viewport->selectedIndex();
@@ -2444,23 +2822,276 @@ void ModelingWidget::onParentChanged(int)
 
 void ModelingWidget::loadPreset(const QString &typeName)
 {
+    auto isFurniture = [&](const QString &t) {
+        return t == "Chair" || t == "Table" || t == "Cabinet" || t == "Wardrobe";
+    };
+    auto isHousePreset = [&](const QString &t) {
+        return t == "House" || t == "HouseShell" ||
+               t == "HouseSimRoom" || t == "Simulation Room" || t == "House Simulation Room";
+    };
+    auto sceneHasHouse = [&]() {
+        for (const SceneObject &o : m_objects) {
+            if (o.name.startsWith("House_")) return true;
+        }
+        return false;
+    };
+
     pushUndoSnapshot();
-    m_objects.clear();
-    m_nextId = 1;
+
+    const bool appendFurnitureIntoHouse = isFurniture(typeName) && sceneHasHouse();
+    const int oldCount = m_objects.size();
+    if (!appendFurnitureIntoHouse) {
+        m_objects.clear();
+        m_nextId = 1;
+    }
 
     if (typeName == "Chair")         buildPresetChair();
     else if (typeName == "Table")    buildPresetTable();
     else if (typeName == "Cabinet")  buildPresetCabinet();
     else if (typeName == "Wardrobe") buildPresetWardrobe();
+    else if (typeName == "House" || typeName == "HouseShell")
+        buildPresetHouseShell();
+    else if (typeName == "HouseSimRoom" ||
+             typeName == "Simulation Room" ||
+             typeName == "House Simulation Room")
+        buildPresetSimulationRoom();
+
+    if (appendFurnitureIntoHouse) {
+        if (m_viewport->hasPlacementAnchor() && oldCount < m_objects.size()) {
+            const QVector3D target = m_viewport->placementAnchorGround();
+            QVector3D center(0.0f, 0.0f, 0.0f);
+            float minY = FLT_MAX;
+            int count = 0;
+            for (int i = oldCount; i < m_objects.size(); ++i) {
+                center += m_objects[i].position;
+                minY = qMin(minY, m_objects[i].position.y());
+                ++count;
+            }
+            if (count > 0) {
+                center /= float(count);
+                const QVector3D offset(target.x() - center.x(), target.y() - minY, target.z() - center.z());
+                for (int i = oldCount; i < m_objects.size(); ++i)
+                    m_objects[i].position += offset;
+            }
+        } else {
+            const float offsetX = float((QRandomGenerator::global()->generateDouble() * 8.0) - 4.0);
+            const float offsetZ = float((QRandomGenerator::global()->generateDouble() * 6.0) - 3.0);
+            for (int i = oldCount; i < m_objects.size(); ++i) {
+                m_objects[i].position += QVector3D(offsetX, 0.0f, offsetZ);
+            }
+        }
+    }
 
     refreshObjectList();
     if (!m_objects.isEmpty())
         m_objectList->setCurrentRow(0);
-    m_viewport->resetCamera();
+
+    if (isHousePreset(typeName)) {
+        // Preserve the user's current camera and viewport toggles when loading house presets.
+        m_viewport->setPlacementAnchor(QVector3D(0.0f, 1.72f, 4.2f));
+    } else if (!appendFurnitureIntoHouse) {
+        m_viewport->resetCamera();
+    }
+}
+
+void ModelingWidget::buildPresetHouseShell()
+{
+    const int groupId = m_nextGroupId++;
+    const float roomW = 20.0f;
+    const float roomD = 14.0f;
+    const float wallH = 5.5f;
+    const float wallT = 0.26f;
+
+    const QColor wallA(194, 188, 180);
+    const QColor wallB(118, 110, 100);
+    const QColor floorA(84, 79, 74);
+    const QColor floorB(146, 138, 126);
+    const QColor trim(92, 71, 52);
+    const QColor glass(172, 210, 226);
+
+    auto addCube = [this, groupId](const QString &name, const QVector3D &pos, const QVector3D &scale, const QColor &color) {
+        SceneObject o;
+        o.type = PrimitiveType::Cube;
+        o.name = QString("House_%1_%2").arg(name).arg(m_nextId++);
+        o.position = pos;
+        o.scale = scale;
+        o.color = color;
+        o.groupId = groupId;
+        m_objects.append(o);
+    };
+
+    addCube("Foundation", {0.0f, -0.3f, 0.0f}, {roomW + 0.8f, 0.6f, roomD + 0.8f}, QColor(64, 61, 56));
+    addCube("Ceiling", {0.0f, wallH, 0.0f}, {roomW, 0.18f, roomD}, QColor(222, 216, 206));
+    addCube("BackWall", {0.0f, wallH / 2.0f, -roomD / 2.0f}, {roomW, wallH, wallT}, wallA);
+    addCube("LeftWall", {-roomW / 2.0f, wallH / 2.0f, 0.0f}, {wallT, wallH, roomD}, wallA);
+    addCube("RightWall", {roomW / 2.0f, wallH / 2.0f, 0.0f}, {wallT, wallH, roomD}, wallA);
+
+    const float doorW = 2.4f;
+    const float doorH = 3.1f;
+    const float sideWallW = (roomW - doorW) * 0.5f;
+    addCube("FrontWallL", {-(doorW * 0.5f + sideWallW * 0.5f), wallH * 0.5f, roomD * 0.5f}, {sideWallW, wallH, wallT}, wallA);
+    addCube("FrontWallR", {(doorW * 0.5f + sideWallW * 0.5f), wallH * 0.5f, roomD * 0.5f}, {sideWallW, wallH, wallT}, wallA);
+    addCube("FrontWallTop", {0.0f, doorH + (wallH - doorH) * 0.5f, roomD * 0.5f}, {doorW, wallH - doorH, wallT}, wallA);
+    addCube("DoorHeader", {0.0f, doorH + 0.08f, roomD * 0.5f - 0.03f}, {doorW + 0.24f, 0.10f, 0.10f}, trim);
+
+    const int tilesX = 10;
+    const int tilesZ = 7;
+    const float tileW = roomW / float(tilesX);
+    const float tileD = roomD / float(tilesZ);
+    for (int ix = 0; ix < tilesX; ++ix) {
+        for (int iz = 0; iz < tilesZ; ++iz) {
+            const float x = -roomW * 0.5f + tileW * (ix + 0.5f);
+            const float z = -roomD * 0.5f + tileD * (iz + 0.5f);
+            const QColor c = ((ix + iz) % 2 == 0) ? floorA : floorB;
+            addCube("FloorTile", {x, 0.02f, z}, {tileW - 0.04f, 0.04f, tileD - 0.04f}, c);
+        }
+    }
+
+    for (int ix = 0; ix < 8; ++ix) {
+        const float x = -roomW * 0.42f + ix * ((roomW * 0.84f) / 7.0f);
+        const QColor c = (ix % 2 == 0) ? wallB : wallA;
+        addCube("BackPanel", {x, 1.9f, -roomD * 0.5f + 0.01f}, {1.7f, 3.4f, 0.04f}, c);
+    }
+
+    const float winW = 8.6f;
+    const float winH = 2.3f;
+    addCube("WindowGlass", {3.9f, 2.7f, -roomD * 0.5f + 0.02f}, {winW, winH, 0.05f}, glass);
+    addCube("WindowFrameTop", {3.9f, 2.7f + winH * 0.5f, -roomD * 0.5f + 0.03f}, {winW + 0.18f, 0.08f, 0.10f}, trim);
+    addCube("WindowFrameBottom", {3.9f, 2.7f - winH * 0.5f, -roomD * 0.5f + 0.03f}, {winW + 0.18f, 0.08f, 0.10f}, trim);
+    for (int i = -4; i <= 4; ++i) {
+        addCube("WindowMullion", {3.9f + i * 0.95f, 2.7f, -roomD * 0.5f + 0.035f}, {0.06f, winH - 0.06f, 0.07f}, trim);
+    }
+
+    for (int side : {-1, 1}) {
+        addCube("ColumnA", {float(side) * (roomW * 0.5f - 1.4f), 2.75f, -1.8f}, {0.45f, 5.5f, 0.45f}, QColor(112, 104, 94));
+        addCube("ColumnB", {float(side) * (roomW * 0.5f - 1.4f), 2.75f, 2.0f}, {0.45f, 5.5f, 0.45f}, QColor(112, 104, 94));
+    }
+}
+
+void ModelingWidget::buildPresetSimulationRoom()
+{
+    const int groupId = m_nextGroupId++;
+    // Full interior room preset intended for immersive object testing.
+    const float roomW = 20.0f;
+    const float roomD = 14.0f;
+    const float wallH = 5.5f;
+    const float wallT = 0.26f;
+
+    const QColor wallA(194, 188, 180);
+    const QColor wallB(118, 110, 100);
+    const QColor floorA(84, 79, 74);
+    const QColor floorB(146, 138, 126);
+    const QColor trim(92, 71, 52);
+    const QColor glass(172, 210, 226);
+
+    auto addCube = [this, groupId](const QString &name, const QVector3D &pos, const QVector3D &scale, const QColor &color) {
+        SceneObject o;
+        o.type = PrimitiveType::Cube;
+        o.name = QString("House_%1_%2").arg(name).arg(m_nextId++);
+        o.position = pos;
+        o.scale = scale;
+        o.color = color;
+        o.groupId = groupId;
+        m_objects.append(o);
+    };
+
+    auto addCylinder = [this, groupId](const QString &name, const QVector3D &pos, const QVector3D &scale, const QColor &color) {
+        SceneObject o;
+        o.type = PrimitiveType::Cylinder;
+        o.name = QString("House_%1_%2").arg(name).arg(m_nextId++);
+        o.position = pos;
+        o.scale = scale;
+        o.color = color;
+        o.groupId = groupId;
+        m_objects.append(o);
+    };
+
+    // Structural shell.
+    addCube("Foundation", {0.0f, -0.3f, 0.0f}, {roomW + 0.8f, 0.6f, roomD + 0.8f}, QColor(64, 61, 56));
+    addCube("Ceiling", {0.0f, wallH, 0.0f}, {roomW, 0.18f, roomD}, QColor(222, 216, 206));
+    addCube("BackWall", {0.0f, wallH / 2.0f, -roomD / 2.0f}, {roomW, wallH, wallT}, wallA);
+    addCube("LeftWall", {-roomW / 2.0f, wallH / 2.0f, 0.0f}, {wallT, wallH, roomD}, wallA);
+    addCube("RightWall", {roomW / 2.0f, wallH / 2.0f, 0.0f}, {wallT, wallH, roomD}, wallA);
+
+    // Front wall with central opening.
+    const float doorW = 2.4f;
+    const float doorH = 3.1f;
+    const float sideWallW = (roomW - doorW) * 0.5f;
+    addCube("FrontWallL", {-(doorW * 0.5f + sideWallW * 0.5f), wallH * 0.5f, roomD * 0.5f}, {sideWallW, wallH, wallT}, wallA);
+    addCube("FrontWallR", {(doorW * 0.5f + sideWallW * 0.5f), wallH * 0.5f, roomD * 0.5f}, {sideWallW, wallH, wallT}, wallA);
+    addCube("FrontWallTop", {0.0f, doorH + (wallH - doorH) * 0.5f, roomD * 0.5f}, {doorW, wallH - doorH, wallT}, wallA);
+    addCube("DoorHeader", {0.0f, doorH + 0.08f, roomD * 0.5f - 0.03f}, {doorW + 0.24f, 0.10f, 0.10f}, trim);
+
+    // Checkered floor tiles.
+    const int tilesX = 10;
+    const int tilesZ = 7;
+    const float tileW = roomW / float(tilesX);
+    const float tileD = roomD / float(tilesZ);
+    for (int ix = 0; ix < tilesX; ++ix) {
+        for (int iz = 0; iz < tilesZ; ++iz) {
+            const float x = -roomW * 0.5f + tileW * (ix + 0.5f);
+            const float z = -roomD * 0.5f + tileD * (iz + 0.5f);
+            const QColor c = ((ix + iz) % 2 == 0) ? floorA : floorB;
+            addCube("FloorTile", {x, 0.02f, z}, {tileW - 0.04f, 0.04f, tileD - 0.04f}, c);
+        }
+    }
+
+    // Accent wall paneling to create a room-like atmosphere.
+    for (int ix = 0; ix < 8; ++ix) {
+        const float x = -roomW * 0.42f + ix * ((roomW * 0.84f) / 7.0f);
+        const QColor c = (ix % 2 == 0) ? wallB : wallA;
+        addCube("BackPanel", {x, 1.9f, -roomD * 0.5f + 0.01f}, {1.7f, 3.4f, 0.04f}, c);
+    }
+
+    // Large rear window with mullions.
+    const float winW = 8.6f;
+    const float winH = 2.3f;
+    addCube("WindowGlass", {3.9f, 2.7f, -roomD * 0.5f + 0.02f}, {winW, winH, 0.05f}, glass);
+    addCube("WindowFrameTop", {3.9f, 2.7f + winH * 0.5f, -roomD * 0.5f + 0.03f}, {winW + 0.18f, 0.08f, 0.10f}, trim);
+    addCube("WindowFrameBottom", {3.9f, 2.7f - winH * 0.5f, -roomD * 0.5f + 0.03f}, {winW + 0.18f, 0.08f, 0.10f}, trim);
+    for (int i = -4; i <= 4; ++i) {
+        addCube("WindowMullion", {3.9f + i * 0.95f, 2.7f, -roomD * 0.5f + 0.035f}, {0.06f, winH - 0.06f, 0.07f}, trim);
+    }
+
+    // Support columns.
+    for (int side : {-1, 1}) {
+        addCube("Column", {float(side) * (roomW * 0.5f - 1.4f), 2.75f, -1.8f}, {0.45f, 5.5f, 0.45f}, QColor(112, 104, 94));
+        addCube("Column", {float(side) * (roomW * 0.5f - 1.4f), 2.75f, 2.0f}, {0.45f, 5.5f, 0.45f}, QColor(112, 104, 94));
+    }
+
+    // Main test platform and target marker.
+    addCube("TestPlatform", {0.0f, 0.20f, 0.0f}, {5.4f, 0.4f, 5.4f}, QColor(137, 105, 70));
+    addCube("PlatformTrim", {0.0f, 0.44f, 0.0f}, {5.6f, 0.06f, 5.6f}, QColor(84, 60, 37));
+    addCylinder("CenterMarker", {0.0f, 0.72f, 0.0f}, {0.30f, 0.56f, 0.30f}, QColor(212, 158, 85));
+
+    // Demo props in room corners.
+    addCube("ShowTableTop", {-5.8f, 1.2f, 3.6f}, {2.2f, 0.18f, 1.4f}, QColor(154, 117, 76));
+    addCube("ShowTableLeg", {-6.6f, 0.6f, 3.0f}, {0.16f, 1.2f, 0.16f}, trim);
+    addCube("ShowTableLeg", {-5.0f, 0.6f, 3.0f}, {0.16f, 1.2f, 0.16f}, trim);
+    addCube("ShowTableLeg", {-6.6f, 0.6f, 4.2f}, {0.16f, 1.2f, 0.16f}, trim);
+    addCube("ShowTableLeg", {-5.0f, 0.6f, 4.2f}, {0.16f, 1.2f, 0.16f}, trim);
+
+    addCube("BenchSeat", {6.3f, 0.9f, 3.8f}, {2.4f, 0.2f, 0.9f}, QColor(149, 114, 78));
+    addCube("BenchBack", {6.3f, 1.5f, 3.45f}, {2.4f, 1.0f, 0.12f}, QColor(121, 90, 57));
+    addCylinder("BenchLeg", {5.4f, 0.45f, 3.5f}, {0.10f, 0.9f, 0.10f}, trim);
+    addCylinder("BenchLeg", {7.2f, 0.45f, 3.5f}, {0.10f, 0.9f, 0.10f}, trim);
+    addCylinder("BenchLeg", {5.4f, 0.45f, 4.1f}, {0.10f, 0.9f, 0.10f}, trim);
+    addCylinder("BenchLeg", {7.2f, 0.45f, 4.1f}, {0.10f, 0.9f, 0.10f}, trim);
+
+    addCube("StorageBody", {-8.3f, 1.6f, -2.8f}, {1.4f, 3.2f, 1.1f}, QColor(132, 98, 64));
+    addCube("StorageDoor", {-8.3f, 1.6f, -2.25f}, {1.25f, 3.0f, 0.06f}, QColor(158, 120, 76));
+    addCylinder("StorageHandle", {-8.0f, 1.6f, -2.18f}, {0.05f, 0.45f, 0.05f}, QColor(70, 54, 38));
+
+    // Ambient overhead lamps.
+    for (int i = -1; i <= 1; ++i) {
+        addCylinder("LampStem", {float(i) * 4.0f, 4.8f, -0.5f}, {0.05f, 0.40f, 0.05f}, QColor(60, 60, 62));
+        addCube("LampHead", {float(i) * 4.0f, 4.55f, -0.5f}, {0.85f, 0.18f, 0.85f}, QColor(236, 210, 150));
+    }
 }
 
 void ModelingWidget::buildPresetChair()
 {
+    const int groupId = m_nextGroupId++;
     QColor wood(139, 90, 43);
     QColor seat(180, 130, 70);
 
@@ -2471,6 +3102,7 @@ void ModelingWidget::buildPresetChair()
     s.position = {0, 1.8f, 0};
     s.scale = {2.0f, 0.2f, 2.0f};
     s.color = seat;
+    s.groupId = groupId;
     m_objects.append(s);
 
     // 4 legs
@@ -2482,6 +3114,7 @@ void ModelingWidget::buildPresetChair()
         leg.position = legPos[i];
         leg.scale = {0.15f, 1.7f, 0.15f};
         leg.color = wood;
+        leg.groupId = groupId;
         m_objects.append(leg);
     }
 
@@ -2492,6 +3125,7 @@ void ModelingWidget::buildPresetChair()
     back.position = {0, 3.0f, -0.9f};
     back.scale = {2.0f, 2.2f, 0.15f};
     back.color = wood;
+    back.groupId = groupId;
     m_objects.append(back);
 
     // Back support bars
@@ -2502,12 +3136,14 @@ void ModelingWidget::buildPresetChair()
         bar.position = {i * 0.4f, 2.5f, -0.85f};
         bar.scale = {0.08f, 1.4f, 0.08f};
         bar.color = QColor(110, 70, 35);
+        bar.groupId = groupId;
         m_objects.append(bar);
     }
 }
 
 void ModelingWidget::buildPresetTable()
 {
+    const int groupId = m_nextGroupId++;
     QColor wood(160, 110, 60);
     QColor darkWood(100, 65, 30);
 
@@ -2518,6 +3154,7 @@ void ModelingWidget::buildPresetTable()
     top.position = {0, 3.0f, 0};
     top.scale = {4.0f, 0.2f, 2.5f};
     top.color = wood;
+    top.groupId = groupId;
     m_objects.append(top);
 
     // 4 legs
@@ -2529,6 +3166,7 @@ void ModelingWidget::buildPresetTable()
         leg.position = legPos[i];
         leg.scale = {0.2f, 2.9f, 0.2f};
         leg.color = darkWood;
+        leg.groupId = groupId;
         m_objects.append(leg);
     }
 
@@ -2536,6 +3174,7 @@ void ModelingWidget::buildPresetTable()
 
 void ModelingWidget::buildPresetCabinet()
 {
+    const int groupId = m_nextGroupId++;
     QColor body(130, 95, 50);
     QColor door(160, 120, 70);
     QColor handle(80, 60, 30);
@@ -2547,6 +3186,7 @@ void ModelingWidget::buildPresetCabinet()
     b.position = {0, 2.0f, 0};
     b.scale = {3.0f, 3.8f, 1.5f};
     b.color = body;
+    b.groupId = groupId;
     m_objects.append(b);
 
     // Shelves
@@ -2557,6 +3197,7 @@ void ModelingWidget::buildPresetCabinet()
         shelf.position = {0, 0.8f + i * 1.3f, 0};
         shelf.scale = {2.8f, 0.1f, 1.3f};
         shelf.color = QColor(150, 110, 60);
+        shelf.groupId = groupId;
         m_objects.append(shelf);
     }
 
@@ -2568,6 +3209,7 @@ void ModelingWidget::buildPresetCabinet()
         h.position = {side * 0.3f, 2.0f, 0.78f};
         h.scale = {0.06f, 0.6f, 0.06f};
         h.color = handle;
+        h.groupId = groupId;
         m_objects.append(h);
     }
 
@@ -2578,11 +3220,13 @@ void ModelingWidget::buildPresetCabinet()
     tp.position = {0, 3.95f, 0};
     tp.scale = {3.2f, 0.12f, 1.6f};
     tp.color = QColor(110, 80, 40);
+    tp.groupId = groupId;
     m_objects.append(tp);
 }
 
 void ModelingWidget::buildPresetWardrobe()
 {
+    const int groupId = m_nextGroupId++;
     QColor body(120, 85, 45);
     QColor door(140, 100, 55);
     QColor accent(90, 65, 30);
@@ -2594,6 +3238,7 @@ void ModelingWidget::buildPresetWardrobe()
     b.position = {0, 3.0f, 0};
     b.scale = {3.5f, 6.0f, 1.8f};
     b.color = body;
+    b.groupId = groupId;
     m_objects.append(b);
 
     // Left door
@@ -2603,6 +3248,7 @@ void ModelingWidget::buildPresetWardrobe()
     ld.position = {-0.85f, 3.0f, 0.91f};
     ld.scale = {1.7f, 5.8f, 0.08f};
     ld.color = door;
+    ld.groupId = groupId;
     m_objects.append(ld);
 
     // Right door
@@ -2612,6 +3258,7 @@ void ModelingWidget::buildPresetWardrobe()
     rd.position = {0.85f, 3.0f, 0.91f};
     rd.scale = {1.7f, 5.8f, 0.08f};
     rd.color = door;
+    rd.groupId = groupId;
     m_objects.append(rd);
 
     // Handles
@@ -2622,6 +3269,7 @@ void ModelingWidget::buildPresetWardrobe()
         h.position = {side * 0.15f, 3.0f, 0.96f};
         h.scale = {0.06f, 0.8f, 0.06f};
         h.color = accent;
+        h.groupId = groupId;
         m_objects.append(h);
     }
 
@@ -2632,6 +3280,7 @@ void ModelingWidget::buildPresetWardrobe()
     crown.position = {0, 6.05f, 0};
     crown.scale = {3.7f, 0.15f, 1.9f};
     crown.color = accent;
+    crown.groupId = groupId;
     m_objects.append(crown);
 
     // Base
@@ -2641,6 +3290,7 @@ void ModelingWidget::buildPresetWardrobe()
     base.position = {0, 0.08f, 0};
     base.scale = {3.6f, 0.15f, 1.85f};
     base.color = accent;
+    base.groupId = groupId;
     m_objects.append(base);
 
     // Feet
@@ -2652,6 +3302,7 @@ void ModelingWidget::buildPresetWardrobe()
             foot.position = {x * 1.5f, -0.05f, z * 0.7f};
             foot.scale = {0.2f, 0.15f, 0.2f};
             foot.color = accent;
+            foot.groupId = groupId;
             m_objects.append(foot);
         }
     }

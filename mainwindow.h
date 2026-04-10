@@ -436,6 +436,11 @@ private slots:
 private:
     Ui::MainWindow *ui;
 
+    void setupOrderCatalogResolutionTabs();
+    void configureOrderCatalogTable(QTableWidget *table);
+    bool populateOrderCatalogTable(QTableWidget *table, const QString &searchText, bool resolvedOnly);
+    void markOrderAsPaid(int orderId);
+
     void retranslateDynamicRadios(QWidget *container);
     void setTabTextTr(QTabWidget *tabWidget, QWidget *tabPage, const QString &key);
     void retranslateDynamicWidgets(QWidget *container);
@@ -456,6 +461,9 @@ private:
     QWidget *equipmentPage;
     QWidget *orderPage;
     QWidget *supplierPage;
+    QTabWidget *m_orderCatalogStatusTabs = nullptr;
+    QTableWidget *m_orderCatalogUnresolvedTable = nullptr;
+    QTableWidget *m_orderCatalogResolvedTable = nullptr;
 
     LoginWindow *loginWindow;
     HomeWindow *homeWindow;
