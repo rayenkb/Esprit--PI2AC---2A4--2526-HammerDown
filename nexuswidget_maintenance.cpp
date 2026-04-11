@@ -1007,6 +1007,7 @@ void MaintenanceOrganismWidget::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void MaintenanceOrganismWidget::mousePressEvent(QMouseEvent *event) {
+    Q_UNUSED(event);
     // Organism clicked
 }
 

@@ -110,7 +110,6 @@ void KnowledgeGraphWidget::loadData() {
 void KnowledgeGraphWidget::buildGraph() {
     m_nodes.clear();
     m_edges.clear();
-    qreal cx = width() / 2.0, cy = height() / 2.0;
 
     // Equipment nodes
     for (const auto &eq : m_equipment) {
