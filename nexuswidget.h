@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <QSlider>
 #include <QComboBox>
+#include <QLineEdit>
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -32,8 +33,12 @@
 #include <QDateEdit>
 #include <QTextEdit>
 #include <QCheckBox>
+#include <QProgressBar>
 #include <QRandomGenerator>
 #include <cmath>
+
+class QLineEdit;
+class NexusGroqClient;
 
 // ============================================================================
 // DATA STRUCTURES
@@ -294,11 +299,204 @@ private:
     void analyzeConsequences(); void displayResults(const ConsequenceResult&);
 };
 
+class AiForgeWidget : public QWidget {
+    Q_OBJECT
+public:
+    explicit AiForgeWidget(QWidget *parent = nullptr);
+    void setGroqClient(NexusGroqClient *client) { m_groqClient = client; }
+    void startEntrance();
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private slots:
+    void onTick();
+    void onSend();
+    void onGroqResponse(const QString &text);
+
+private:
+    enum Mode { Advisor = 0, DeepAnalysis = 1, DailyBrief = 2 };
+    struct ActivityRow {
+        QString equipment;
+        QString action;
+        QString at;
+        QColor color;
+    };
+
+    struct Msg {
+        bool user = false;
+        bool thinking = false;
+        QString text;
+        int shownChars = 0;
+        QDateTime ts;
+        int dataPoints = 0;
+        int cps = 55;
+        QWidget *rowWidget = nullptr;
+        QLabel *bodyLabel = nullptr;
+        QLabel *thinkingDotsLabel = nullptr;
+        QLabel *thinkingCaptionLabel = nullptr;
+    };
+
+    QWidget *m_leftPanel = nullptr;
+    QWidget *m_centerPanel = nullptr;
+    QWidget *m_rightPanel = nullptr;
+    QLabel *m_statusLabel = nullptr;
+    QFrame *m_healthBox = nullptr;
+    QFrame *m_equipmentBox = nullptr;
+    QFrame *m_alertBox = nullptr;
+    QFrame *m_totalValueBox = nullptr;
+    QLabel *m_healthValue = nullptr;
+    QLabel *m_equipmentValue = nullptr;
+    QLabel *m_alertValue = nullptr;
+    QLabel *m_totalValueValue = nullptr;
+    QLabel *m_contextStatus = nullptr;
+    QWidget *m_recentHost = nullptr;
+    QVBoxLayout *m_recentLayout = nullptr;
+    QWidget *m_messagesHost = nullptr;
+    QVBoxLayout *m_messagesLayout = nullptr;
+    QScrollArea *m_messagesScroll = nullptr;
+    QLineEdit *m_input = nullptr;
+    QPushButton *m_sendBtn = nullptr;
+    QPushButton *m_modeAdvisorBtn = nullptr;
+    QPushButton *m_modeDeepBtn = nullptr;
+    QPushButton *m_modeBriefBtn = nullptr;
+    QPushButton *m_quickFixBtn = nullptr;
+    QPushButton *m_quickHealthBtn = nullptr;
+    QPushButton *m_quickRoiBtn = nullptr;
+    QPushButton *m_quickActionBtn = nullptr;
+    QPushButton *m_clearBtn = nullptr;
+
+    QTimer *m_tickTimer = nullptr;
+    QTimer *m_typingTimer = nullptr;
+    QTimer *m_thinkingTimer = nullptr;
+    NexusGroqClient *m_groqClient = nullptr;
+    QList<Msg> m_msgs;
+    Mode m_mode = Advisor;
+    float m_globalTime = 0.0f;
+    float m_entrance = 0.0f;
+    bool m_waitingForAi = false;
+
+    int m_equipmentCount = 0;
+    int m_historyCount = 0;
+    int m_activeAlerts = 0;
+    int m_availableCount = 0;
+    int m_inUseCount = 0;
+    int m_maintenanceCount = 0;
+    double m_totalValue = 0.0;
+    double m_totalValueDisplay = 0.0;
+    int m_healthScore = 0;
+    int m_dataPoints = 0;
+    QStringList m_equipmentNames;
+    QList<ActivityRow> m_recentActivity;
+    QString m_cachedSmartContext;
+    QString m_urgentMaintenanceEquipment;
+    int m_urgentMaintenanceDays = 0;
+    QString m_pendingQuestion;
+    QString m_activeQuestion;
+    bool m_dbRefreshInFlight = false;
+    bool m_dbRefreshQueued = false;
+    int m_thinkingPhase = -1;
+    int m_typingMessageIndex = -1;
+    int m_thinkingAnimPhase = 0;
+
+    void buildUi();
+    void refreshStatsFromDb();
+    void rebuildRecentActivity();
+    QString buildSmartContext() const;
+    QString buildSystemPrompt() const;
+    QString buildUserPrompt(const QString &question) const;
+    QString buildFallbackResponse(const QString &reason, const QString &question = QString()) const;
+    QString formatAiRichText(const QString &text) const;
+    void addUserMessage(const QString &text);
+    void addThinkingMessage();
+    void resolveThinkingMessage(const QString &text);
+    void removeThinkingMessage();
+    void appendMessageWidget(int index);
+    void clearMessageWidgets();
+    void rebuildMessageWidgets();
+    void startTypewriterForLastMessage();
+    void updateTypingFrame();
+    void updateThinkingFrame();
+    void scrollMessagesToBottom();
+    void sendQuestion(const QString &question);
+    void setMode(Mode mode);
+    void updateModeButtons();
+    void updateInteractiveState();
+    void updateStatsAnimation();
+};
+
+class ParallelFuturesWidget : public QWidget {
+    Q_OBJECT
+public:
+    explicit ParallelFuturesWidget(QWidget *parent = nullptr);
+    void setGroqClient(NexusGroqClient *client) { m_groqClient = client; }
+    void bindEngine(InferenceEngine *engine);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private slots:
+    void onTick();
+    void onGenerate();
+    void onGroqDebateResponse(const QString &text);
+
+private:
+    struct FutureScenario {
+        QString name;
+        QString posture;
+        int cost = 0;
+        int downtime = 0;
+        int risk = 0;
+        int health = 0;
+        QString narrative;
+    };
+
+    InferenceEngine *m_engine = nullptr;
+    NexusGroqClient *m_groqClient = nullptr;
+    QTimer *m_tickTimer = nullptr;
+
+    QWidget *m_leftPanel = nullptr;
+    QWidget *m_centerPanel = nullptr;
+    QWidget *m_rightPanel = nullptr;
+    QLineEdit *m_questionInput = nullptr;
+    QComboBox *m_horizonCombo = nullptr;
+    QPushButton *m_generateBtn = nullptr;
+    QPushButton *m_randomizeBtn = nullptr;
+    QLabel *m_healthChip = nullptr;
+    QLabel *m_assetsChip = nullptr;
+    QLabel *m_maintenanceChip = nullptr;
+    QLabel *m_valueChip = nullptr;
+    QScrollArea *m_cardsScroll = nullptr;
+    QWidget *m_cardsHost = nullptr;
+    QVBoxLayout *m_cardsLayout = nullptr;
+    QTextEdit *m_debateView = nullptr;
+    QLabel *m_verdictLabel = nullptr;
+    QLabel *m_statusLabel = nullptr;
+
+    QList<FutureScenario> m_scenarios;
+    QString m_lastQuestion;
+    int m_equipmentCount = 0;
+    int m_maintenanceCount = 0;
+    int m_activeAlerts = 0;
+    int m_healthScore = 0;
+    double m_totalValue = 0.0;
+    float m_phase = 0.0f;
+    bool m_loading = false;
+
+    void buildUi();
+    void refreshMetrics();
+    void rebuildScenarioCards();
+    QList<FutureScenario> buildScenarios(const QString &question) const;
+    QString buildDebatePrompt() const;
+    QString buildLocalDebate() const;
+    void setLoadingState(bool loading);
+};
+
 class NexusGroqClient : public QObject {
     Q_OBJECT
 public:
     explicit NexusGroqClient(QObject *parent = nullptr);
-    void setApiKey(const QString &key) { m_apiKey = key; }
+    void setApiKey(const QString &key) { m_apiKey = key.trimmed(); }
     void sendPrompt(const QString &sys, const QString &usr, QObject* rc, const char* sl);
 private:
     QString m_apiKey; QNetworkAccessManager *m_network;
@@ -320,7 +518,7 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 private:
     QStackedWidget *m_stack; QList<QPushButton*> m_tabButtons; QLabel *m_statusBar; QTimer *m_loadingTimer; int m_loadingPhase; qreal m_loadingProgress; bool m_isLoaded;
-    KnowledgeGraphWidget *m_graphWidget; TimeMachineWidget *m_timeMachine; InferenceDisplayWidget *m_inferenceDisplay; IntelligenceReportWidget *m_reportWidget; PatternArchaeologyWidget *m_archaeologyWidget; DecisionMapperWidget *m_decisionMapper; MaintenanceOrganismWidget *m_maintenanceWidget;
+    KnowledgeGraphWidget *m_graphWidget; TimeMachineWidget *m_timeMachine; InferenceDisplayWidget *m_inferenceDisplay; IntelligenceReportWidget *m_reportWidget; PatternArchaeologyWidget *m_archaeologyWidget; DecisionMapperWidget *m_decisionMapper; MaintenanceOrganismWidget *m_maintenanceWidget; AiForgeWidget *m_aiForgeWidget; ParallelFuturesWidget *m_parallelFuturesWidget;
     InferenceEngine *m_engine; QString m_groqApiKey; QNetworkAccessManager *m_networkManager; NexusGroqClient *m_groqClient;
     void switchTab(int index); void runLoadingAnimation(); void updateStatusBar(); void callGroq(const QString &prompt, std::function<void(QString)> callback);
 };
