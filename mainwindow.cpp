@@ -1115,6 +1115,13 @@ private:
 
 
 namespace {
+constexpr qreal kHomeOstmVolumeScale = 0.40;
+
+qreal homeOstmVolume(qreal baseVolume)
+{
+    return qBound<qreal>(0.0, baseVolume * kHomeOstmVolumeScale, 1.5);
+}
+
 QString trKey(const QString &key)
 {
     return QCoreApplication::translate("QObject", key.toUtf8().constData());
@@ -2076,9 +2083,9 @@ MainWindow::MainWindow(QWidget *parent)
     homeAudioPlayer = new QMediaPlayer(this);
     homeAudioOutput = new QAudioOutput(this);
     homeAudioPlayer->setAudioOutput(homeAudioOutput);
-    homeAudioPlayer->setSource(QUrl("qrc:/assets/ost2.mp3"));
-    homeAudioPlayer->setLoops(1); // Play once
-    homeAudioOutput->setVolume(currentVolume);
+    homeAudioPlayer->setSource(QUrl("qrc:/assets/ostm.mp3"));
+    homeAudioPlayer->setLoops(1); // Play once each time user enters Home
+    homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
     
     // Initialize audio player for tutorial (help buttons) - only ost4
     tutorialLoopAudioPlayer = new QMediaPlayer(this);
@@ -2438,7 +2445,7 @@ void MainWindow::setAudioVolume(qreal volume)
         homeWindow->setVolume(currentVolume);
     }
     if (homeAudioOutput) {
-        homeAudioOutput->setVolume(currentVolume);
+        homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
     }
     if (tutorialLoopAudioOutput) {
         tutorialLoopAudioOutput->setVolume(currentVolume);
@@ -2575,14 +2582,6 @@ void MainWindow::on_btn_home_clicked()
     uncheckHelpButton(orderPage, "btn_help");
     uncheckHelpButton(orderPage, "btn_help_qr");
     
-    // Stop OST1 immediately and start OST2 when coming from a management page
-    int prevIndex = ui->stackedWidget->currentIndex();
-    if (prevIndex >= 2 && prevIndex <= 6) {
-        loginAudioPlayer->stop();
-        homeAudioOutput->setVolume(currentVolume);
-        homeAudioPlayer->setPosition(0);
-        homeAudioPlayer->play();
-    }
     ui->stackedWidget->setCurrentIndex(1); 
 }
 
@@ -7874,15 +7873,25 @@ void MainWindow::onPageChanged(int index)
 {
     // --- Background Music Logic ---
     if (index == 1) {
-        // Home page: stop OST1 only — OST2 is started by on_btn_home_clicked when coming from management
+        // Home page: stop OST1 and ensure OSTM is active (covers login -> home and module -> home)
         if (loginAudioPlayer && loginAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
             fadeOut(loginAudioOutput, [this](){ loginAudioPlayer->stop(); });
+        }
+
+        if (homeAudioPlayer) {
+            homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
+            homeAudioPlayer->setPosition(0);
+            homeAudioPlayer->play();
         }
     } else {
         // All other pages: stop home-page audio (OST2 + animation track)
         homeWindow->stopHomeAudio();
         if (homeAudioPlayer && homeAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
-            fadeOut(homeAudioOutput, [this](){ homeAudioPlayer->stop(); });
+            fadeOut(homeAudioOutput, [this](){
+                if (ui && ui->stackedWidget && ui->stackedWidget->currentIndex() != 1) {
+                    homeAudioPlayer->stop();
+                }
+            });
         }
         if (chatAudioPlayer && chatAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
             fadeOut(chatAudioOutput, [this](){ chatAudioPlayer->stop(); });

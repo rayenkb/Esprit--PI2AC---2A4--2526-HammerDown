@@ -52,6 +52,7 @@ set(PROJECT_SOURCES
     supplier_management.ui
     equipment_management.ui
     resources.qrc
+    sounds.qrc
 )
 
 include_directories(${OpenCV_INCLUDE_DIRS})
