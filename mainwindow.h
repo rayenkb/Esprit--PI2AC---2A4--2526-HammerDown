@@ -18,6 +18,9 @@
 #include <QMouseEvent>
 #include <QTabWidget>
 #include <QMediaPlayer>
+#include <QPropertyAnimation>
+#include <QGraphicsOpacityEffect>
+#include <QDesktopServices>
 #include <QAudioOutput>
 #include <QCamera>
 #include <QMediaCaptureSession>
@@ -369,6 +372,7 @@ private slots:
     void onSupplierSearch();
     void onSupplierRefreshView();
     void onSupplierSendSMS();
+    void triggerPhoneAnimation(const QString &smsContent, const QString &phone);
     void onSupplierUploadImage();
     
     // Supplier Map
@@ -379,6 +383,9 @@ private slots:
     void loadSupplierMapPins();
     void onSupplierBellClicked();
     void checkAndPostSupplierNotifications();
+    void checkWorkshopStockAndNotifyAI();
+    QString gatherSupplierContextForAi(const QString &materialType);
+
     
     // Delivery rating system
     void onSupplierEnsureReviewsTable();
@@ -642,6 +649,8 @@ private:
     QNetworkAccessManager *chatSummaryNetManager = nullptr;
     QNetworkAccessManager *aiNetworkManager = nullptr;
     QString aiApiKey;
+    bool m_aiScanInProgress = false;
+
 
     // Client Management Dynamic UIs
     QTableView *m_clientCyberTable = nullptr;

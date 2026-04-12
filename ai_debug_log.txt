@@ -1,0 +1,18 @@
+[AI] --- Triggered checkWorkshopStockAndNotifyAI ---
+[AI] Starting workshop stock scan...
+[AI] Low stock detected: Tool-Kofov (2)
+[AI] Item Tool-Kofov is not in material heuristic list. Skipping.
+[AI] Low stock detected: Oak Wood Planks (2)
+[AI] Gathering context and calling model for Oak Wood Planks
+[AI] Scan finished.
+[AI Callback] Model response received for Oak Wood Planks: RECOMMENDED: Tech Supplies Tunis. Reason: Tech Supplies Tunis has the highest rating (5.0/5) and the...
+[AI Callback] ERROR: qSupp query failed or no active suppliers found. [Microsoft][ODBC Driver Manager] Function sequence error, S1010 QODBC: Unable to execute statement
+[AI] --- Triggered checkWorkshopStockAndNotifyAI ---
+[AI] Starting workshop stock scan...
+[AI] Low stock detected: Tool-Kofov (2)
+[AI] Item Tool-Kofov is not in material heuristic list. Skipping.
+[AI] Low stock detected: Oak Wood Planks (2)
+[AI] Gathering context and calling model for Oak Wood Planks
+[AI] Scan finished.
+[AI Callback] Model response received for Oak Wood Planks: RECOMMENDED: Tech Supplies Tunis. Reason: Tech Supplies Tunis has the highest rating (5.0/5) and the...
+[AI Callback] ERROR: qSupp query failed or no active suppliers found. [Microsoft][ODBC Driver Manager] Function sequence error, S1010 QODBC: Unable to execute statement

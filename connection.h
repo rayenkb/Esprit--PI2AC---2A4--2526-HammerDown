@@ -12,9 +12,9 @@ static bool createConnection()
     QSqlDatabase db = QSqlDatabase::addDatabase("QOCI");
     db.setHostName("localhost");
     db.setPort(1521);
-    db.setDatabaseName("Source_Projet2A");
-    db.setUserName("skrrt");
-    db.setPassword("exprix");
+    db.setDatabaseName("XE");
+    db.setUserName("amine");
+    db.setPassword("amine14");
 
     if (!db.open()) {
         qDebug() << "QOCI driver failed, trying ODBC...";
@@ -24,19 +24,19 @@ static bool createConnection()
         db = QSqlDatabase::addDatabase("QODBC");
         
         // Option A: Use TNS name (if configured in tnsnames.ora)
-        db.setDatabaseName("Source_Projet2A");
+        db.setDatabaseName("amine");
         
         /* Option B: Full connection string (uncomment if Option A doesn't work)
         db.setDatabaseName(
             "DRIVER={Oracle in OraClient12Home1};"
-            "DBQ=localhost:1521/Source_Projet2A;"
-            "UID=skrrt;"
-            "PWD=exprix;"
+            "DBQ=localhost:1521/XE;"
+            "UID=amine;"
+            "PWD=amine14;"
         );
         */
         
-        db.setUserName("skrrt");
-        db.setPassword("exprix");
+        db.setUserName("amine");
+        db.setPassword("amine14");
         
         if (!db.open()) {
             qDebug() << "Database connection failed!";
