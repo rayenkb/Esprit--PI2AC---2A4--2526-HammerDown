@@ -66,16 +66,19 @@ static QByteArray buildMimeMessage(const QString &from, const QString &to,
             "----=_Part_" + QUuid::createUuid().toString(QUuid::WithoutBraces)
                                 .remove('-').toUtf8();
 
-        msg += "From: " + from.toUtf8() + "\r\n";
+        QString brandedFrom = "rayenkabar780@gmail.com";
+        QString fancyFrom = "\"HammerDownAssociation\" <" + brandedFrom + ">";
+        msg += "From: " + fancyFrom.toUtf8() + "\r\n";
         msg += "To: " + to.toUtf8() + "\r\n";
         msg += "Subject: " + subject.toUtf8() + "\r\n";
         msg += "MIME-Version: 1.0\r\n";
         msg += "Content-Type: multipart/mixed; boundary=\"" + boundary + "\"\r\n";
         msg += "\r\n";
 
-        // --- text/plain part ---
+        // --- text/html part ---
         msg += "--" + boundary + "\r\n";
-        msg += "Content-Type: text/plain; charset=UTF-8\r\n";
+        bool isHtml = body.contains("<html", Qt::CaseInsensitive) || body.contains("<body", Qt::CaseInsensitive);
+        msg += "Content-Type: " + QByteArray(isHtml ? "text/html" : "text/plain") + "; charset=UTF-8\r\n";
         msg += "Content-Transfer-Encoding: 8bit\r\n";
         msg += "\r\n";
         msg += body.toUtf8() + "\r\n";
@@ -100,12 +103,16 @@ static QByteArray buildMimeMessage(const QString &from, const QString &to,
         }
         msg += "--" + boundary + "--\r\n";
     } else {
-        // simple text/plain
-        msg += "From: " + from.toUtf8() + "\r\n";
+        // simple text or html
+        QString brandedFrom = "rayenkabar780@gmail.com";
+        QString fancyFrom = "\"HammerDownAssociation\" <" + brandedFrom + ">";
+        bool isHtml = body.contains("<html", Qt::CaseInsensitive) || body.contains("<body", Qt::CaseInsensitive);
+        
+        msg += "From: " + fancyFrom.toUtf8() + "\r\n";
         msg += "To: " + to.toUtf8() + "\r\n";
         msg += "Subject: " + subject.toUtf8() + "\r\n";
         msg += "MIME-Version: 1.0\r\n";
-        msg += "Content-Type: text/plain; charset=UTF-8\r\n";
+        msg += "Content-Type: " + QByteArray(isHtml ? "text/html" : "text/plain") + "; charset=UTF-8\r\n";
         msg += "Content-Transfer-Encoding: 8bit\r\n";
         msg += "\r\n";
         msg += body.toUtf8() + "\r\n";

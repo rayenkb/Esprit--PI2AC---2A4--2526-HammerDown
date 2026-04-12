@@ -888,10 +888,11 @@ void AiForgeWidget::buildUi() {
     m_messagesScroll->setWidgetResizable(true);
     m_messagesScroll->setFrameShape(QFrame::NoFrame);
     m_messagesScroll->setStyleSheet(
-        "QScrollArea{background:transparent;border:none;}"
-        "QScrollBar:vertical{width:5px;background:transparent;}"
-        "QScrollBar::handle:vertical{background:rgba(193,127,62,102);border-radius:2px;}"
-        "QScrollBar::handle:vertical:hover{background:rgba(193,127,62,178);}"
+        "QScrollArea{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 rgba(13,8,5,0.8),stop:1 rgba(30,18,8,0.8));border:1px solid rgba(193,127,62,30);border-radius:12px;}"
+        "QScrollBar:vertical{width:6px;background:rgba(13,8,5,0.5);border-radius:3px;}"
+        "QScrollBar::handle:vertical{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #C17F3E,stop:1 #D4AF37);border-radius:3px;min-height:20px;}"
+        "QScrollBar::handle:vertical:hover{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #D4AF37,stop:1 #F59E0B);box-shadow:0px 0px 8px rgba(212,175,55,0.6);}"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{height:0px;}"
     );
     m_messagesHost = new QWidget(m_messagesScroll);
     m_messagesLayout = new QVBoxLayout(m_messagesHost);
@@ -904,8 +905,11 @@ void AiForgeWidget::buildUi() {
     QFrame *inputFrame = new QFrame(m_centerPanel);
     inputFrame->setFixedHeight(72);
     inputFrame->setStyleSheet(
-        "QFrame{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #1E1208,stop:1 #0D0805);"
-        "border-top:2px solid rgba(193,127,62,128);border-radius:10px;}"
+        "QFrame{"
+        "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 rgba(30,18,8,0.95),stop:0.5 rgba(21,13,6,0.98),stop:1 rgba(13,8,5,0.95));"
+        "border:2px solid rgba(193,127,62,60);border-radius:18px;"
+        "box-shadow:0px 4px 20px rgba(0,0,0,0.4), inset 0px 1px 0px rgba(255,255,255,0.1);"
+        "}"
     );
     QHBoxLayout *inputLay = new QHBoxLayout(inputFrame);
     inputLay->setContentsMargins(16, 12, 16, 12);
@@ -914,22 +918,41 @@ void AiForgeWidget::buildUi() {
     m_input = new QLineEdit(inputFrame);
     m_input->setPlaceholderText("Ask anything about your workshop...");
     m_input->setStyleSheet(
-        "QLineEdit{background:#0D0805;color:#F5E6D3;border:2px solid rgba(193,127,62,38);border-radius:23px;padding:0 14px;font-size:13px;}"
-        "QLineEdit:focus{border:2px solid rgba(193,127,62,166);}"
-        "QLineEdit:disabled{color:rgba(245,230,211,128);background:#120D08;}"
+        "QLineEdit{"
+        "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 rgba(13,8,5,0.9),stop:1 rgba(21,13,6,0.9));"
+        "color:#F5E6D3;border:2px solid rgba(193,127,62,45);border-radius:23px;"
+        "padding:0 14px;font-size:13px;selection-background-color:rgba(193,127,62,120);"
+        "box-shadow:inset 0px 2px 8px rgba(0,0,0,0.3), 0px 1px 0px rgba(255,255,255,0.1);"
+        "}"
+        "QLineEdit:focus{"
+        "border:2px solid rgba(212,175,55,180);"
+        "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 rgba(21,13,6,0.95),stop:1 rgba(30,18,8,0.95));"
+        "box-shadow:inset 0px 2px 8px rgba(0,0,0,0.4), 0px 0px 12px rgba(212,175,55,0.3);"
+        "}"
+        "QLineEdit:disabled{color:rgba(245,230,211,128);background:rgba(18,13,8,0.7);}"
     );
 
-    m_sendBtn = new QPushButton("Send  →", inputFrame);
+    m_sendBtn = new QPushButton("Send  -->", inputFrame);
     m_sendBtn->setFixedSize(100, 46);
     m_sendBtn->setCursor(Qt::PointingHandCursor);
     m_sendBtn->setStyleSheet(
-        "QPushButton{color:#FFFFFF;font-weight:800;font-size:13px;border-radius:23px;"
-        "border-top:1px solid rgba(255,176,96,153);border-bottom:1px solid rgba(106,48,16,204);"
-        "border-left:1px solid #8B4A1E;border-right:1px solid #8B4A1E;"
-        "background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #E8914A,stop:.5 #C17F3E,stop:1 #8B4A1E);}"
-        "QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #F5A45A,stop:.5 #CF8A44,stop:1 #965126);padding-left:2px;}"
-        "QPushButton:pressed{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #B66F38,stop:1 #7A3F1B);}"
-        "QPushButton:disabled{color:rgba(245,230,211,128);background:#5A4030;border:1px solid #5A4030;}"
+        "QPushButton{"
+        "color:#FFFFFF;font-weight:800;font-size:13px;border-radius:23px;"
+        "border:2px solid rgba(193,127,62,80);"
+        "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 rgba(232,145,74,0.95),stop:0.3 rgba(193,127,62,0.98),stop:0.7 rgba(139,74,30,0.98),stop:1 rgba(107,68,35,0.95));"
+        "box-shadow:0px 4px 15px rgba(0,0,0,0.4), inset 0px 1px 0px rgba(255,255,255,0.2), inset 0px -1px 0px rgba(0,0,0,0.3);"
+        "}"
+        "QPushButton:hover{"
+        "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 rgba(245,158,11,0.95),stop:0.3 rgba(232,145,74,0.98),stop:0.7 rgba(193,127,62,0.98),stop:1 rgba(139,74,30,0.95));"
+        "border:2px solid rgba(212,175,55,120);"
+        "box-shadow:0px 6px 20px rgba(245,158,11,0.4), inset 0px 1px 0px rgba(255,255,255,0.3), inset 0px -1px 0px rgba(0,0,0,0.2);"
+        "}"
+        "QPushButton:pressed{"
+        "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 rgba(160,130,90,0.95),stop:0.3 rgba(139,111,71,0.98),stop:0.7 rgba(107,68,35,0.98),stop:1 rgba(85,52,19,0.95));"
+        "border:2px solid rgba(139,111,71,150);"
+        "box-shadow:inset 0px 2px 8px rgba(0,0,0,0.5), 0px 1px 0px rgba(255,255,255,0.1);"
+        "}"
+        "QPushButton:disabled{background:rgba(107,68,35,0.7);color:rgba(160,130,90,0.7);border:2px solid rgba(139,111,71,50);}"
     );
 
     inputLay->addWidget(m_input, 1);
@@ -3527,9 +3550,9 @@ void NexusGroqClient::sendPrompt(const QString &sys, const QString &usr, QObject
         }
 
         if (!delivered) {
-            qWarning() << "NexusGroqClient callback delivery failed. Slot:" << slotName;
+            qWarning() << "Groq response delivery failed for" << rc << slotName;
         }
-
         rep->deleteLater();
     });
 }
+

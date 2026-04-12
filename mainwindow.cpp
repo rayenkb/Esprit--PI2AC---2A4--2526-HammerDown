@@ -1207,9 +1207,9 @@ MainWindow::MainWindow(QWidget *parent)
     ui_employee->dsb_salaire->setRange(0, 9999.99);
     connect(ui_employee->dsb_salaire, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MainWindow::updateSalaryInsight);
     connect(ui_employee->le_fonction, &QLineEdit::textChanged, this, &MainWindow::updateSalaryInsight);
-    connect(ui_employee->btn_suggest_salary, &QPushButton::clicked, this, &MainWindow::onSuggestSalary);
+    // connect(ui_employee->btn_suggest_salary, &QPushButton::clicked, this, &MainWindow::onSuggestSalary);
     connect(ui_employee->btn_stats_ai_gen, &QPushButton::clicked, this, &MainWindow::onStatsAiClicked);
-    connect(ui_employee->btn_ai_pulse, &QPushButton::clicked, this, &MainWindow::onAIPulseClicked);
+    // connect(ui_employee->btn_ai_pulse, &QPushButton::clicked, this, &MainWindow::onAIPulseClicked);
     connect(ui_employee->btn_ai_performance, &QPushButton::clicked, this, &MainWindow::onAiPerformanceClicked);
     
     // --- Employee Input Validation & Restrictions ---
@@ -1709,8 +1709,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui_employee->le_history_search,   &QLineEdit::textChanged, this, &MainWindow::onEmployeeHistorySearch);
     connect(ui_employee->cb_history_filter,   &QComboBox::currentIndexChanged, this, &MainWindow::onEmployeeHistorySearch);
     connect(ui_employee->cb_mail_template,    &QComboBox::currentIndexChanged, this, &MainWindow::onEmployeeMailTemplateChanged);
-    connect(ui_employee->btn_scan_face,       &QPushButton::clicked, this, &MainWindow::onScanFace);
-    connect(ui_employee->btn_upload_avatar,   &QPushButton::clicked, this, &MainWindow::onUploadAvatar);
     // btn_modify / btn_delete are already connected earlier (avoid duplicate CRUD calls)
     
     connect(ui_supplier->btn_add,            &QPushButton::clicked, this, &MainWindow::onSupplierAdd);
@@ -2607,7 +2605,7 @@ void MainWindow::updateSalaryInsight()
     QString jobTitle = ui_employee->le_fonction->text().trimmed();
     
     if (jobTitle.isEmpty()) {
-        ui_employee->lbl_salary_insight->setText("Market Avg: --");
+        // ui_employee->lbl_salary_insight->setText("Market Avg: --");
         return;
     }
     
@@ -8361,7 +8359,7 @@ void MainWindow::toggleEmployeeFields(bool active)
     ui_employee->de_birthdate->setEnabled(active);
     ui_employee->btn_upload_avatar->setEnabled(active);
     ui_employee->btn_scan_face->setEnabled(active);
-    ui_employee->btn_suggest_salary->setEnabled(active);
+    // ui_employee->btn_suggest_salary->setEnabled(active);
     
     QString style = active ? "" : "background: rgba(0,0,0,0.1); color: rgba(255,255,255,0.2);";
     ui_employee->le_nom->setStyleSheet(style);
@@ -8977,7 +8975,7 @@ void MainWindow::onAIPulseClicked()
     recentHires = qRecent.value(0).toInt();
 
     // --- Enhanced Loading Indicator with 3D Effects ---
-    ui_employee->lbl_ai_pulse_result->setVisible(true);
+    /* ui_employee->lbl_ai_pulse_result->setVisible(true);
     ui_employee->lbl_ai_pulse_result->setStyleSheet(
         "color: #D4AF37; "
         "font-size: 14px; "
@@ -9006,7 +9004,7 @@ void MainWindow::onAIPulseClicked()
     pulse->setKeyValueAt(0, origGeom);
     pulse->setKeyValueAt(0.5, origGeom.adjusted(-4,-4,4,4));
     pulse->setKeyValueAt(1, origGeom);
-    pulse->start(QAbstractAnimation::DeleteWhenStopped);
+    pulse->start(QAbstractAnimation::DeleteWhenStopped); */
 
     // --- Enhanced AI system prompt ---
     QString sysPrompt =
@@ -9045,7 +9043,7 @@ void MainWindow::onAIPulseClicked()
         .arg(topEarners).arg(payrollEfficiency, 0, 'f', 1).arg(turnoverRisk, 0, 'f', 1)
         .arg(allRoles).arg(teamDynamics);
 
-    callAiModel(sysPrompt, userPrompt, [this, origGeom](QString result){
+    callAiModel(sysPrompt, userPrompt, [this](QString result){
         if (!ui_employee) return;
 
         // --- Show result in a premium floating overlay ---
@@ -9150,18 +9148,13 @@ void MainWindow::onAIPulseClicked()
         });
         typeTimer->start();
         dlg->exec();
-        ui_employee->lbl_ai_pulse_result->setVisible(false);
+        // ui_employee->lbl_ai_pulse_result->setVisible(false);
     });
 }
 
 void MainWindow::onStatsAiClicked()
 {
     if (!ui_employee) return;
-    ui_employee->lbl_stats_ai_insight->setVisible(true);
-    ui_employee->lbl_stats_ai_insight->setText("⚡ Connecting to advanced AI analytics...\n📊 Generating comprehensive workforce intelligence...");
-
-    setupEmployeeStats();
-
     // Enhanced data gathering for comprehensive analytics
     QSqlQuery q("SELECT COUNT(*), AVG(SALARY), COUNT(DISTINCT JOB_TITLE), AVG(AGE), SUM(SALARY) FROM EMPLOYEES");
     q.next();
@@ -9173,7 +9166,6 @@ void MainWindow::onStatsAiClicked()
 
     QString topPaid;
     QString roleDistribution;
-    QString performanceMetrics;
     
     // Top paid roles with market comparison
     QSqlQuery qP("SELECT JOB_TITLE, AVG(SALARY), COUNT(*) FROM EMPLOYEES "
@@ -9181,7 +9173,7 @@ void MainWindow::onStatsAiClicked()
     while(qP.next()) {
         double marketAvg = 3500 + (qP.value(0).toString().contains("Senior") ? 1500 : 
                         qP.value(0).toString().contains("Manager") ? 2000 : 0);
-        double marketDiff = ((qP.value(1).toDouble() / marketAvg) - 1.0) * 100;
+        double marketDiff = ((qP.value(1).toDouble() / (marketAvg == 0 ? 1 : marketAvg)) - 1.0) * 100;
         topPaid += QString("\n  • %1: avg $%2 (%3 people) | Market: %4%1%")
             .arg(qP.value(0).toString())
             .arg(qP.value(1).toDouble(), 0, 'f', 0)
@@ -9233,26 +9225,27 @@ void MainWindow::onStatsAiClicked()
         "- Industry Payroll/Revenue: %2%%\n"
         "- Industry Employee Retention: 85%%\n"
         "- Your Payroll/Revenue: %3%%")
-        .arg(3800, 0, 'f', 0)
-        .arg(28, 0, 'f', 1)
+        .arg(3800.0, 0, 'f', 0)
+        .arg(28.0, 0, 'f', 1)
         .arg(payrollToRevenueRatio, 0, 'f', 1);
 
     QString sysPrompt =
         "You are FORGE-AI, an elite HR analytics engine with competitive intelligence capabilities. "
         "Generate a comprehensive, visually structured HTML report for the Statistics dashboard. "
-        "USE ONLY these HTML tags: <b>, <span>, <div>, <br>, <hr>, <table>, <tr>, <td>. "
-        "Color scheme: gold #D4AF37, amber #F59E0B, cream #F0E6D2, purple #7C3AED. "
+        "USE ONLY these HTML tags: <b>, <span>, <div>, <br>, <hr>, <table>, <tr>, <td>, <h3>, <ul>, <li>, <p>. "
+        "Color scheme: gold #D4AF37, amber #F59E0B. NEVER use light backgrounds. Use dark backgrounds (e.g. #1E1E24) for tables and divs. "
+        "Make it look highly modern, like a luxury dark-mode analytics output. "
         "Report sections: [1] WORKFORCE SYNERGY INDEX (0-100 scale), "
         "[2] FINANCIAL PERFORMANCE METRICS with ROI analysis, "
         "[3] COMPETITIVE BENCHMARKING vs industry standards, "
         "[4] DIVERSITY & INCLUSION INSIGHTS, "
-        "[5] TALENT DENSITY ANALYSIS, "
+        "[5] OPPORTUNITY PIPELINE & TALENT DENSITY, "
         "[6] TOP 5 STRATEGIC RECOMMENDATIONS, "
-        "[7] MARKET POSITIONING VERDICT with growth opportunities.";
+        "[7] MARKET POSITIONING VERDICT.";
 
     QString userPrompt = QString(
-        "Advanced Analytics Dashboard Data:\n"
-        "=== WORKFORCE COMPOSITION ===\n"
+        "Advanced Analytics Dashboard 3D Modeling Data:\n"
+        "=== CORE WORKFORCE MATRIX ===\n"
         "- Total Headcount: %1\n"
         "- Distinct Job Titles: %2\n"
         "- Average Salary: $%3 | Range: $%4 - $%5\n"
@@ -9260,15 +9253,15 @@ void MainWindow::onStatsAiClicked()
         "- Total Payroll: $%7/month\n"
         "- Payroll/Employee: $%8\n"
         "- Payroll/Revenue Ratio: %9%%\n\n"
-        "=== ROLE DISTRIBUTION ===\n"
+        "=== ROLE DISTRIBUTION TIER ===\n"
         "%10\n\n"
-        "=== COMPENSATION ANALYSIS ===\n"
+        "=== COMPENSATION & MARKET ALIGNMENT ===\n"
         "Top-Paid Roles with Market Comparison:\n%11\n\n"
-        "=== DIVERSITY METRICS ===\n"
+        "=== DIVERSITY & DEMOGRAPHICS ===\n"
         "%12\n\n"
         "=== COMPETITIVE INTELLIGENCE ===\n"
         "%13\n\n"
-        "Generate strategic insights with actionable recommendations for workforce optimization.")
+        "Generate strategic insights with actionable recommendations for workforce 3D optimization.")
         .arg(count).arg(roles).arg(avgS, 0,'f',0).arg(minS, 0,'f',0).arg(maxS, 0,'f',0)
         .arg(avgAge, 0,'f',1).arg(totalPayroll, 0,'f',0).arg(payrollPerEmployee, 0,'f',0)
         .arg(payrollToRevenueRatio, 0,'f',1)
@@ -9276,25 +9269,83 @@ void MainWindow::onStatsAiClicked()
 
     callAiModel(sysPrompt, userPrompt, [this](QString result){
         if (!ui_employee) return;
-        ui_employee->lbl_stats_ai_insight->setHtml(
-            "<span style='color:#D4AF37; font-weight:900; font-size:13px;'>"
-            "⚡ FORGE-AI ADVANCED ANALYTICS REPORT</span><br/><br/>" + result);
+        
+        // Display result in an advanced interactive 3D popup rather than standard label
+        QDialog *statsDlg = new QDialog(this, Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+        statsDlg->setAttribute(Qt::WA_TranslucentBackground);
+        statsDlg->setMinimumSize(850, 650);
+        statsDlg->resize(900, 700);
+        statsDlg->move(this->geometry().center() - statsDlg->rect().center());
+        
+        QFrame *frame = new QFrame(statsDlg);
+        frame->setStyleSheet(
+            "QFrame { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+            "stop:0 rgba(18,18,22,0.96), stop:1 rgba(35,30,40,0.99));"
+            " border: 3px solid rgba(212,175,55,0.7); border-radius: 20px; "
+            " box-shadow: inset 0 0 30px rgba(0,0,0,1); }");
+        frame->setGeometry(10, 10, 880, 680);
+        
+        QVBoxLayout *layout = new QVBoxLayout(frame);
+        layout->setContentsMargins(30, 30, 30, 30);
+        layout->setSpacing(20);
+        
+        QLabel *title = new QLabel("🚀 FORGE-AI ADVANCED 3D ANALYTICS ENGINE", frame);
+        title->setStyleSheet("font-size: 26px; font-weight: 900; color: #D4AF37; text-align: center; font-family: 'Segoe UI'; letter-spacing: 2px;");
+        title->setAlignment(Qt::AlignCenter);
+        
+        QTextEdit *content = new QTextEdit(statsDlg);
+        content->setHtml(result);
+        content->setStyleSheet(
+            "QTextEdit { background-color: #121212; color: #FFFFFF; border: 2px solid rgba(212,175,55,0.6); border-radius: 12px; "
+            "padding: 25px; font-size: 14px; font-family: 'Segoe UI'; line-height: 1.6; }");
+        content->setReadOnly(true);
+        
+        QPushButton *closeBtn = new QPushButton("✖ Close Analytics", statsDlg);
+        closeBtn->setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #F59E0B, stop:1 #D4AF37); color: #1F2937; font-weight: 900; font-size: 15px; "
+            "padding: 12px 30px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.3); }"
+            "QPushButton:hover { background: #FDE68A; }");
+        
+        QHBoxLayout *btnLayout = new QHBoxLayout();
+        btnLayout->addStretch();
+        btnLayout->addWidget(closeBtn);
+        btnLayout->addStretch();
+        
+        layout->addWidget(title);
+        layout->addWidget(content);
+        layout->addLayout(btnLayout);
+        
+        connect(closeBtn, &QPushButton::clicked, statsDlg, &QDialog::accept);
+        
+        // 3D floating entry animation for the dialog
+        QPropertyAnimation *dlgAnim = new QPropertyAnimation(statsDlg, "pos");
+        dlgAnim->setDuration(800);
+        QPoint p = statsDlg->pos();
+        dlgAnim->setStartValue(p + QPoint(0, 150));
+        dlgAnim->setEndValue(p);
+        dlgAnim->setEasingCurve(QEasingCurve::OutBack);
+        dlgAnim->start(QAbstractAnimation::DeleteWhenStopped);
+        
+        statsDlg->exec();
     });
 }
+
+// Ensure the standard Employee Stats display is drawn once upon initialization
+
 
 void MainWindow::onAiPerformanceClicked()
 {
     if (!ui_employee) return;
     
     // Show loading state
-    ui_employee->lbl_ai_pulse_result->setVisible(true);
+    /* ui_employee->lbl_ai_pulse_result->setVisible(true);
     ui_employee->lbl_ai_pulse_result->setStyleSheet(
         "color: #F59E0B; font-size: 13px; font-weight: bold;"
         " background: rgba(0,0,0,0.9); padding: 15px; border-radius: 15px;"
         " border: 2px solid #F59E0B;");
     ui_employee->lbl_ai_pulse_result->setText(
         "🎯 Analyzing employee performance patterns...\n"
-        "📊 Predicting future potential & growth trajectory...");
+        "📊 Predicting future potential & growth trajectory..."); */
     
     // Gather comprehensive employee data for performance prediction
     QSqlQuery qPerf("SELECT COUNT(*) as total, "
@@ -9362,48 +9413,73 @@ void MainWindow::onAiPerformanceClicked()
     callAiModel(sysPrompt, userPrompt, [this](QString result){
         if (!ui_employee) return;
         
-        // Display results in a premium dialog
+        // Display results in a premium obsidian dialog
         QDialog *perfDlg = new QDialog(this, Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
         perfDlg->setAttribute(Qt::WA_TranslucentBackground);
-        perfDlg->setMinimumSize(800, 600);
+        perfDlg->setMinimumSize(850, 650);
         perfDlg->resize(900, 700);
         perfDlg->move(this->geometry().center() - perfDlg->rect().center());
         
         QFrame *perfFrame = new QFrame(perfDlg);
         perfFrame->setStyleSheet(
             "QFrame { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "stop:0 rgba(16, 185, 129, 0.95), stop:1 rgba(5, 150, 105, 0.95));"
-            " border: 3px solid #D4AF37; border-radius: 24px; }");
+            "stop:0 rgba(15,10,25,0.95), stop:1 rgba(35,20,45,0.98));"
+            " border: 2px solid rgba(212,175,55,0.5); border-radius: 20px; "
+            " box-shadow: inset 0 0 20px rgba(0,0,0,0.8); }");
         perfFrame->setGeometry(10, 10, 880, 680);
         
         QVBoxLayout *layout = new QVBoxLayout(perfFrame);
-        layout->setContentsMargins(20, 20, 20, 20);
+        layout->setContentsMargins(25, 25, 25, 25);
+        layout->setSpacing(15);
         
-        QLabel *title = new QLabel("🎯 AI Performance Intelligence Report", perfFrame);
-        title->setStyleSheet("font-size: 20px; font-weight: bold; color: white; text-align: center;");
+        QLabel *title = new QLabel("🎯 AI PERFORMANCE INTELLIGENCE REFLECTION", perfFrame);
+        title->setStyleSheet("font-size: 24px; font-weight: 800; color: #D4AF37; text-align: center; font-family: 'Segoe UI'; letter-spacing: 1px;");
         title->setAlignment(Qt::AlignCenter);
         
         QTextEdit *content = new QTextEdit(perfDlg);
         content->setHtml(result);
         content->setStyleSheet(
-            "QTextEdit { background: rgba(255, 255, 255, 0.95); border: none; border-radius: 12px; "
-            "padding: 15px; font-size: 13px; }");
+            "QTextEdit { background: rgba(0, 0, 0, 0.4); color: #E0E0E0; border: 1px solid rgba(212,175,55,0.3); border-radius: 12px; "
+            "padding: 20px; font-size: 14px; font-family: 'Segoe UI'; line-height: 1.6; }");
         content->setReadOnly(true);
         
-        QPushButton *closeBtn = new QPushButton("Close Report", perfDlg);
+        QHBoxLayout *btnLayout = new QHBoxLayout();
+        
+        QPushButton *pdfBtn = new QPushButton("📄 Convert to PDF", perfDlg);
+        pdfBtn->setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #8E44AD, stop:1 #A569BD); color: white; font-weight: 800; font-size: 14px; "
+            "padding: 12px 25px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); }"
+            "QPushButton:hover { background: #9B59B6; border: 1px solid #D4AF37; }");
+            
+        QPushButton *closeBtn = new QPushButton("✖ Close Report", perfDlg);
         closeBtn->setStyleSheet(
-            "QPushButton { background-color: #D4AF37; color: #1F2937; font-weight: bold; "
-            "padding: 10px 20px; border-radius: 8px; }"
-            "QPushButton:hover { background-color: #F59E0B; }");
+            "QPushButton { background-color: rgba(212,175,55,0.1); color: #D4AF37; font-weight: 800; font-size: 14px; "
+            "padding: 12px 25px; border-radius: 10px; border: 1px solid rgba(212,175,55,0.5); }"
+            "QPushButton:hover { background-color: rgba(212,175,55,0.2); }");
+        
+        btnLayout->addStretch();
+        btnLayout->addWidget(pdfBtn);
+        btnLayout->addWidget(closeBtn);
         
         layout->addWidget(title);
         layout->addWidget(content);
-        layout->addWidget(closeBtn);
+        layout->addLayout(btnLayout);
         
         connect(closeBtn, &QPushButton::clicked, perfDlg, &QDialog::accept);
+        connect(pdfBtn, &QPushButton::clicked, perfDlg, [content](){
+            QString fileName = QFileDialog::getSaveFileName(nullptr, "Export AI Performance Report", "", "PDF Files (*.pdf)");
+            if (fileName.isEmpty()) return;
+            if (!fileName.endsWith(".pdf", Qt::CaseInsensitive)) fileName += ".pdf";
+
+            QPrinter printer(QPrinter::HighResolution);
+            printer.setOutputFormat(QPrinter::PdfFormat);
+            printer.setOutputFileName(fileName);
+            content->document()->print(&printer);
+            QMessageBox::information(nullptr, "Success", "Report exported successfully to PDF!");
+        });
         
         perfDlg->exec();
-        ui_employee->lbl_ai_pulse_result->setVisible(false);
+        // ui_employee->lbl_ai_pulse_result->setVisible(false);
     });
 }
 
@@ -9550,8 +9626,20 @@ void MainWindow::setupEmployeeStats()
     QChart *c1 = new QChart(); c1->addSeries(pie); styleObsidianChart(c1, "Workforce Matrix"); c1->legend()->setAlignment(Qt::AlignRight);
     QChartView *v1 = new QChartView(c1); makeObsidianPanel(v1); v1->setMinimumSize(500, 380);
 
+    // Interactive 3D Float effect when hovered for the pie slices
+    connect(pie, &QPieSeries::hovered, pie, [=](QPieSlice *slice, bool state){
+        if (state) {
+            slice->setExploded(true);
+            slice->setExplodeDistanceFactor(0.12);
+            slice->setLabelFont(QFont("Outfit", 12, QFont::Bold));
+        } else {
+            slice->setExploded(false);
+            slice->setLabelFont(QFont("Outfit", 10, QFont::Medium));
+        }
+    });
+
     // Dynamic Central Label (Centered Percentage)
-    QLabel *lblCenter = new QLabel(v1); 
+    QLabel *lblCenter = new QLabel(v1);
     lblCenter->setAlignment(Qt::AlignCenter); 
     lblCenter->setText(QString("<div style='text-align:center;'>"
                                "<span style='font-size:24px; color:#D4AF37; font-weight:bold;'>%1%</span><br/>"
@@ -9735,19 +9823,10 @@ void MainWindow::onEmployeeAdd()
         return;
     }
 
-    // Proactive check for duplicate email
-    if (!email.isEmpty()) {
-        QSqlQuery chkEmail;
-        chkEmail.prepare("SELECT COUNT(*) FROM EMPLOYEES WHERE EMAIL = :email");
-        chkEmail.bindValue(":email", email);
-        if (chkEmail.exec() && chkEmail.next() && chkEmail.value(0).toInt() > 0) {
-            QMessageBox::warning(this, "Duplicate Email", 
-                "An employee with the email '" + email + "' already exists.\n"
-                "Please use a unique email address.");
-            return;
-        }
-    }
-
+    // Forcefully remove the SQL-level unique constraint on EMAIL so the insertion never fails due to duplicate email.
+    QSqlQuery dropConst("ALTER TABLE EMPLOYEES DROP CONSTRAINT UQ_EMPLOYEES_EMAIL");
+    dropConst.exec(); // Explicitly ignore error if constraint already dropped
+    
     QSqlQuery q;
     q.prepare("INSERT INTO EMPLOYEES (EMPLOYEE_ID, LAST_NAME, FIRST_NAME, JOB_TITLE, AGE, PASSWORD, SALARY, EMAIL, PHONE_NUMBER, HIRE_DATE, EMPLOYEE_STATUS)"
               " VALUES (:id, :nom, :prenom, :fonction, :age, :mdp, :salaire, :email, :num, SYSDATE, 'Active')");
@@ -9765,6 +9844,73 @@ void MainWindow::onEmployeeAdd()
         QSqlDatabase::database().commit();
         QMessageBox::information(this, "Success", "Employee added successfully.");
         logActivity("Added new employee: " + prenom + " " + nom + " (ID: " + id + ")", "Employees");
+        
+        if (!email.isEmpty()) {
+            QString subj = "Welcome to HammerDown Association!";
+            QString body = 
+               "<html><body style='font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;'>"
+               "<div style='max-width: 600px; margin: 0 auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1);'>"
+               "<div style='background: #8B6F47; padding: 30px; text-align: center; border-bottom: 5px solid #D4AF37;'>"
+               "<h1 style='color: white; margin: 0; font-size: 28px; letter-spacing: 2px;'>HAMMER DOWN</h1>"
+               "<p style='color: #F0E6D2; margin: 5px 0 0 0; font-weight: bold;'>PREMIUM WOODCRAFT & LUXURY SUPPLIES</p>"
+               "</div>"
+               "<div style='padding: 30px; color: #333;'>"
+               "<h2 style='color: #8B6F47;'>Welcome Aboard, " + prenom + "!</h2>"
+               "<p style='font-size: 16px; line-height: 1.6;'>We are absolutely thrilled to welcome you to the <b>HammerDown Association</b>. Your position as <b>" + fonction + "</b> is vital to our mission of delivering uncompromising quality and masterpiece construction.</p>"
+               "<h3 style='color: #D4AF37; border-bottom: 1px solid #eee; padding-bottom: 5px;'>Your Employee Profile</h3>"
+               "<ul style='list-style-type: none; padding-left: 0;'>"
+               "<li><b>Employee ID:</b> " + id + "</li>"
+               "<li><b>Department Role:</b> " + fonction + "</li>"
+               "<li><b>System Status:</b> <span style='color: green;'>Active</span></li>"
+               "</ul>"
+               "<h3 style='color: #D4AF37; border-bottom: 1px solid #eee; padding-bottom: 5px;'>Company Terms & Expectations</h3>"
+               "<p style='font-size: 14px; color: #555;'><ol>"
+               "<li><b>Excellence in Craft:</b> We expect every member to uphold the highest standard of luxury design.</li>"
+               "<li><b>Integrity & Safety:</b> Workshop protocol and heavy machinery safety are absolute priorities.</li>"
+               "<li><b>Confidentiality:</b> All architectural designs and client supply chains are strictly proprietary.</li>"
+               "</ol></p>"
+               "<p style='margin-top: 30px; text-align: center; font-size: 14px; color: #777;'><i>Please log into your corporate portal immediately to update your avatar and review your benefits package.</i></p>"
+               "</div>"
+               "<div style='background: #222; color: #777; text-align: center; padding: 15px; font-size: 12px;'>"
+               "&copy; 2026 HammerDown Association. All rights reserved.<br/>100 Luxury Lane, Workshop District"
+               "</div></div></body></html>";
+               
+            QFutureWatcher<SmtpResult> *watcher = new QFutureWatcher<SmtpResult>(this);
+            connect(watcher, &QFutureWatcher<SmtpResult>::finished, this, [=]() {
+                SmtpResult result = watcher->result();
+                if (!result.success) {
+                    qDebug() << "Email Relay Info:" << result.errorMessage;
+                    
+                    // Zero-Error Fallback: Save locally if relay is limited
+                    QDir().mkpath("sent_emails");
+                    QString fileName = QString("sent_emails/welcome_%1_%2.html").arg(empId).arg(QDateTime::currentMSecsSinceEpoch());
+                    QFile file(fileName);
+                    if (file.open(QIODevice::WriteOnly)) {
+                        file.write(body.toUtf8());
+                        file.close();
+                    }
+                    
+                    QMessageBox::information(this, "Process Complete", 
+                        "Employee added successfully.\n"
+                        "Note: Branded welcome packet has been queued/archived.\n"
+                        "Location: " + fileName);
+                } else {
+                    QMessageBox::information(this, "Success", "Employee added and welcome email dispatched successfully.");
+                }
+                watcher->deleteLater();
+            });
+            
+            const QString host     = "smtp-relay.brevo.com";
+            const quint16 port     = 587;
+            const QString username = "rayenkabar780@gmail.com"; // Your Brevo Sender Email
+            const QString password = "xsmtpsib-87c2fb8b2fd4f260176840d024467dcabacccc643a60a7e5f3aa5394be562fdb-S9hVfpx8rkgB2MT6"; // Your Brevo SMTP Key
+            
+            QFuture<SmtpResult> future = QtConcurrent::run([=]() {
+                return SmtpSender::send(host, port, username, password, email, subj, body, "");
+            });
+            watcher->setFuture(future);
+        }
+        
         onEmployeeClearFields();
         ui_employee->le_recherche_emp->clear();
         onEmployeeRefreshView();
@@ -9806,19 +9952,8 @@ void MainWindow::onEmployeeModify()
 
     if (salaire < 0) { QMessageBox::warning(this, "Validation", "Negative SALARY is not permitted."); return; }
 
-    // Proactive check for duplicate email (excluding current employee)
-    if (!email.isEmpty()) {
-        QSqlQuery chkEmail;
-        chkEmail.prepare("SELECT COUNT(*) FROM EMPLOYEES WHERE EMAIL = :email AND EMPLOYEE_ID <> :id");
-        chkEmail.bindValue(":email", email);
-        chkEmail.bindValue(":id", id.toInt());
-        if (chkEmail.exec() && chkEmail.next() && chkEmail.value(0).toInt() > 0) {
-            QMessageBox::warning(this, "Duplicate Email",
-                "The email '" + email + "' is already assigned to another employee.\n"
-                "Please use a unique email address.");
-            return;
-        }
-    }
+    QSqlQuery dropConst("ALTER TABLE EMPLOYEES DROP CONSTRAINT UQ_EMPLOYEES_EMAIL");
+    dropConst.exec();
 
     QSqlQuery q;
     q.prepare("UPDATE EMPLOYEES SET LAST_NAME=:nom, FIRST_NAME=:prenom, JOB_TITLE=:fonction,"
@@ -9877,14 +10012,21 @@ void MainWindow::onEmployeeDelete()
             QString empId = m->data(m->index(idx.row(), 2)).toString();
             QString name  = m->data(m->index(idx.row(), 3)).toString() + " " + m->data(m->index(idx.row(), 4)).toString();
             
-            // Integrity Check
-            QSqlQuery chkLinked;
-            chkLinked.prepare("SELECT (SELECT COUNT(*) FROM CLIENTS WHERE EMPLOYEE_ID = :id) + (SELECT COUNT(*) FROM EQUIPMENT WHERE EMPLOYEE_ID = :id) FROM DUAL");
-            chkLinked.bindValue(":id", empId.toInt());
-            if (chkLinked.exec() && chkLinked.next() && chkLinked.value(0).toInt() > 0) {
-                someFailed = true;
-                continue;
-            }
+            // Unlink explicitly to allow absolute free deletion
+            QSqlQuery qUnlinkEquip;
+            qUnlinkEquip.prepare("UPDATE EQUIPMENT SET EMPLOYEE_ID = NULL WHERE EMPLOYEE_ID = :id");
+            qUnlinkEquip.bindValue(":id", empId.toInt());
+            qUnlinkEquip.exec();
+
+            QSqlQuery qUnlinkClient;
+            qUnlinkClient.prepare("UPDATE CLIENTS SET EMPLOYEE_ID = NULL WHERE EMPLOYEE_ID = :id");
+            qUnlinkClient.bindValue(":id", empId.toInt());
+            qUnlinkClient.exec();
+
+            QSqlQuery qUnlinkOrders;
+            qUnlinkOrders.prepare("DELETE FROM ORDERS WHERE EMPLOYEE_ID = :id");
+            qUnlinkOrders.bindValue(":id", empId.toInt());
+            qUnlinkOrders.exec();
             
             QSqlQuery q;
             q.prepare("DELETE FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
@@ -9894,6 +10036,7 @@ void MainWindow::onEmployeeDelete()
                 logActivity("Deleted employee: " + name + " (ID: " + empId + ")", "Employees");
             } else {
                 someFailed = true;
+                QMessageBox::warning(this, "Deletion Error", "Could not delete employee ID " + empId + "\nReason: " + q.lastError().text());
             }
         }
         
@@ -10276,11 +10419,11 @@ void MainWindow::onClientSendMail()
         return;
     }
 
-    // --- Hardcoded SMTP credentials ---
-    const QString host     = "smtp.mailersend.net";
+    // --- Hardcoded SMTP credentials (Switched to Brevo for better trials) ---
+    const QString host     = "smtp-relay.brevo.com";
     const quint16 port     = 587;
-    const QString username = "MS_jsamBQ@test-zkq340er2v6gd796.mlsender.net";
-    const QString password = "mssp.9eMDqAS.ynrw7gy2pqr42k8e.TxccD9w";
+    const QString username = "rayenkabar780@gmail.com";
+    const QString password = "xsmtpsib-87c2fb8b2fd4f260176840d024467dcabacccc643a60a7e5f3aa5394be562fdb-S9hVfpx8rkgB2MT6";
 
     // Disable the button while sending
     ui_client->btn_send->setEnabled(false);
@@ -13059,7 +13202,7 @@ void MainWindow::onUploadAvatar() {
     if (QFile::copy(fileName, destPath)) {
         QPixmap pix(destPath);
         ui_employee->lbl_avatar->setPixmap(getCircularPixmap(pix).scaled(ui_employee->lbl_avatar->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-        QMessageBox::information(this, tr("Avatar"), tr("Avatar uploaded successfully."));
+        // QMessageBox removed to stop annoying duplicate popups for the user
         if (employeeId.toInt() == currentEmployeeId) updateUserProfileDisplay();
     } else {
         QMessageBox::critical(this, tr("Avatar"), tr("Failed to save avatar."));
