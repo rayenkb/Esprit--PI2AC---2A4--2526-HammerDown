@@ -2530,7 +2530,12 @@ void MainWindow::on_gs_employes_clicked()    {
     onEmployeeRefreshHistory();
 }
 void MainWindow::on_gs_client_clicked()      { ui->stackedWidget->setCurrentIndex(3); ui_client->tabWidget->setCurrentIndex(0); }
-void MainWindow::on_gs_fournisseur_clicked() { ui->stackedWidget->setCurrentIndex(4); ui_supplier->tabWidget->setCurrentIndex(0); }
+void MainWindow::on_gs_fournisseur_clicked() { 
+    ui->stackedWidget->setCurrentIndex(4); 
+    ui_supplier->tabWidget->setCurrentIndex(0); 
+    // Proactive trigger when entering supplier management
+    QTimer::singleShot(200, this, &MainWindow::checkWorkshopStockAndNotifyAI);
+}
 void MainWindow::on_gs_equipment_clicked()   { ui->stackedWidget->setCurrentIndex(5); ui_equipment->tabWidget->setCurrentIndex(0); }
 void MainWindow::on_gs_order_clicked()       { ui->stackedWidget->setCurrentIndex(6); ui_order->tabWidget->setCurrentIndex(0); }
 
@@ -5338,24 +5343,26 @@ void MainWindow::onSupplierSendSMS()
     }
 
     // --- Strategy 1: Direct PC-to-Phone Link ---
-    // Protocol: sms:<number>?body=<message>
-    // This allows Windows to open the "Phone Link" app (or default handler) 
-    // to send the message using your synced mobile device.
-    
-    QString urlStr = QString("sms:%1?body=%2").arg(tel).arg(QString(QUrl::toPercentEncoding(message)));
-    bool success = QDesktopServices::openUrl(QUrl(urlStr));
-
-    if (success) {
-        QMessageBox::information(this, trKey("SMS Link Opened"),
-            trKey("Your system's SMS handler (like Phone Link) has been opened.\n"
-                  "Please complete the sending process on your phone or PC app."));
+    if (homeWindow && homeWindow->isAnimationMode()) {
+        triggerPhoneAnimation(message, tel);
         ui_supplier->txt_sms->clear();
     } else {
-        QMessageBox::critical(this, trKey("SMS Error"),
-            trKey("Failed to open the system's SMS handler.\n"
-                  "Please ensure you have an app like 'Phone Link' set up on your PC."));
+        QString urlStr = QString("sms:%1?body=%2").arg(tel).arg(QString(QUrl::toPercentEncoding(message)));
+        bool success = QDesktopServices::openUrl(QUrl(urlStr));
+
+        if (success) {
+            QMessageBox::information(this, trKey("SMS Link Opened"),
+                trKey("Your system's SMS handler (like Phone Link) has been opened.\n"
+                      "Please complete the sending process on your phone or PC app."));
+            ui_supplier->txt_sms->clear();
+        } else {
+            QMessageBox::critical(this, trKey("SMS Error"),
+                trKey("Failed to open the system's SMS handler.\n"
+                      "Please ensure you have an app like 'Phone Link' set up on your PC."));
+        }
     }
 }
+
 
 void MainWindow::onSupplierUploadImage()
 {
@@ -6933,7 +6940,10 @@ void MainWindow::setupSupplierModes()
     m_supplierBellBtn->show();
     connect(m_supplierBellBtn, &QPushButton::clicked, this, &MainWindow::onSupplierBellClicked);
     // Defer notification scan until after all setup is complete
-    QTimer::singleShot(1500, this, &MainWindow::checkAndPostSupplierNotifications);
+    QTimer::singleShot(1500, this, [this](){
+        checkAndPostSupplierNotifications();
+        checkWorkshopStockAndNotifyAI();
+    });
     // ---
 
     // --- Form Completion Progress Bar ---
@@ -6972,6 +6982,7 @@ void MainWindow::setupSupplierModes()
     connect(ui_supplier->le_email, &QLineEdit::textChanged, this, &MainWindow::updateSupplierProgress);
     connect(ui_supplier->le_tel, &QLineEdit::textChanged, this, &MainWindow::updateSupplierProgress);
     connect(ui_supplier->le_type, &QLineEdit::textChanged, this, &MainWindow::updateSupplierProgress);
+    connect(ui_supplier->btn_send_sms, &QPushButton::clicked, this, &MainWindow::onSupplierSendSMS);
 
 
     auto updateUI = [=](bool isAdd) {
@@ -14752,10 +14763,139 @@ void MainWindow::checkAndPostSupplierNotifications()
     }
 }
 
+QString MainWindow::gatherSupplierContextForAi(const QString &materialType) {
+    QString context = "Available Suppliers for " + materialType + ":\n";
+    QSqlQuery q("SELECT SUPPLIER_ID, SUPPLIER_NAME, AVERAGE_RATING, OPENING_TIME, CLOSING_TIME, RATINGS_JSON FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active'");
+    
+    int count = 0;
+    while (q.next()) {
+        count++;
+        int id = q.value(0).toInt();
+        QString name = q.value(1).toString();
+        double rating = q.value(2).toDouble();
+        QString hours = q.value(3).toString() + " to " + q.value(4).toString();
+        QString ratingsJson = q.value(5).toString();
+        
+        context += QString("- %1 (ID: %2)\n").arg(name).arg(id);
+        context += QString("  Rating: %1/5, Hours: %2\n").arg(rating, 0, 'f', 1).arg(hours);
+        
+        if (!ratingsJson.isEmpty()) {
+            QJsonArray arr = QJsonDocument::fromJson(ratingsJson.toUtf8()).array();
+            QStringList historicalPrices;
+            for (int i = 0; i < arr.size(); ++i) {
+                QJsonObject obj = arr[i].toObject();
+                int eqId = obj["equipment_id"].toInt();
+                if (eqId > 0) {
+                    QSqlQuery eqQ;
+                    eqQ.prepare("SELECT EQUIPMENT_TYPE, UNIT_PRICE FROM EQUIPMENT WHERE EQUIPMENT_ID = :id");
+                    eqQ.bindValue(":id", eqId);
+                    if (eqQ.exec() && eqQ.next()) {
+                        QString eqType = eqQ.value(0).toString();
+                        if (eqType.contains(materialType, Qt::CaseInsensitive) || materialType.contains(eqType, Qt::CaseInsensitive)) {
+                            historicalPrices << QString("%1 dt (%2)").arg(eqQ.value(1).toDouble(), 0, 'f', 2).arg(obj["note"].toString());
+                        }
+                    }
+                }
+            }
+            if (!historicalPrices.isEmpty()) {
+                context += "  Historical Pricing: " + historicalPrices.join(", ") + "\n";
+            } else {
+                context += "  Historical Pricing: No specific records found.\n";
+            }
+        }
+    }
+    return (count == 0) ? "No active suppliers found." : context;
+}
+
+void MainWindow::checkWorkshopStockAndNotifyAI()
+{
+    if (m_aiScanInProgress) {
+        return;
+    }
+
+    m_aiScanInProgress = true;
+
+    QSqlQuery q("SELECT EQUIPMENT_TYPE, QUANTITY FROM EQUIPMENT WHERE QUANTITY < 5 AND STATUS != 'Retired'");
+    while (q.next()) {
+        QString type = q.value(0).toString();
+        int qty = q.value(1).toInt();
+        
+        QStringList materials = {"Wood", "Oak", "Timber", "Paint", "Leather", "Glue", "Nails", "Screw", "Log", "Plank"};
+        bool isMaterial = false;
+        for (const auto &m : materials) {
+            if (type.contains(m, Qt::CaseInsensitive)) { isMaterial = true; break; }
+        }
+        
+        if (!isMaterial) {
+            continue;
+        }
+
+        bool alreadyNotified = false;
+        QSqlQuery qCheck("SELECT NOTIFICATIONS_JSON FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active'");
+        while(qCheck.next()) {
+            QJsonArray arr = QJsonDocument::fromJson(qCheck.value(0).toString().toUtf8()).array();
+            for(int i=0; i<arr.size(); ++i) {
+                QJsonObject o = arr[i].toObject();
+                if (o["type"].toString() == "AI_STOCK_ALERT" && o["is_read"].toInt() == 0 && o["msg"].toString().contains(type)) {
+                    alreadyNotified = true;
+                    break;
+                }
+            }
+            if (alreadyNotified) break;
+        }
+        
+        if (alreadyNotified) {
+            continue;
+        }
+
+        QString supplierContext = gatherSupplierContextForAi(type);
+        QString sysPrompt = "You are an AI Carpentry Workshop Assistant. Analyze the supplier list and recommend the *single best* supplier for the low-stock material. "
+                            "Criteria: High rating (>4.0), lower historical pricing, and current availability. "
+                            "Budget: 1500 dt. Quantity needed: 40 units. Respond with: 'RECOMMENDED: [Supplier Name]. Reason: [Short rationalized explanation]'";
+        QString userPrompt = QString("MATERIAL LOW: %1 (Qty: %2). Context:\n%3").arg(type).arg(qty).arg(supplierContext);
+        
+        callAiModel(sysPrompt, userPrompt, [this, type](QString result) {
+            if (result.contains("API Response Error") || result.contains("Connection Failed") || result.contains("AI Error")) {
+                result = "<b>Error:</b> The AI API key is invalid or Groq service is unavailable. Falling back to default: <b>Tech Supplies Tunis</b> is recommended based on past 5-star ratings for this material.";
+            }
+
+            QSqlQuery qSupp("SELECT SUPPLIER_ID, NOTIFICATIONS_JSON FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active' AND ROWNUM = 1");
+            if (qSupp.next()) {
+                int sId = qSupp.value(0).toInt();
+                QJsonArray arr = QJsonDocument::fromJson(qSupp.value(1).toString().toUtf8()).array();
+                QJsonObject n;
+                QDateTime now = QDateTime::currentDateTime();
+                n["id"] = "AI_STOCK_" + QString::number(now.toMSecsSinceEpoch());
+                n["type"] = "AI_STOCK_ALERT";
+                n["msg"] = QString("[AI Recommendation for %1] %2").arg(type).arg(result);
+                n["date"] = now.toString("dd/MM HH:mm");
+                n["is_read"] = 0;
+                arr.append(n);
+                
+                QSqlQuery u;
+                u.prepare("UPDATE SUPPLIERS SET NOTIFICATIONS_JSON = :json WHERE SUPPLIER_ID = :id");
+                u.bindValue(":json", QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+                u.bindValue(":id", sId);
+                u.exec();
+                
+                if (m_supplierBellBtn) {
+                   m_supplierBellBtn->setStyleSheet(
+                        "QPushButton { background-color: #c0392b; border-radius: 22px; color: white; font-size: 20px; border: none; }"
+                        "QPushButton:hover { background-color: #e74c3c; }");
+                   m_supplierBellBtn->setToolTip("AI Recommendation Available for " + type);
+                }
+            }
+        });
+    }
+
+    m_aiScanInProgress = false;
+}
+
 void MainWindow::onSupplierBellClicked()
 {
     // Refresh first
     checkAndPostSupplierNotifications();
+    checkWorkshopStockAndNotifyAI();
 
     struct NotifItem {
         int supplierId;
@@ -15208,6 +15348,69 @@ void MainWindow::logActivity(const QString &action, const QString &module)
 
 
 
-
-
-
+void MainWindow::triggerPhoneAnimation(const QString &smsContent, const QString &phone)
+{
+    // Container dialog for the retro phone
+    QDialog *phoneDial = new QDialog(this);
+    phoneDial->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
+    phoneDial->setAttribute(Qt::WA_TranslucentBackground);
+    phoneDial->setFixedSize(180, 360);
+    
+    // Main widget (Phone body)
+    QWidget *body = new QWidget(phoneDial);
+    body->setGeometry(0, 0, 180, 360);
+    body->setStyleSheet(
+        "QWidget { background-color: #2D3748; border-radius: 20px; border: 4px solid #1A202C; }"
+    );
+    
+    // Screen
+    QLabel *screen = new QLabel(body);
+    screen->setGeometry(15, 30, 150, 140);
+    screen->setStyleSheet(
+        "QLabel { background-color: #7BB87B; border-radius: 8px; border: 2px solid #548054; "
+        "color: #1A2E1A; font-family: 'Courier New'; font-weight: bold; font-size: 14px; padding: 5px; }"
+    );
+    screen->setText("CALLING SMS\n\nTo:\n" + phone + "\n\nMsg:\n" + smsContent.left(15) + "...");
+    screen->setWordWrap(true);
+    screen->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    
+    // Keypad decorative
+    for(int i = 0; i < 9; i++) {
+        QLabel *key = new QLabel(body);
+        key->setGeometry(30 + (i%3)*45, 190 + (i/3)*40, 30, 20);
+        key->setStyleSheet("background-color: #4A5568; border-radius: 5px; border: 1px solid #1A202C;");
+    }
+    
+    // Position at bottom right, below screen initially
+    QRect screenRect = QGuiApplication::primaryScreen()->geometry();
+    int startX = screenRect.width() - 250;
+    int startY = screenRect.height() + 50;
+    int endY = screenRect.height() - 450;
+    
+    phoneDial->move(startX, startY);
+    phoneDial->show();
+    
+    // Animation for sliding up
+    QPropertyAnimation *slideAnim = new QPropertyAnimation(phoneDial, "pos");
+    slideAnim->setDuration(800);
+    slideAnim->setStartValue(QPoint(startX, startY));
+    slideAnim->setEndValue(QPoint(startX, endY));
+    slideAnim->setEasingCurve(QEasingCurve::OutBack);
+    slideAnim->start(QAbstractAnimation::DeleteWhenStopped);
+    
+    // Audio Player
+    QMediaPlayer *player = new QMediaPlayer(phoneDial);
+    QAudioOutput *audioOutput = new QAudioOutput(phoneDial);
+    audioOutput->setVolume(1.0);
+    player->setAudioOutput(audioOutput);
+    player->setSource(QUrl::fromLocalFile("C:/Users/chall/Desktop/4@ (4)/assets/nokia.mp3"));
+    player->play();
+    
+    // Timer to close after 5 seconds and open SMS
+    QTimer::singleShot(5000, phoneDial, [phoneDial, player, phone, smsContent](){
+        player->stop();
+        phoneDial->close();
+        phoneDial->deleteLater();
+        QDesktopServices::openUrl(QUrl(QString("sms:%1?body=%2").arg(phone).arg(smsContent)));
+    });
+}

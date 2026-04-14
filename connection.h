@@ -29,9 +29,9 @@ static bool createConnection()
         /* Option B: Full connection string (uncomment if Option A doesn't work)
         db.setDatabaseName(
             "DRIVER={Oracle in OraClient12Home1};"
-            "DBQ=localhost:1521/Source_Projet2A;"
-            "UID=skrrt;"
-            "PWD=exprix;"
+            "DBQ=localhost:1521/XE;"
+            "UID=amine;"
+            "PWD=amine14;"
         );
         */
         
