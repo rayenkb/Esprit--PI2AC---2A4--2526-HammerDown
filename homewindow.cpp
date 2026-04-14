@@ -127,6 +127,8 @@ void HomeWindow::handleChatBot()
 
 void HomeWindow::handleSettingsClicked()
 {
+    emit settingsDialogOpened();
+
     auto *blurEffect = new QGraphicsBlurEffect(this);
     blurEffect->setBlurRadius(8.0);
     this->setGraphicsEffect(blurEffect);
@@ -339,6 +341,7 @@ void HomeWindow::handleSettingsClicked()
     dialog.exec();
 
     this->setGraphicsEffect(nullptr);
+    emit settingsDialogClosed();
 }
 
 void HomeWindow::playReverseAnimation()
@@ -364,8 +367,9 @@ void HomeWindow::playReverseAnimation()
     player->setAudioOutput(audioOut);
     player->setSource(QUrl("qrc:/assets/ger.mp3"));
     player->play();
-    connect(player, &QMediaPlayer::mediaStatusChanged, player, [player, audioOut](QMediaPlayer::MediaStatus status) {
+    connect(player, &QMediaPlayer::mediaStatusChanged, this, [this, player, audioOut](QMediaPlayer::MediaStatus status) {
         if (status == QMediaPlayer::EndOfMedia) {
+            emit gerPlaybackFinished();
             player->deleteLater();
             audioOut->deleteLater();
         }
@@ -520,6 +524,7 @@ void HomeWindow::handleHelp()
             return;
         }
         m_animationTriggered = true;
+        emit botawkAnimationStarted();
 
         // Play botawk audio — use persistent members so volume updates apply
         if (m_animationAudioPlayer) { m_animationAudioPlayer->stop(); m_animationAudioPlayer->deleteLater(); }
@@ -766,6 +771,10 @@ void HomeWindow::handleHelp()
     overlay->setAttribute(Qt::WA_DeleteOnClose);
     overlay->setGeometry(origin.x(), origin.y(), w, h);
     overlay->setStyleSheet("QDialog { background-color: black; }");
+    emit tutorialOpened();
+    connect(overlay, &QObject::destroyed, this, [this]() {
+        emit tutorialClosed();
+    });
 
     // QVideoWidget is the most reliable renderer on Windows (uses WMF/D3D correctly)
     QVideoWidget *videoWidget = new QVideoWidget(overlay);
@@ -861,6 +870,31 @@ void HomeWindow::stopHomeAudio()
 {
     if (m_animationAudioPlayer)
         m_animationAudioPlayer->stop();
+}
+
+void HomeWindow::suspendActiveAudioForOverlay()
+{
+    m_animationAudioSuspended = false;
+    m_animationAudioResumePosition = 0;
+
+    if (!m_animationAudioPlayer) return;
+    if (m_animationAudioPlayer->playbackState() != QMediaPlayer::PlayingState) return;
+
+    m_animationAudioResumePosition = m_animationAudioPlayer->position();
+    m_animationAudioSuspended = true;
+    m_animationAudioPlayer->stop();
+}
+
+void HomeWindow::resumeSuspendedAudioAfterOverlay()
+{
+    if (!m_animationAudioSuspended || !m_animationAudioPlayer) {
+        m_animationAudioSuspended = false;
+        return;
+    }
+
+    m_animationAudioPlayer->setPosition(m_animationAudioResumePosition);
+    m_animationAudioPlayer->play();
+    m_animationAudioSuspended = false;
 }
 
 void HomeWindow::stopAnimationAudio()

@@ -24,6 +24,8 @@ public:
     ~HomeWindow();
     void retranslateUI();
     void stopHomeAudio();
+    void suspendActiveAudioForOverlay();
+    void resumeSuspendedAudioAfterOverlay();
     bool isAnimationMode() const { return !m_isStandardMode; }
 
     // Setters for state synchronization
@@ -43,6 +45,12 @@ signals:
     void languageChanged(const QString &language);
     void volumeChanged(qreal volume);
     void disconnectClicked();
+    void settingsDialogOpened();
+    void settingsDialogClosed();
+    void botawkAnimationStarted();
+    void gerPlaybackFinished();
+    void tutorialOpened();
+    void tutorialClosed();
 
 private slots:
     void handleEmployes();
@@ -76,6 +84,8 @@ private:
     QVariantAnimation *m_settingsTiltAnim = nullptr;
     QPixmap m_settingsGearPixmap;
     bool m_settingsHoverActive = false;
+    bool m_animationAudioSuspended = false;
+    qint64 m_animationAudioResumePosition = 0;
     
     void setupHomeButtons();
     void stopAnimationAudio();

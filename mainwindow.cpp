@@ -9,6 +9,7 @@
 #include <QProgressBar>
 #include <QTimer>
 #include <QPointer>
+#include <QSharedPointer>
 #include <QVariantAnimation>
 #include <QMediaPlayer>
 #include <QVideoWidget>
@@ -1186,6 +1187,24 @@ MainWindow::MainWindow(QWidget *parent)
     connect(homeWindow, &HomeWindow::languageChanged,    this, &MainWindow::onLanguageChanged);
     connect(homeWindow, &HomeWindow::volumeChanged,      this, &MainWindow::setAudioVolume);
     connect(homeWindow, &HomeWindow::disconnectClicked,  this, &MainWindow::on_btn_logout_clicked);
+    connect(homeWindow, &HomeWindow::settingsDialogOpened, this, &MainWindow::pauseHomeAudioForSettings);
+    connect(homeWindow, &HomeWindow::settingsDialogClosed, this, &MainWindow::resumeHomeAudioAfterSettings);
+    connect(homeWindow, &HomeWindow::tutorialOpened, this, &MainWindow::pauseHomeAudioForTutorial);
+    connect(homeWindow, &HomeWindow::tutorialClosed, this, &MainWindow::resumeHomeAudioAfterTutorial);
+    connect(homeWindow, &HomeWindow::botawkAnimationStarted, this, [this]() {
+        if (!homeAudioPlayer) return;
+        homeAudioPlayer->stop();
+        m_homeAudioPausedBySettings = false;
+    });
+    connect(homeWindow, &HomeWindow::gerPlaybackFinished, this, [this]() {
+        if (!homeAudioPlayer || !homeAudioOutput) return;
+        if (m_audioSuspendedForOstp) return;
+        if (!ui || !ui->stackedWidget || ui->stackedWidget->currentIndex() != 1) return;
+
+        homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
+        homeAudioPlayer->setPosition(0);
+        homeAudioPlayer->play();
+    });
 
     // Initial sync of homeWindow state
     homeWindow->setLanguage(currentLanguage);
@@ -2082,7 +2101,7 @@ MainWindow::MainWindow(QWidget *parent)
     homeAudioOutput = new QAudioOutput(this);
     homeAudioPlayer->setAudioOutput(homeAudioOutput);
     homeAudioPlayer->setSource(QUrl("qrc:/assets/ostm.mp3"));
-    homeAudioPlayer->setLoops(1); // Play once each time user enters Home
+    homeAudioPlayer->setLoops(QMediaPlayer::Infinite);
     homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
     
     // Initialize audio player for tutorial (help buttons) - only ost4
@@ -2451,6 +2470,126 @@ void MainWindow::setAudioVolume(qreal volume)
     if (chatAudioOutput) {
         chatAudioOutput->setVolume(currentVolume);
     }
+}
+
+void MainWindow::pauseHomeAudioForSettings()
+{
+    if (!homeAudioPlayer) return;
+    if (!ui || !ui->stackedWidget || ui->stackedWidget->currentIndex() != 1) return;
+    if (m_audioSuspendedForOstp) return;
+    if (homeAudioPlayer->playbackState() != QMediaPlayer::PlayingState) return;
+
+    m_homeAudioSettingsResumePos = homeAudioPlayer->position();
+    m_homeAudioPausedBySettings = true;
+    homeAudioPlayer->stop();
+}
+
+void MainWindow::resumeHomeAudioAfterSettings()
+{
+    if (!m_homeAudioPausedBySettings || !homeAudioPlayer) {
+        m_homeAudioPausedBySettings = false;
+        return;
+    }
+    if (!ui || !ui->stackedWidget || ui->stackedWidget->currentIndex() != 1) {
+        m_homeAudioPausedBySettings = false;
+        return;
+    }
+    if (m_audioSuspendedForOstp) {
+        return;
+    }
+
+    homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
+    homeAudioPlayer->setPosition(m_homeAudioSettingsResumePos);
+    homeAudioPlayer->play();
+    m_homeAudioPausedBySettings = false;
+}
+
+void MainWindow::pauseHomeAudioForTutorial()
+{
+    if (!homeAudioPlayer) return;
+    if (!ui || !ui->stackedWidget || ui->stackedWidget->currentIndex() != 1) return;
+    if (m_audioSuspendedForOstp) return;
+    if (homeAudioPlayer->playbackState() != QMediaPlayer::PlayingState) return;
+
+    m_homeAudioTutorialResumePos = homeAudioPlayer->position();
+    m_homeAudioPausedByTutorial = true;
+    homeAudioPlayer->stop();
+}
+
+void MainWindow::resumeHomeAudioAfterTutorial()
+{
+    if (!m_homeAudioPausedByTutorial || !homeAudioPlayer) {
+        m_homeAudioPausedByTutorial = false;
+        return;
+    }
+    if (!ui || !ui->stackedWidget || ui->stackedWidget->currentIndex() != 1) {
+        m_homeAudioPausedByTutorial = false;
+        return;
+    }
+    if (m_audioSuspendedForOstp) {
+        return;
+    }
+
+    homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
+    homeAudioPlayer->setPosition(m_homeAudioTutorialResumePos);
+    homeAudioPlayer->play();
+    m_homeAudioPausedByTutorial = false;
+}
+
+void MainWindow::suspendAudioForOstp()
+{
+    if (m_audioSuspendedForOstp) return;
+    m_audioSuspendedForOstp = true;
+
+    auto suspendPlayer = [](QMediaPlayer *player, bool &resumeFlag, qint64 &resumePos) {
+        resumeFlag = false;
+        resumePos = 0;
+        if (!player) return;
+        if (player->playbackState() != QMediaPlayer::PlayingState) return;
+        resumePos = player->position();
+        resumeFlag = true;
+        player->stop();
+    };
+
+    suspendPlayer(loginAudioPlayer, m_resumeLoginAfterOstp, m_loginResumePosAfterOstp);
+    suspendPlayer(homeAudioPlayer, m_resumeHomeAfterOstp, m_homeResumePosAfterOstp);
+    suspendPlayer(tutorialLoopAudioPlayer, m_resumeTutorialAfterOstp, m_tutorialResumePosAfterOstp);
+    suspendPlayer(chatAudioPlayer, m_resumeChatAfterOstp, m_chatResumePosAfterOstp);
+
+    if (homeWindow) {
+        homeWindow->suspendActiveAudioForOverlay();
+    }
+}
+
+void MainWindow::restoreAudioAfterOstp()
+{
+    if (!m_audioSuspendedForOstp) return;
+
+    auto resumePlayer = [](QMediaPlayer *player, bool &resumeFlag, qint64 resumePos) {
+        if (!resumeFlag || !player) {
+            resumeFlag = false;
+            return;
+        }
+        player->setPosition(resumePos);
+        player->play();
+        resumeFlag = false;
+    };
+
+    if (homeAudioOutput) homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
+    if (loginAudioOutput) loginAudioOutput->setVolume(currentVolume);
+    if (tutorialLoopAudioOutput) tutorialLoopAudioOutput->setVolume(currentVolume);
+    if (chatAudioOutput) chatAudioOutput->setVolume(currentVolume);
+
+    resumePlayer(loginAudioPlayer, m_resumeLoginAfterOstp, m_loginResumePosAfterOstp);
+    resumePlayer(homeAudioPlayer, m_resumeHomeAfterOstp, m_homeResumePosAfterOstp);
+    resumePlayer(tutorialLoopAudioPlayer, m_resumeTutorialAfterOstp, m_tutorialResumePosAfterOstp);
+    resumePlayer(chatAudioPlayer, m_resumeChatAfterOstp, m_chatResumePosAfterOstp);
+
+    if (homeWindow) {
+        homeWindow->resumeSuspendedAudioAfterOverlay();
+    }
+
+    m_audioSuspendedForOstp = false;
 }
 
 // Fade out audio and then play another audio with fade in
@@ -15350,6 +15489,8 @@ void MainWindow::logActivity(const QString &action, const QString &module)
 
 void MainWindow::triggerPhoneAnimation(const QString &smsContent, const QString &phone)
 {
+    suspendAudioForOstp();
+
     // Container dialog for the retro phone
     QDialog *phoneDial = new QDialog(this);
     phoneDial->setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
@@ -15403,12 +15544,25 @@ void MainWindow::triggerPhoneAnimation(const QString &smsContent, const QString 
     QAudioOutput *audioOutput = new QAudioOutput(phoneDial);
     audioOutput->setVolume(1.0);
     player->setAudioOutput(audioOutput);
-    player->setSource(QUrl::fromLocalFile("C:/Users/chall/Desktop/4@ (4)/assets/nokia.mp3"));
+    player->setSource(QUrl("qrc:/assets/ostp.mp3"));
     player->play();
+
+    QSharedPointer<bool> restored = QSharedPointer<bool>::create(false);
+    connect(player, &QMediaPlayer::mediaStatusChanged, phoneDial,
+            [this, restored](QMediaPlayer::MediaStatus status) {
+        if (!(*restored) && (status == QMediaPlayer::EndOfMedia || status == QMediaPlayer::InvalidMedia)) {
+            *restored = true;
+            restoreAudioAfterOstp();
+        }
+    });
     
     // Timer to close after 5 seconds and open SMS
-    QTimer::singleShot(5000, phoneDial, [phoneDial, player, phone, smsContent](){
+    QTimer::singleShot(5000, phoneDial, [this, phoneDial, player, phone, smsContent, restored](){
         player->stop();
+        if (!(*restored)) {
+            *restored = true;
+            restoreAudioAfterOstp();
+        }
         phoneDial->close();
         phoneDial->deleteLater();
         QDesktopServices::openUrl(QUrl(QString("sms:%1?body=%2").arg(phone).arg(smsContent)));

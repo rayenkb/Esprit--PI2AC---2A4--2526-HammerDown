@@ -532,12 +532,31 @@ private:
     QMediaPlayer *chatAudioPlayer;
     QAudioOutput *chatAudioOutput;
     qreal currentVolume;
+    bool m_homeAudioPausedBySettings = false;
+    qint64 m_homeAudioSettingsResumePos = 0;
+    bool m_homeAudioPausedByTutorial = false;
+    qint64 m_homeAudioTutorialResumePos = 0;
+    bool m_audioSuspendedForOstp = false;
+    bool m_resumeLoginAfterOstp = false;
+    bool m_resumeHomeAfterOstp = false;
+    bool m_resumeTutorialAfterOstp = false;
+    bool m_resumeChatAfterOstp = false;
+    qint64 m_loginResumePosAfterOstp = 0;
+    qint64 m_homeResumePosAfterOstp = 0;
+    qint64 m_tutorialResumePosAfterOstp = 0;
+    qint64 m_chatResumePosAfterOstp = 0;
     
     // Fade animation helpers
     void fadeOutAndPlay(QMediaPlayer *fadeOutPlayer, QAudioOutput *fadeOutOutput,
                         QMediaPlayer *fadeInPlayer, QAudioOutput *fadeInOutput);
     void fadeOut(QAudioOutput *output, std::function<void()> onComplete);
     void fadeIn(QAudioOutput *output);
+    void pauseHomeAudioForSettings();
+    void resumeHomeAudioAfterSettings();
+    void pauseHomeAudioForTutorial();
+    void resumeHomeAudioAfterTutorial();
+    void suspendAudioForOstp();
+    void restoreAudioAfterOstp();
     void showUnreadMessagesSplash();
     
     // Equipment Form Progress & Animation
