@@ -8529,6 +8529,7 @@ void MainWindow::onEmployeeClearFields()
     ui_employee->le_email->clear();
     ui_employee->le_num->clear();
     ui_employee->le_mdp->clear();
+    ui_employee->le_address->clear();
     ui_employee->dsb_salaire->setValue(0.0);
     ui_employee->de_birthdate->setDate(QDate(1995, 1, 1));
     ui_employee->lbl_avatar->setPixmap(QPixmap(":/assets/default_avatar.png").scaled(ui_employee->lbl_avatar->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
@@ -8541,7 +8542,7 @@ void MainWindow::onEmployeeRowSelected(const QModelIndex &index)
     QSqlQueryModel *model = qobject_cast<QSqlQueryModel*>(ui_employee->tableView_employes->model());
     if (!model) return;
     int row = index.row();
-    // Col order: Action, Delete, ID, Last Name, First Name, Job Title, Age, Email, Phone
+    // Col order: Action, Delete, ID, Last Name, First Name, Job Title, Age, Email, Phone, Address, Salary
     ui_employee->le_id->setText(model->data(model->index(row, 2)).toString());
     toggleEmployeeFields(true); // Unlock fields on selection
     ui_employee->le_nom->setText(model->data(model->index(row, 3)).toString());
@@ -8566,7 +8567,8 @@ void MainWindow::onEmployeeRowSelected(const QModelIndex &index)
     ui_employee->de_birthdate->setDate(QDate::currentDate().addYears(-age));
     ui_employee->le_email->setText(model->data(model->index(row, 7)).toString());
     ui_employee->le_num->setText(model->data(model->index(row, 8)).toString());
-    ui_employee->dsb_salaire->setValue(model->data(model->index(row, 9)).toDouble());
+    ui_employee->le_address->setText(model->data(model->index(row, 9)).toString());
+    ui_employee->dsb_salaire->setValue(model->data(model->index(row, 10)).toDouble());
 
     // Load AVATAR only (employee_[ID].png) - face scan images are NEVER shown here
     QString idStr = model->data(model->index(row, 2)).toString();
@@ -8595,7 +8597,7 @@ void MainWindow::onEmployeeRefreshView()
     model->setQuery(
         "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
         "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
-        " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", SALARY AS \"Salary\""
+        " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", ADDRESS AS \"Address\", SALARY AS \"Salary\""
         " FROM EMPLOYEES ORDER BY EMPLOYEE_ID"
     );
     if (model->lastError().isValid()) {
@@ -9916,6 +9918,7 @@ void MainWindow::onEmployeeAdd()
     QDate   birthDate = ui_employee->de_birthdate->date();
     int     age       = birthDate.daysTo(QDate::currentDate()) / 365;
     QString mdp     = ui_employee->le_mdp->text().trimmed();
+    QString address = ui_employee->le_address->text().trimmed();
     double  salaire = ui_employee->dsb_salaire->value();
     QString email   = ui_employee->le_email->text().trimmed();
     QString num     = ui_employee->le_num->text().trimmed();
@@ -9978,14 +9981,15 @@ void MainWindow::onEmployeeAdd()
     dropConst.exec(); // Explicitly ignore error if constraint already dropped
     
     QSqlQuery q;
-    q.prepare("INSERT INTO EMPLOYEES (EMPLOYEE_ID, LAST_NAME, FIRST_NAME, JOB_TITLE, AGE, PASSWORD, SALARY, EMAIL, PHONE_NUMBER, HIRE_DATE, EMPLOYEE_STATUS)"
-              " VALUES (:id, :nom, :prenom, :fonction, :age, :mdp, :salaire, :email, :num, SYSDATE, 'Active')");
+    q.prepare("INSERT INTO EMPLOYEES (EMPLOYEE_ID, LAST_NAME, FIRST_NAME, JOB_TITLE, AGE, PASSWORD, ADDRESS, SALARY, EMAIL, PHONE_NUMBER, HIRE_DATE, EMPLOYEE_STATUS)"
+              " VALUES (:id, :nom, :prenom, :fonction, :age, :mdp, :address, :salaire, :email, :num, SYSDATE, 'Active')");
     q.bindValue(":id",       empId);
     q.bindValue(":nom",      nom);
     q.bindValue(":prenom",   prenom);
     q.bindValue(":fonction", fonction);
     q.bindValue(":age",      age);
     q.bindValue(":mdp",      mdp);
+    q.bindValue(":address",  address);
     q.bindValue(":salaire",  salaire);
     q.bindValue(":email",    email);
     q.bindValue(":num",      num);
@@ -10080,6 +10084,7 @@ void MainWindow::onEmployeeModify()
     QDate   birthDate = ui_employee->de_birthdate->date();
     int     age       = birthDate.daysTo(QDate::currentDate()) / 365;
     QString mdp      = ui_employee->le_mdp->text().trimmed();
+    QString address  = ui_employee->le_address->text().trimmed();
     double  salaire  = ui_employee->dsb_salaire->value();
     QString email    = ui_employee->le_email->text().trimmed();
     QString num      = ui_employee->le_num->text().trimmed();
@@ -10107,7 +10112,7 @@ void MainWindow::onEmployeeModify()
 
     QSqlQuery q;
     q.prepare("UPDATE EMPLOYEES SET LAST_NAME=:nom, FIRST_NAME=:prenom, JOB_TITLE=:fonction,"
-              " AGE=:age, PASSWORD=:mdp, SALARY=:salaire, EMAIL=:email, PHONE_NUMBER=:num"
+              " AGE=:age, PASSWORD=:mdp, ADDRESS=:address, SALARY=:salaire, EMAIL=:email, PHONE_NUMBER=:num"
               " WHERE EMPLOYEE_ID=:id");
     q.bindValue(":id",       id.toInt());
     q.bindValue(":nom",      nom);
@@ -10115,6 +10120,7 @@ void MainWindow::onEmployeeModify()
     q.bindValue(":fonction", fonction);
     q.bindValue(":age",      age);
     q.bindValue(":mdp",      mdp);
+    q.bindValue(":address",  address);
     q.bindValue(":salaire",  salaire);
     q.bindValue(":email",    email);
     q.bindValue(":num",      num);

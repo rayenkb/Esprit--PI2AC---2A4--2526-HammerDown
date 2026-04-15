@@ -219,11 +219,28 @@ QLineEdit:focus {
         <string>🔒 Password:</string>
        </property>
       </widget>
-     <widget class="QLabel" name="label_salaire">
+     <widget class="QLabel" name="label_address">
       <property name="geometry">
        <rect>
         <x>200</x>
         <y>360</y>
+        <width>150</width>
+        <height>30</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: white; font-size: 16px; font-weight: bold;
+</string>
+      </property>
+      <property name="text">
+       <string>🏠 Address:</string>
+      </property>
+     </widget>
+     <widget class="QLabel" name="label_salaire">
+      <property name="geometry">
+       <rect>
+        <x>200</x>
+        <y>410</y>
         <width>150</width>
         <height>30</height>
        </rect>
@@ -240,7 +257,7 @@ QLineEdit:focus {
       <property name="geometry">
        <rect>
         <x>200</x>
-        <y>410</y>
+        <y>460</y>
         <width>150</width>
         <height>30</height>
        </rect>
@@ -257,7 +274,7 @@ QLineEdit:focus {
       <property name="geometry">
        <rect>
         <x>200</x>
-        <y>460</y>
+        <y>510</y>
         <width>150</width>
         <height>30</height>
        </rect>
@@ -346,11 +363,21 @@ QDateEdit:focus { border: 2px solid #8B4513; background: #FFFAF0; }
        </rect>
       </property>
      </widget>
+     <widget class="QLineEdit" name="le_address">
+      <property name="geometry">
+       <rect>
+        <x>400</x>
+        <y>360</y>
+        <width>250</width>
+        <height>30</height>
+       </rect>
+      </property>
+     </widget>
       <widget class="QDoubleSpinBox" name="dsb_salaire">
        <property name="geometry">
         <rect>
          <x>400</x>
-         <y>360</y>
+         <y>410</y>
          <width>150</width>
          <height>30</height>
         </rect>
@@ -380,7 +407,7 @@ QSpinBox:hover, QDoubleSpinBox:hover {
       <property name="geometry">
        <rect>
         <x>400</x>
-        <y>410</y>
+        <y>460</y>
         <width>250</width>
         <height>30</height>
        </rect>
@@ -390,7 +417,7 @@ QSpinBox:hover, QDoubleSpinBox:hover {
       <property name="geometry">
        <rect>
         <x>400</x>
-        <y>460</y>
+        <y>510</y>
         <width>250</width>
         <height>30</height>
        </rect>
