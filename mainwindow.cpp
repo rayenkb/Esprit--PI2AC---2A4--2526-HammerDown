@@ -13602,13 +13602,21 @@ void MainWindow::setupOrderMapTab()
     m_mapAddressLabel->setWordWrap(true);
     m_mapAddressLabel->setStyleSheet("color: #d4a96a; font-size: 12px;");
 
+    m_mapAssignedEmployeeLabel = new QLabel("Assigned Employee: --", mapTab);
+    m_mapAssignedEmployeeLabel->setWordWrap(true);
+    m_mapAssignedEmployeeLabel->setStyleSheet("color: #9ecbff; font-size: 12px;");
+
+    m_mapDeliveryInfoLabel = new QLabel("Distance: -- | ETA: --", mapTab);
+    m_mapDeliveryInfoLabel->setWordWrap(true);
+    m_mapDeliveryInfoLabel->setStyleSheet("color: #8fd694; font-size: 12px; font-weight: bold;");
+
     m_mapStatusLabel = new QLabel("Select a client or enter Buyer ID, then click Load Map.", mapTab);
     m_mapStatusLabel->setWordWrap(true);
     m_mapStatusLabel->setStyleSheet("color: #8B6F47; font-size: 12px; font-style: italic;");
 
     m_mapClientTable = new QTableWidget(mapTab);
     m_mapClientTable->setColumnCount(3);
-    m_mapClientTable->setHorizontalHeaderLabels({"ID", "Name", "Address"});
+    m_mapClientTable->setHorizontalHeaderLabels({"Order ID", "Client", "Address"});
     m_mapClientTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mapClientTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_mapClientTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -13632,6 +13640,8 @@ void MainWindow::setupOrderMapTab()
     root->addLayout(controls);
     root->addWidget(m_mapClientTable);
     root->addWidget(m_mapAddressLabel);
+    root->addWidget(m_mapAssignedEmployeeLabel);
+    root->addWidget(m_mapDeliveryInfoLabel);
     root->addWidget(m_mapStatusLabel);
     root->addWidget(m_mapImageLabel, 1);
 
@@ -13724,18 +13734,31 @@ void MainWindow::populateMapClients()
     if (!m_mapClientTable) return;
 
     m_mapClientTable->setRowCount(0);
-    QSqlQuery q("SELECT CLIENT_ID, FIRST_NAME, LAST_NAME, ADDRESS FROM CLIENTS ORDER BY CLIENT_ID");
+    QSqlQuery q("SELECT o.ORDER_ID, o.CLIENT_ID, c.FIRST_NAME, c.LAST_NAME, c.ADDRESS "
+                "FROM ORDERS o "
+                "LEFT JOIN CLIENTS c ON c.CLIENT_ID = o.CLIENT_ID "
+                "ORDER BY o.ORDER_ID DESC");
     int row = 0;
     while (q.next()) {
         m_mapClientTable->insertRow(row);
-        m_mapClientTable->setItem(row, 0, new QTableWidgetItem(q.value(0).toString()));
-        m_mapClientTable->setItem(row, 1, new QTableWidgetItem(q.value(1).toString() + " " + q.value(2).toString()));
-        m_mapClientTable->setItem(row, 2, new QTableWidgetItem(q.value(3).toString()));
+
+        const int orderId = q.value(0).toInt();
+        const int clientId = q.value(1).toInt();
+        const QString firstName = q.value(2).toString().trimmed();
+        const QString lastName = q.value(3).toString().trimmed();
+        const QString clientName = (firstName + " " + lastName).trimmed();
+        const QString address = q.value(4).toString().trimmed();
+
+        QTableWidgetItem *orderItem = new QTableWidgetItem(QString::number(orderId));
+        orderItem->setData(Qt::UserRole, clientId);
+        m_mapClientTable->setItem(row, 0, orderItem);
+        m_mapClientTable->setItem(row, 1, new QTableWidgetItem(clientName.isEmpty() ? QString("Client #%1").arg(clientId) : clientName));
+        m_mapClientTable->setItem(row, 2, new QTableWidgetItem(address));
         row++;
     }
 
     if (row == 0) {
-        m_mapStatusLabel->setText("No clients found.");
+        m_mapStatusLabel->setText("No orders found.");
     }
 }
 
@@ -13744,10 +13767,23 @@ void MainWindow::requestMapForBuyerId()
     if (!ui_order || !ui_order->le_buyer) return;
 
     QString address;
+    int selectedOrderId = 0;
+    int selectedClientId = 0;
+    QString selectedClientName;
 
     if (m_mapClientTable && m_mapClientTable->currentRow() >= 0) {
         int row = m_mapClientTable->currentRow();
+        QTableWidgetItem *orderItem = m_mapClientTable->item(row, 0);
+        QTableWidgetItem *nameItem = m_mapClientTable->item(row, 1);
         QTableWidgetItem *addrItem = m_mapClientTable->item(row, 2);
+        if (orderItem) {
+            bool orderOk = false;
+            const int parsedOrderId = orderItem->text().toInt(&orderOk);
+            if (orderOk && parsedOrderId > 0) selectedOrderId = parsedOrderId;
+            const int mappedClientId = orderItem->data(Qt::UserRole).toInt();
+            if (mappedClientId > 0) selectedClientId = mappedClientId;
+        }
+        if (nameItem) selectedClientName = nameItem->text().trimmed();
         if (addrItem) {
             address = addrItem->text().trimmed();
         }
@@ -13768,7 +13804,7 @@ void MainWindow::requestMapForBuyerId()
         }
 
         QSqlQuery q;
-        q.prepare("SELECT ADDRESS FROM CLIENTS WHERE CLIENT_ID = :id");
+        q.prepare("SELECT FIRST_NAME, LAST_NAME, ADDRESS FROM CLIENTS WHERE CLIENT_ID = :id");
         q.bindValue(":id", clientId);
         if (!q.exec() || !q.next()) {
             m_mapStatusLabel->setText("No client found for that Buyer ID.");
@@ -13776,7 +13812,9 @@ void MainWindow::requestMapForBuyerId()
             return;
         }
 
-        address = q.value(0).toString().trimmed();
+        selectedClientId = clientId;
+        selectedClientName = (q.value(0).toString() + " " + q.value(1).toString()).trimmed();
+        address = q.value(2).toString().trimmed();
         if (address.isEmpty()) {
             m_mapStatusLabel->setText("Client has no address on file.");
             m_mapAddressLabel->setText("Address: --");
@@ -13784,12 +13822,99 @@ void MainWindow::requestMapForBuyerId()
         }
     }
 
+    m_mapSelectedClientId = selectedClientId;
+    m_mapSelectedClientName = selectedClientName;
+
     m_mapAddressLabel->setText("Address: " + address);
+    if (m_mapAssignedEmployeeLabel) m_mapAssignedEmployeeLabel->setText("Assigned Employee: --");
+    if (m_mapDeliveryInfoLabel) m_mapDeliveryInfoLabel->setText("Distance: -- | ETA: --");
+
     m_mapStatusLabel->setText("Geocoding address...");
     m_mapHasClientPin = false;
+    m_mapHasEmployeePin = false;
+    m_mapRouteGeoPoints.clear();
+    m_mapAssignedEmployeeId = 0;
+    m_mapAssignedEmployeeName.clear();
+    m_mapPendingEmployeeAddress.clear();
     m_mapImageSize = (m_mapFullscreenDialog && m_mapFullscreenDialog->isVisible() && m_mapFullscreenLabel)
         ? m_mapFullscreenLabel->size()
         : m_mapImageLabel->size();
+
+    if (selectedOrderId > 0 || m_mapSelectedClientId > 0) {
+        int resolvedEmployeeId = 0;
+
+        if (selectedOrderId > 0) {
+            QSqlQuery qOrderEmp;
+            qOrderEmp.prepare("SELECT EMPLOYEE_ID FROM ORDERS WHERE ORDER_ID = :orderId");
+            qOrderEmp.bindValue(":orderId", selectedOrderId);
+            if (qOrderEmp.exec() && qOrderEmp.next()) {
+                resolvedEmployeeId = qOrderEmp.value(0).toInt();
+            }
+        } else {
+            QSqlQuery qOrderEmp;
+            qOrderEmp.prepare("SELECT EMPLOYEE_ID FROM ORDERS "
+                              "WHERE CLIENT_ID = :clientId "
+                              "ORDER BY ORDER_DATE DESC NULLS LAST, ORDER_ID DESC "
+                              "FETCH FIRST 1 ROWS ONLY");
+            qOrderEmp.bindValue(":clientId", m_mapSelectedClientId);
+            if (qOrderEmp.exec() && qOrderEmp.next()) {
+                resolvedEmployeeId = qOrderEmp.value(0).toInt();
+            }
+        }
+
+        // Fallback: when historic order rows have no employee_id, use logged-in user.
+        if (resolvedEmployeeId <= 0 && currentEmployeeId > 0) {
+            resolvedEmployeeId = currentEmployeeId;
+        }
+
+        if (resolvedEmployeeId > 0) {
+            m_mapAssignedEmployeeId = resolvedEmployeeId;
+
+            QSqlQuery qEmp;
+            qEmp.prepare("SELECT FIRST_NAME || ' ' || LAST_NAME, ADDRESS "
+                         "FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
+            qEmp.bindValue(":id", m_mapAssignedEmployeeId);
+            if (qEmp.exec() && qEmp.next()) {
+                m_mapAssignedEmployeeName = qEmp.value(0).toString().trimmed();
+                m_mapPendingEmployeeAddress = qEmp.value(1).toString().trimmed();
+            }
+
+            if (m_mapPendingEmployeeAddress.isEmpty()) {
+                QSqlQuery qAddrFallback;
+                qAddrFallback.prepare("SELECT c.ADDRESS "
+                                      "FROM ORDERS o "
+                                      "LEFT JOIN CLIENTS c ON c.CLIENT_ID = o.CLIENT_ID "
+                                      "WHERE o.EMPLOYEE_ID = :empId "
+                                      "AND c.ADDRESS IS NOT NULL "
+                                      "AND LENGTH(TRIM(c.ADDRESS)) > 0 "
+                                      "ORDER BY o.ORDER_DATE DESC NULLS LAST, o.ORDER_ID DESC "
+                                      "FETCH FIRST 1 ROWS ONLY");
+                qAddrFallback.bindValue(":empId", m_mapAssignedEmployeeId);
+                if (qAddrFallback.exec() && qAddrFallback.next()) {
+                    m_mapPendingEmployeeAddress = qAddrFallback.value(0).toString().trimmed();
+                }
+            }
+
+            if (m_mapAssignedEmployeeName.isEmpty()) {
+                m_mapAssignedEmployeeName = QString("Employee #%1").arg(m_mapAssignedEmployeeId);
+            }
+
+            if (m_mapAssignedEmployeeLabel) {
+                m_mapAssignedEmployeeLabel->setText(
+                    QString("Assigned Employee: %1 (ID: %2)")
+                        .arg(m_mapAssignedEmployeeName)
+                        .arg(m_mapAssignedEmployeeId));
+            }
+
+            if (m_mapPendingEmployeeAddress.isEmpty() && m_mapDeliveryInfoLabel) {
+                m_mapDeliveryInfoLabel->setText("Distance: -- | ETA: -- (employee address missing)");
+            }
+        } else {
+            if (m_mapAssignedEmployeeLabel) {
+                m_mapAssignedEmployeeLabel->setText("Assigned Employee: Unknown for this order");
+            }
+        }
+    }
 
     QString geocodeQuery = address;
     if (!geocodeQuery.contains("tunisia", Qt::CaseInsensitive) &&
@@ -13825,13 +13950,14 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
     const QString type = reply->property("mapType").toString();
     const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
-    if (type == "geocode") {
+    if (type == "geocode" || type == "geocode_employee") {
+        const bool isEmployeeGeocode = (type == "geocode_employee");
         const QString stage = reply->property("geocodeStage").toString();
         const QString address = reply->property("address").toString();
         const QString queryText = reply->property("query").toString();
         const QByteArray data = reply->readAll();
 
-        auto issueGlobalFallback = [this, address, queryText]() {
+        auto issueGlobalFallback = [this, address, queryText, type, isEmployeeGeocode]() {
             if (!m_mapNet) return;
             QUrl url("https://nominatim.openstreetmap.org/search");
             QUrlQuery q;
@@ -13845,14 +13971,15 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
             req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
             req.setRawHeader("Accept", "application/json");
             QNetworkReply *fallback = m_mapNet->get(req);
-            fallback->setProperty("mapType", "geocode");
+            fallback->setProperty("mapType", type);
             fallback->setProperty("address", address);
             fallback->setProperty("query", queryText);
             fallback->setProperty("geocodeStage", "global");
-            m_mapStatusLabel->setText("Geocoding retry (global)...");
+            m_mapStatusLabel->setText(isEmployeeGeocode ? "Geocoding employee retry (global)..."
+                                                        : "Geocoding retry (global)...");
         };
 
-        auto issuePhotonFallback = [this, address, queryText]() {
+        auto issuePhotonFallback = [this, address, queryText, type, isEmployeeGeocode]() {
             if (!m_mapNet) return;
             QUrl url("https://photon.komoot.io/api");
             QUrlQuery q;
@@ -13864,11 +13991,12 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
             req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
             req.setRawHeader("Accept", "application/json");
             QNetworkReply *fallback = m_mapNet->get(req);
-            fallback->setProperty("mapType", "geocode");
+            fallback->setProperty("mapType", type);
             fallback->setProperty("address", address);
             fallback->setProperty("query", queryText);
             fallback->setProperty("geocodeStage", "photon");
-            m_mapStatusLabel->setText("Geocoding retry (fallback provider)...");
+            m_mapStatusLabel->setText(isEmployeeGeocode ? "Geocoding employee retry (fallback provider)..."
+                                                        : "Geocoding retry (fallback provider)...");
         };
 
         bool hasCoords = false;
@@ -13902,6 +14030,14 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
             }
         }
 
+        // Guardrail: reject geocodes clearly outside Tunisia region.
+        auto inTunisiaBounds = [](double lat, double lon) {
+            return lat >= 30.0 && lat <= 37.8 && lon >= 7.0 && lon <= 12.2;
+        };
+        if (hasCoords && !inTunisiaBounds(latVal, lonVal)) {
+            hasCoords = false;
+        }
+
         if (!hasCoords) {
             if (stage == "tn") {
                 issueGlobalFallback();
@@ -13915,23 +14051,266 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
             }
 
             if (reply->error() != QNetworkReply::NoError) {
-                m_mapStatusLabel->setText(QString("Geocoding failed (%1)").arg(reply->errorString()));
+                m_mapStatusLabel->setText(isEmployeeGeocode
+                                              ? QString("Employee geocoding failed (%1)").arg(reply->errorString())
+                                              : QString("Geocoding failed (%1)").arg(reply->errorString()));
             } else if (httpStatus >= 400) {
-                m_mapStatusLabel->setText(QString("Geocoding failed (HTTP %1)").arg(httpStatus));
+                m_mapStatusLabel->setText(isEmployeeGeocode
+                                              ? QString("Employee geocoding failed (HTTP %1)").arg(httpStatus)
+                                              : QString("Geocoding failed (HTTP %1)").arg(httpStatus));
             } else {
-                m_mapStatusLabel->setText("Address not found on map.");
+                m_mapStatusLabel->setText(isEmployeeGeocode
+                                              ? "Employee address not found on map."
+                                              : "Address not found on map.");
             }
+
+            if (isEmployeeGeocode && m_mapDeliveryInfoLabel) {
+                m_mapDeliveryInfoLabel->setText("Distance: -- | ETA: -- (employee pin unavailable)");
+            }
+
+            reply->deleteLater();
+            return;
+        }
+
+        if (isEmployeeGeocode) {
+            m_mapEmployeePinLat = latVal;
+            m_mapEmployeePinLon = lonVal;
+            m_mapHasEmployeePin = true;
+
+            if (m_mapHasClientPin) {
+                m_mapCenterLat = (m_mapClientPinLat + m_mapEmployeePinLat) / 2.0;
+                m_mapCenterLon = (m_mapClientPinLon + m_mapEmployeePinLon) / 2.0;
+
+                // Load map while route service computes drivable car path.
+                requestMapTiles(m_mapCenterLat, m_mapCenterLon);
+
+                // Snap employee point to nearest drivable road first.
+                QUrl nearestUrl(QString("http://router.project-osrm.org/nearest/v1/driving/%1,%2")
+                                    .arg(m_mapEmployeePinLon, 0, 'f', 6)
+                                    .arg(m_mapEmployeePinLat, 0, 'f', 6));
+                QUrlQuery nearestParams;
+                nearestParams.addQueryItem("number", "1");
+                nearestUrl.setQuery(nearestParams);
+
+                QNetworkRequest nearestReq(nearestUrl);
+                nearestReq.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+                nearestReq.setRawHeader("Accept", "application/json");
+                QNetworkReply *nearestReply = m_mapNet->get(nearestReq);
+                nearestReply->setProperty("mapType", "route_nearest_employee");
+                nearestReply->setProperty("employeeLat", m_mapEmployeePinLat);
+                nearestReply->setProperty("employeeLon", m_mapEmployeePinLon);
+                nearestReply->setProperty("clientLat", m_mapClientPinLat);
+                nearestReply->setProperty("clientLon", m_mapClientPinLon);
+
+                if (m_mapDeliveryInfoLabel) {
+                    m_mapDeliveryInfoLabel->setText("Road distance: calculating car route...");
+                }
+                m_mapStatusLabel->setText("Employee and client located. Snapping to nearest road...");
+                reply->deleteLater();
+                return;
+            } else {
+                m_mapCenterLat = m_mapEmployeePinLat;
+                m_mapCenterLon = m_mapEmployeePinLon;
+            }
+
+            m_mapStatusLabel->setText("Employee and client locations loaded.");
+            requestMapTiles(m_mapCenterLat, m_mapCenterLon);
             reply->deleteLater();
             return;
         }
 
         m_mapCenterLat = latVal;
         m_mapCenterLon = lonVal;
-        m_mapClientPinLat = m_mapCenterLat;
-        m_mapClientPinLon = m_mapCenterLon;
+        m_mapClientPinLat = latVal;
+        m_mapClientPinLon = lonVal;
         m_mapHasClientPin = true;
-        m_mapStatusLabel->setText("Loading map tiles...");
         requestMapTiles(m_mapCenterLat, m_mapCenterLon);
+
+        if (!m_mapPendingEmployeeAddress.isEmpty()) {
+            QString employeeQuery = m_mapPendingEmployeeAddress;
+            if (!employeeQuery.contains("tunisia", Qt::CaseInsensitive) &&
+                !employeeQuery.contains("tunisie", Qt::CaseInsensitive) &&
+                !employeeQuery.contains(QString::fromUtf8("\xD8\xAA\xD9\x88\xD9\x86\xD8\xB3"), Qt::CaseInsensitive)) {
+                employeeQuery += ", Tunisia";
+            }
+
+            QUrl employeeUrl("https://nominatim.openstreetmap.org/search");
+            QUrlQuery employeeParams;
+            employeeParams.addQueryItem("q", employeeQuery);
+            employeeParams.addQueryItem("format", "json");
+            employeeParams.addQueryItem("limit", "1");
+            employeeParams.addQueryItem("accept-language", "en");
+            employeeParams.addQueryItem("countrycodes", "tn");
+            employeeParams.addQueryItem("bounded", "1");
+            employeeParams.addQueryItem("viewbox", "7.5,37.6,11.6,30.2");
+            employeeUrl.setQuery(employeeParams);
+
+            QNetworkRequest employeeReq(employeeUrl);
+            employeeReq.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+            employeeReq.setRawHeader("Accept", "application/json");
+            QNetworkReply *employeeReply = m_mapNet->get(employeeReq);
+            employeeReply->setProperty("mapType", "geocode_employee");
+            employeeReply->setProperty("address", m_mapPendingEmployeeAddress);
+            employeeReply->setProperty("query", employeeQuery);
+            employeeReply->setProperty("geocodeStage", "tn");
+            m_mapStatusLabel->setText("Client located. Geocoding assigned employee...");
+        } else {
+            m_mapStatusLabel->setText("Client located. No assigned employee address available.");
+        }
+
+        reply->deleteLater();
+        return;
+    }
+
+    if (type == "route_nearest_employee") {
+        const QByteArray nearestData = reply->readAll();
+        const double employeeLat = reply->property("employeeLat").toDouble();
+        const double employeeLon = reply->property("employeeLon").toDouble();
+        const double clientLat = reply->property("clientLat").toDouble();
+        const double clientLon = reply->property("clientLon").toDouble();
+
+        double fromLat = employeeLat;
+        double fromLon = employeeLon;
+
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument nDoc = QJsonDocument::fromJson(nearestData);
+            QJsonObject nRoot = nDoc.object();
+            if (nRoot.value("code").toString() == "Ok") {
+                const QJsonArray waypoints = nRoot.value("waypoints").toArray();
+                if (!waypoints.isEmpty()) {
+                    const QJsonArray loc = waypoints.first().toObject().value("location").toArray();
+                    if (loc.size() >= 2) {
+                        fromLon = loc.at(0).toDouble();
+                        fromLat = loc.at(1).toDouble();
+                    }
+                }
+            }
+        }
+
+        QUrl nearestClientUrl(QString("http://router.project-osrm.org/nearest/v1/driving/%1,%2")
+                                  .arg(clientLon, 0, 'f', 6)
+                                  .arg(clientLat, 0, 'f', 6));
+        QUrlQuery nearestClientParams;
+        nearestClientParams.addQueryItem("number", "1");
+        nearestClientUrl.setQuery(nearestClientParams);
+
+        QNetworkRequest nearestClientReq(nearestClientUrl);
+        nearestClientReq.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+        nearestClientReq.setRawHeader("Accept", "application/json");
+        QNetworkReply *nearestClientReply = m_mapNet->get(nearestClientReq);
+        nearestClientReply->setProperty("mapType", "route_nearest_client");
+        nearestClientReply->setProperty("fromLat", fromLat);
+        nearestClientReply->setProperty("fromLon", fromLon);
+        nearestClientReply->setProperty("clientLat", clientLat);
+        nearestClientReply->setProperty("clientLon", clientLon);
+
+        m_mapStatusLabel->setText("Snapping client to nearest road...");
+        reply->deleteLater();
+        return;
+    }
+
+    if (type == "route_nearest_client") {
+        const QByteArray nearestData = reply->readAll();
+
+        const double fromLat = reply->property("fromLat").toDouble();
+        const double fromLon = reply->property("fromLon").toDouble();
+        const double clientLat = reply->property("clientLat").toDouble();
+        const double clientLon = reply->property("clientLon").toDouble();
+
+        double toLat = clientLat;
+        double toLon = clientLon;
+
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument nDoc = QJsonDocument::fromJson(nearestData);
+            QJsonObject nRoot = nDoc.object();
+            if (nRoot.value("code").toString() == "Ok") {
+                const QJsonArray waypoints = nRoot.value("waypoints").toArray();
+                if (!waypoints.isEmpty()) {
+                    const QJsonArray loc = waypoints.first().toObject().value("location").toArray();
+                    if (loc.size() >= 2) {
+                        toLon = loc.at(0).toDouble();
+                        toLat = loc.at(1).toDouble();
+                    }
+                }
+            }
+        }
+
+        QUrl routeUrl(QString("http://router.project-osrm.org/route/v1/driving/%1,%2;%3,%4")
+                          .arg(fromLon, 0, 'f', 6)
+                          .arg(fromLat, 0, 'f', 6)
+                          .arg(toLon, 0, 'f', 6)
+                          .arg(toLat, 0, 'f', 6));
+        QUrlQuery routeParams;
+        routeParams.addQueryItem("overview", "full");
+        routeParams.addQueryItem("geometries", "geojson");
+        routeParams.addQueryItem("alternatives", "false");
+        routeParams.addQueryItem("steps", "false");
+        routeParams.addQueryItem("annotations", "false");
+        routeUrl.setQuery(routeParams);
+
+        QNetworkRequest routeReq(routeUrl);
+        routeReq.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+        routeReq.setRawHeader("Accept", "application/json");
+        QNetworkReply *routeReply = m_mapNet->get(routeReq);
+        routeReply->setProperty("mapType", "route");
+
+        m_mapStatusLabel->setText("Calculating drivable route...");
+        reply->deleteLater();
+        return;
+    }
+
+    if (type == "route") {
+        const QByteArray routeData = reply->readAll();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            m_mapRouteGeoPoints.clear();
+            renderOrderMap();
+            if (m_mapDeliveryInfoLabel) {
+                m_mapDeliveryInfoLabel->setText("Road route unavailable for car travel.");
+            }
+            m_mapStatusLabel->setText("Routing service error. Please verify addresses.");
+            reply->deleteLater();
+            return;
+        }
+
+        QJsonDocument doc = QJsonDocument::fromJson(routeData);
+        QJsonObject root = doc.object();
+        const QString code = root.value("code").toString();
+        const QJsonArray routes = root.value("routes").toArray();
+
+        if (code == "Ok" && !routes.isEmpty()) {
+            const QJsonObject r0 = routes.first().toObject();
+            const double distanceKm = r0.value("distance").toDouble() / 1000.0;
+            const int etaMinutes = qMax(1, qRound(r0.value("duration").toDouble() / 60.0));
+
+            m_mapRouteGeoPoints.clear();
+            const QJsonObject geometry = r0.value("geometry").toObject();
+            const QJsonArray coords = geometry.value("coordinates").toArray();
+            for (const QJsonValue &coordVal : coords) {
+                const QJsonArray coord = coordVal.toArray();
+                if (coord.size() < 2) continue;
+                const double lon = coord.at(0).toDouble();
+                const double lat = coord.at(1).toDouble();
+                m_mapRouteGeoPoints.push_back(QPointF(lon, lat));
+            }
+            renderOrderMap();
+
+            if (m_mapDeliveryInfoLabel) {
+                m_mapDeliveryInfoLabel->setText(
+                    QString("Road Distance: %1 km | ETA (car): %2 min")
+                        .arg(distanceKm, 0, 'f', 1)
+                        .arg(etaMinutes));
+            }
+            m_mapStatusLabel->setText("Drivable route calculated successfully.");
+        } else {
+            m_mapRouteGeoPoints.clear();
+            renderOrderMap();
+            if (m_mapDeliveryInfoLabel) {
+                m_mapDeliveryInfoLabel->setText("No drivable road route found for car travel.");
+            }
+            m_mapStatusLabel->setText("No valid car route found between employee and client.");
+        }
+
         reply->deleteLater();
         return;
     }
@@ -14089,33 +14468,84 @@ void MainWindow::renderOrderMap()
         }
     }
 
-    if (m_mapHasClientPin) {
+    auto worldToPixel = [this, tileSize](double lat, double lon) {
         const int n = 1 << m_mapZoom;
-        const double pinLatRad = qDegreesToRadians(m_mapClientPinLat);
-        const double pinWorldX = ((m_mapClientPinLon + 180.0) / 360.0 * n) * tileSize;
-        const double pinWorldY = ((1.0 - log(tan(pinLatRad) + 1.0 / cos(pinLatRad)) / M_PI) / 2.0 * n) * tileSize;
-        const int pinX = qRound(pinWorldX - m_mapTopLeftX);
-        const int pinY = qRound(pinWorldY - m_mapTopLeftY);
+        const double latRad = qDegreesToRadians(lat);
+        const double worldX = ((lon + 180.0) / 360.0 * n) * tileSize;
+        const double worldY = ((1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / M_PI) / 2.0 * n) * tileSize;
+        return QPoint(qRound(worldX - m_mapTopLeftX), qRound(worldY - m_mapTopLeftY));
+    };
 
-        if (pinX >= -20 && pinX <= (m_mapImageSize.width() + 20) && pinY >= -30 && pinY <= (m_mapImageSize.height() + 20)) {
-            painter.setRenderHint(QPainter::Antialiasing, true);
+    auto isVisiblePin = [this](const QPoint &pinPos) {
+        return pinPos.x() >= -20 && pinPos.x() <= (m_mapImageSize.width() + 20)
+               && pinPos.y() >= -30 && pinPos.y() <= (m_mapImageSize.height() + 20);
+    };
 
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(QColor(0, 0, 0, 120));
-            painter.drawEllipse(QPoint(pinX + 1, pinY + 2), 7, 3);
+    auto drawPin = [&painter](const QPoint &pinPos, const QColor &pinColor, const QString &label) {
+        painter.setRenderHint(QPainter::Antialiasing, true);
 
-            QPolygon pinTip;
-            pinTip << QPoint(pinX, pinY)
-                   << QPoint(pinX - 7, pinY - 14)
-                   << QPoint(pinX + 7, pinY - 14);
-            painter.setBrush(QColor(220, 53, 69));
-            painter.drawPolygon(pinTip);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0, 0, 0, 120));
+        painter.drawEllipse(QPoint(pinPos.x() + 1, pinPos.y() + 2), 7, 3);
 
-            painter.setBrush(QColor(220, 53, 69));
-            painter.drawEllipse(QPoint(pinX, pinY - 22), 10, 10);
-            painter.setBrush(Qt::white);
-            painter.drawEllipse(QPoint(pinX, pinY - 22), 4, 4);
+        QPolygon pinTip;
+        pinTip << QPoint(pinPos.x(), pinPos.y())
+               << QPoint(pinPos.x() - 7, pinPos.y() - 14)
+               << QPoint(pinPos.x() + 7, pinPos.y() - 14);
+        painter.setBrush(pinColor);
+        painter.drawPolygon(pinTip);
+
+        painter.setBrush(pinColor);
+        painter.drawEllipse(QPoint(pinPos.x(), pinPos.y() - 22), 10, 10);
+        painter.setBrush(Qt::white);
+        painter.drawEllipse(QPoint(pinPos.x(), pinPos.y() - 22), 4, 4);
+
+        painter.setPen(Qt::white);
+        QFont f = painter.font();
+        f.setBold(true);
+        f.setPointSize(8);
+        painter.setFont(f);
+        painter.drawText(QRect(pinPos.x() - 10, pinPos.y() - 48, 20, 16), Qt::AlignCenter, label);
+    };
+
+    QPoint clientPin;
+    QPoint employeePin;
+    bool clientVisible = false;
+    bool employeeVisible = false;
+
+    if (m_mapHasClientPin) {
+        clientPin = worldToPixel(m_mapClientPinLat, m_mapClientPinLon);
+        clientVisible = isVisiblePin(clientPin);
+    }
+
+    if (m_mapHasEmployeePin) {
+        employeePin = worldToPixel(m_mapEmployeePinLat, m_mapEmployeePinLon);
+        employeeVisible = isVisiblePin(employeePin);
+    }
+
+    if (m_mapRouteGeoPoints.size() > 1) {
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        QPainterPath routePath;
+
+        const QPoint firstPoint = worldToPixel(m_mapRouteGeoPoints.first().y(), m_mapRouteGeoPoints.first().x());
+        routePath.moveTo(firstPoint);
+        for (int i = 1; i < m_mapRouteGeoPoints.size(); ++i) {
+            const QPoint p = worldToPixel(m_mapRouteGeoPoints.at(i).y(), m_mapRouteGeoPoints.at(i).x());
+            routePath.lineTo(p);
         }
+
+        painter.setPen(QPen(QColor(35, 187, 255, 180), 6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawPath(routePath);
+        painter.setPen(QPen(QColor(255, 255, 255, 200), 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawPath(routePath);
+    }
+
+    if (clientVisible) {
+        drawPin(clientPin, QColor(220, 53, 69), "C");
+    }
+
+    if (employeeVisible) {
+        drawPin(employeePin, QColor(52, 152, 219), "E");
     }
 
     m_mapCurrentPixmap = mapPixmap;

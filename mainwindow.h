@@ -583,6 +583,8 @@ private:
     QLabel *m_mapImageLabel = nullptr;
     QLabel *m_mapStatusLabel = nullptr;
     QLabel *m_mapAddressLabel = nullptr;
+    QLabel *m_mapAssignedEmployeeLabel = nullptr;
+    QLabel *m_mapDeliveryInfoLabel = nullptr;
     QPushButton *m_mapRefreshBtn = nullptr;
     QTableWidget *m_mapClientTable = nullptr;
         QPushButton *m_mapZoomInBtn = nullptr;
@@ -609,6 +611,15 @@ private:
         bool m_mapHasClientPin = false;
         double m_mapClientPinLat = 0.0;
         double m_mapClientPinLon = 0.0;
+        int m_mapSelectedClientId = 0;
+        QString m_mapSelectedClientName;
+        bool m_mapHasEmployeePin = false;
+        double m_mapEmployeePinLat = 0.0;
+        double m_mapEmployeePinLon = 0.0;
+        QVector<QPointF> m_mapRouteGeoPoints;
+        int m_mapAssignedEmployeeId = 0;
+        QString m_mapAssignedEmployeeName;
+        QString m_mapPendingEmployeeAddress;
         bool m_mapDragging = false;
         QPoint m_mapDragStart;
         double m_mapDragCenterX = 0.0;
