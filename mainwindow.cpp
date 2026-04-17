@@ -29,6 +29,7 @@
 #include <QtMath>
 
 #include "mainwindow.h"
+#include <QPair>
 #include "smtpsender.h"
 #include <QtConcurrent/QtConcurrent>
 #include <QFutureWatcher>
@@ -1340,6 +1341,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_supplierMapNet = new QNetworkAccessManager(this);
     connect(m_supplierMapNet, &QNetworkAccessManager::finished, this, &MainWindow::onSupplierGeocodeFinished);
     setupSupplierMapTab();
+    setupSupplierAiAdvisorTab();
 
     // 6. Equipment Management (Index 5)
     ui_equipment = new Ui::EquipmentManagement;
@@ -1939,7 +1941,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Y set to (TabWidgetY + 25) to align with inner buttons.
     setupTabNavigation(clientPage, ui_client->tabWidget, {"Manage", "View", "Stats", "Mail", "Calendar"}, 150, 45, {0, 1, 2, 3, 4}, 115, 40);   // Override indices: Manage->0, View->1, Stats->2, Mail->3, Calendar->4
     setupTabNavigation(employeePage, ui_employee->tabWidget, {"Manage", "View", "Stats", "History"}, 150, 95, {}, 115, 40);  // 70+25
-    setupTabNavigation(supplierPage, ui_supplier->tabWidget, {"Manage", "Stats", "View", "Reviews", "Map"}, 150, 45, {0, 1, 2, 3, 4}, 115, 40);
+    setupTabNavigation(supplierPage, ui_supplier->tabWidget, {"Manage", "Stats", "View", "Reviews", "Map", "AI Advisor"}, 140, 45, {0, 1, 2, 3, 4, 5}, 100, 30);
     setupTabNavigation(equipmentPage, ui_equipment->tabWidget, {"Manage", "View", "History", "Stats", "Chat", "NEXUS", "COSTS"}, 96, 95, {0, 1, 2, 3, 4, 5, 6}, 103, 34);
     connect(ui_equipment->tabWidget, &QTabWidget::currentChanged, this, [this](int idx) {
         Q_UNUSED(idx);
@@ -4850,12 +4852,20 @@ void MainWindow::onSupplierRefreshView()
     // Populate the tableView in the View tab
     QSqlQueryModel *model = new QSqlQueryModel(this);
     model->setQuery(
-        "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", SUPPLIER_ID AS \"ID\", "
+        "SELECT 1 AS \"Action\", 2 AS \"Del\", SUPPLIER_ID AS \"ID\", "
         "SUPPLIER_NAME AS \"Company\", ADDRESS AS \"Address\","
         " EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", TYPE_NOTIFICATION AS \"Type\","
         " POSTAL_CODE AS \"Postal Code\""
         " FROM SUPPLIERS ORDER BY SUPPLIER_ID"
     );
+
+
+    if (model->lastError().isValid()) {
+        qDebug() << "[Supplier] onSupplierRefreshView query error:" << model->lastError().text();
+        QMessageBox::critical(this, "Database Error",
+            "Failed to load supplier list:\n" + model->lastError().databaseText());
+        return;
+    }
 
     ui_supplier->tableView->setModel(model);
     ui_supplier->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -5089,10 +5099,15 @@ void MainWindow::onSupplierDeleteAll()
 {
     if (!ui_supplier) return;
 
-    // Count first so the warning is specific
+    // Use a more robust count: database query first, then fallback to model row count
     int count = 0;
-    QSqlQuery qCount("SELECT COUNT(*) FROM SUPPLIERS");
-    if (qCount.exec() && qCount.next()) count = qCount.value(0).toInt();
+    QSqlQuery qCount;
+    if (qCount.exec("SELECT COUNT(*) FROM SUPPLIERS") && qCount.next()) {
+        count = qCount.value(0).toInt();
+    } else if (ui_supplier->tableView->model()) {
+        // Fallback to currently loaded rows if SQL fails
+        count = ui_supplier->tableView->model()->rowCount();
+    }
 
     if (count == 0) {
         QMessageBox::information(this, tr("Delete All"), tr("There are no suppliers to delete."));
@@ -5108,8 +5123,9 @@ void MainWindow::onSupplierDeleteAll()
     );
     if (reply != QMessageBox::Yes) return;
 
-    QSqlQuery qDel("DELETE FROM SUPPLIERS");
-    if (qDel.exec()) {
+    QSqlQuery qDel;
+    if (qDel.exec("DELETE FROM SUPPLIERS")) {
+        QSqlDatabase::database().commit();
         QMessageBox::information(this, tr("Deleted"),
             tr("%1 supplier(s) deleted successfully.").arg(count));
         onSupplierClearFields();
@@ -5435,7 +5451,7 @@ void MainWindow::onSupplierSearch()
 
     QSqlQueryModel *model = new QSqlQueryModel(this);
     QString sqlBase =
-        "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", SUPPLIER_ID AS \"ID\", "
+        "SELECT 1 AS \"Action\", 2 AS \"Del\", SUPPLIER_ID AS \"ID\", "
         "SUPPLIER_NAME AS \"Company\", ADDRESS AS \"Address\","
         " EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", TYPE_NOTIFICATION AS \"Type\","
         " POSTAL_CODE AS \"Postal Code\""
@@ -6276,12 +6292,21 @@ void MainWindow::setupSupplierStats()
     
     QSqlQuery qCats("SELECT TYPE_NOTIFICATION, COUNT(*) FROM SUPPLIERS GROUP BY TYPE_NOTIFICATION");
     int catIdx = 0;
+    int totalSuppliers = 0;
+    QList<QPair<QString, int>> catData;
+    while(qCats.next()){
+        int c = qCats.value(1).toInt();
+        totalSuppliers += c;
+        catData.append({qCats.value(0).toString(), c});
+    }
+
     QStringList catColors = {"#D4AF37", "#8B6F47", "#5D4037", "#2E1A0C", "#A0825A"};
-    while(qCats.next()) {
-        QString cat = qCats.value(0).toString();
-        int count = qCats.value(1).toInt();
+    for(const auto &p : catData) {
+        QString cat = p.first;
+        int count = p.second;
         if (cat.isEmpty()) cat = trKey("Other");
-        QPieSlice *slice = seriesCat->append(cat, count);
+        double pct = (totalSuppliers > 0) ? (100.0 * count / totalSuppliers) : 0.0;
+        QPieSlice *slice = seriesCat->append(QString("%1 (%2%)").arg(cat).arg(pct, 0, 'f', 1), count);
         slice->setBrush(QColor(catColors.at(catIdx % catColors.size())));
         slice->setLabelVisible();
         slice->setLabelColor(Qt::white);
@@ -6339,8 +6364,10 @@ void MainWindow::setupSupplierStats()
         double sum = 0;
         for (double val : monthScores[m]) sum += val;
         categories << QDate(2000, m, 1).toString("Mon");
-        *setScore << (sum / monthScores[m].size());
+        double avgPct = (sum / monthScores[m].size()) * 20.0; // 0-5 -> 0-100%
+        *setScore << avgPct;
     }
+    setScore->setLabel(trKey("Satisfaction %"));
     setScore->setColor(QColor("#D4AF37"));
 
     QBarSeries *seriesTrend = new QBarSeries();
@@ -6360,7 +6387,8 @@ void MainWindow::setupSupplierStats()
     seriesTrend->attachAxis(axisX);
 
     QValueAxis *axisY = new QValueAxis();
-    axisY->setRange(0, 5);
+    axisY->setRange(0, 100);
+    axisY->setLabelFormat("%d%");
     axisY->setLabelsColor(Qt::white);
     chartTrend->addAxis(axisY, Qt::AlignLeft);
     seriesTrend->attachAxis(axisY);
@@ -7019,8 +7047,8 @@ void MainWindow::setupSupplierModes()
     setTrKey(rbAdd, "Add Supplier");
     setTrKey(rbMod, "Manage Supplier");
 
-    rbAdd->setGeometry(700, 25, 150, 30);
-    rbMod->setGeometry(850, 25, 150, 30);
+    rbAdd->setGeometry(770, 25, 150, 30);
+    rbMod->setGeometry(930, 25, 150, 30);
     
     QString rbStyle = "font-weight: bold; font-size: 14px; color: white;";
     rbAdd->setStyleSheet(rbStyle);
@@ -7070,7 +7098,7 @@ void MainWindow::setupSupplierModes()
     m_supplierBellBtn = new QPushButton(ui_supplier->tab_gestion);
     m_supplierBellBtn->setText(QString(QChar(0xD83D)) + QChar(0xDD14)); // 🔔
     m_supplierBellBtn->setObjectName("btn_supplier_bell");
-    m_supplierBellBtn->setGeometry(1060, 8, 44, 44);
+    m_supplierBellBtn->setGeometry(1120, 8, 44, 44);
     m_supplierBellBtn->setStyleSheet(
         "QPushButton { background-color: #8B6F47; border-radius: 22px; color: white; font-size: 20px; border: none; }"
         "QPushButton:hover { background-color: #a3845a; }"
@@ -8596,7 +8624,7 @@ void MainWindow::onEmployeeRefreshView()
 {
     QSqlQueryModel *model = new QSqlQueryModel(this);
     model->setQuery(
-        "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
+        "SELECT 'Edit' AS \"Action\", 'Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
         "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
         " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", ADDRESS AS \"Address\", SALARY AS \"Salary\""
         " FROM EMPLOYEES ORDER BY EMPLOYEE_ID"
@@ -8669,7 +8697,7 @@ void MainWindow::onEmployeeSearch()
     QSqlQueryModel *model = new QSqlQueryModel(this);
     if (search.isEmpty()) {
         model->setQuery(
-            "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
+            "SELECT 'Edit' AS \"Action\", 'Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
             "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
             " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", SALARY AS \"Salary\""
             " FROM EMPLOYEES ORDER BY EMPLOYEE_ID"
@@ -8677,7 +8705,7 @@ void MainWindow::onEmployeeSearch()
     } else {
         QSqlQuery q;
         q.prepare(
-            "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
+            "SELECT 'Edit' AS \"Action\", 'Delete' AS \"Delete\", EMPLOYEE_ID AS \"ID\", "
             "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
             " JOB_TITLE AS \"Job Title\", AGE AS \"Age\", EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", SALARY AS \"Salary\""
             " FROM EMPLOYEES WHERE UPPER(LAST_NAME) LIKE :s OR UPPER(FIRST_NAME) LIKE :s"
@@ -10277,7 +10305,7 @@ void MainWindow::onEquipmentRefreshView()
 {
     QSqlQueryModel *model = new QSqlQueryModel(this);
     model->setQuery(
-        "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", EQUIPMENT_ID AS \"ID\", "
+        "SELECT 'Edit' AS \"Action\", 'Delete' AS \"Delete\", EQUIPMENT_ID AS \"ID\", "
         "EQUIPMENT_TYPE AS \"Type\", QUANTITY AS \"Qty\", UNIT_PRICE AS \"Price\", "
         "STATUS AS \"Status\", PURCHASE_DATE AS \"Purchase Date\", DESCRIPTION AS \"Description\""
         " FROM EQUIPMENT WHERE STATUS != 'Retired' ORDER BY EQUIPMENT_ID"
@@ -10530,7 +10558,7 @@ void MainWindow::onEquipmentSearch()
     QString filterStatus = ui_equipment->cb_filter_status->currentText();
     QSqlQueryModel *model = new QSqlQueryModel(this);
 
-    QString sql = "SELECT '✎ Edit' AS \"Action\", '❌ Delete' AS \"Delete\", EQUIPMENT_ID AS \"ID\", "
+    QString sql = "SELECT 'Edit' AS \"Action\", 'Delete' AS \"Delete\", EQUIPMENT_ID AS \"ID\", "
                   "EQUIPMENT_TYPE AS \"Type\", QUANTITY AS \"Qty\", UNIT_PRICE AS \"Price\", "
                   "STATUS AS \"Status\", PURCHASE_DATE AS \"Purchase Date\", DESCRIPTION AS \"Description\" "
                   "FROM EQUIPMENT WHERE STATUS != 'Retired'";
@@ -15201,6 +15229,88 @@ void MainWindow::setupSupplierMapTab()
     });
 }
 
+void MainWindow::setupSupplierAiAdvisorTab()
+{
+    if (!ui_supplier || !ui_supplier->tabWidget) return;
+
+    m_supplierAiTab = new QWidget(ui_supplier->tabWidget);
+    m_supplierAiTab->setObjectName("tab_supplier_ai");
+
+    QVBoxLayout *root = new QVBoxLayout(m_supplierAiTab);
+    root->setContentsMargins(20, 60, 20, 20);
+    root->setSpacing(15);
+
+    // Header Frame
+    QFrame *headerFrame = new QFrame(m_supplierAiTab);
+    headerFrame->setFixedHeight(80);
+    headerFrame->setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8B6F47, stop:1 #5D4037); border-radius: 12px;");
+    QHBoxLayout *headerLayout = new QHBoxLayout(headerFrame);
+    
+    QLabel *headerIcon = new QLabel(headerFrame);
+    headerIcon->setPixmap(QIcon(":/assets/nexus_core.png").pixmap(40, 40));
+    
+    QVBoxLayout *headerText = new QVBoxLayout();
+    QLabel *title = new QLabel("AI Strategic Procurement Advisor", headerFrame);
+    title->setStyleSheet("color: white; font-size: 20px; font-weight: bold; background: transparent;");
+    QLabel *subtitle = new QLabel("Predictive Stock Analysis & Supplier Optimization", headerFrame);
+    subtitle->setStyleSheet("color: #D4AF37; font-size: 13px; background: transparent;");
+    headerText->addWidget(title);
+    headerText->addWidget(subtitle);
+    
+    headerLayout->addWidget(headerIcon);
+    headerLayout->addLayout(headerText);
+    headerLayout->addStretch();
+    
+    // Control Section
+    QHBoxLayout *controls = new QHBoxLayout();
+    m_aiAdvRunBtn = new QPushButton(" Analyze Market & Recommend", m_supplierAiTab);
+    m_aiAdvRunBtn->setIcon(QIcon(":/assets/ai_pulse.png"));
+    m_aiAdvRunBtn->setCursor(Qt::PointingHandCursor);
+    m_aiAdvRunBtn->setFixedSize(250, 45);
+    m_aiAdvRunBtn->setStyleSheet(
+        "QPushButton { background-color: #D4AF37; color: #1A1208; border-radius: 22px; font-weight: bold; font-size: 14px; }"
+        "QPushButton:hover { background-color: #FFFFFF; color: #D4AF37; border: 2px solid #D4AF37; }"
+        "QPushButton:pressed { background-color: #B89626; }");
+
+    m_aiAdvStatus = new QLabel("Standby - Ready for analysis", m_supplierAiTab);
+    m_aiAdvStatus->setStyleSheet("color: #8B6F47; font-style: italic; font-weight: bold;");
+    
+    controls->addWidget(m_aiAdvRunBtn);
+    controls->addSpacing(20);
+    controls->addWidget(m_aiAdvStatus);
+    controls->addStretch();
+
+    // Progress Bar (Initially hidden)
+    m_aiAdvProgress = new QProgressBar(m_supplierAiTab);
+    m_aiAdvProgress->setRange(0, 0); // Indeterminate
+    m_aiAdvProgress->setFixedHeight(4);
+    m_aiAdvProgress->setTextVisible(false);
+    m_aiAdvProgress->setStyleSheet("QProgressBar { background: transparent; border: none; } QProgressBar::chunk { background: #D4AF37; }");
+    m_aiAdvProgress->hide();
+
+    // Results Display
+    m_aiAdvResult = new QTextEdit(m_supplierAiTab);
+    m_aiAdvResult->setReadOnly(true);
+    m_aiAdvResult->setPlaceholderText("Strategic recommendations will appear here after analysis...");
+    m_aiAdvResult->setStyleSheet(
+        "QTextEdit { background-color: rgba(30, 20, 10, 0.85); color: #F5E6D3; border: 2px solid #8B6F47; "
+        "border-radius: 12px; padding: 20px; font-size: 15px; line-height: 1.6; }");
+    
+    root->addWidget(headerFrame);
+    root->addLayout(controls);
+    root->addWidget(m_aiAdvProgress);
+    root->addWidget(m_aiAdvResult, 1);
+
+    ui_supplier->tabWidget->addTab(m_supplierAiTab, "AI Advisor");
+
+    connect(m_aiAdvRunBtn, &QPushButton::clicked, this, [this]() {
+        m_aiAdvStatus->setText("Consulting AI Models...");
+        m_aiAdvProgress->show();
+        m_aiAdvResult->clear();
+        checkWorkshopStockAndNotifyAI();
+    });
+}
+
 void MainWindow::loadSupplierMapPins()
 {
     m_supplierMapStatusLabel->setText("Geocoding suppliers...");
@@ -15730,6 +15840,21 @@ void MainWindow::checkWorkshopStockAndNotifyAI()
                 result = "<b>Error:</b> The AI API key is invalid or Groq service is unavailable. Falling back to default: <b>Tech Supplies Tunis</b> is recommended based on past 5-star ratings for this material.";
             }
 
+            // Update AI Advisor Tab
+            if (m_aiAdvResult) {
+                QString currentText = m_aiAdvResult->toHtml();
+                QString newEntry = QString(
+                    "<div style='margin-bottom: 20px; padding: 15px; background: rgba(212, 175, 55, 0.1); border-left: 5px solid #D4AF37;'>"
+                    "<b style='color: #D4AF37; font-size: 16px;'>📍 Recommendation for %1:</b><br>"
+                    "<p style='margin-top: 10px;'>%2</p>"
+                    "</div>"
+                ).arg(type).arg(result);
+                m_aiAdvResult->setHtml(newEntry + currentText);
+                m_aiAdvStatus->setText("Analysis Complete");
+                m_aiAdvProgress->hide();
+            }
+
+            // Also keep a record in the database for persistence (but no notification bell)
             QSqlQuery qSupp("SELECT SUPPLIER_ID, NOTIFICATIONS_JSON FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active' AND ROWNUM = 1");
             if (qSupp.next()) {
                 int sId = qSupp.value(0).toInt();
@@ -15737,10 +15862,10 @@ void MainWindow::checkWorkshopStockAndNotifyAI()
                 QJsonObject n;
                 QDateTime now = QDateTime::currentDateTime();
                 n["id"] = "AI_STOCK_" + QString::number(now.toMSecsSinceEpoch());
-                n["type"] = "AI_STOCK_ALERT";
-                n["msg"] = QString("[AI Recommendation for %1] %2").arg(type).arg(result);
+                n["type"] = "AI_ADVISOR_LOG";
+                n["msg"] = QString("[AI Advisory] %1: %2").arg(type).arg(result);
                 n["date"] = now.toString("dd/MM HH:mm");
-                n["is_read"] = 0;
+                n["is_read"] = 1; // Mark as read immediately since it's in the tab
                 arr.append(n);
                 
                 QSqlQuery u;
@@ -15748,13 +15873,6 @@ void MainWindow::checkWorkshopStockAndNotifyAI()
                 u.bindValue(":json", QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
                 u.bindValue(":id", sId);
                 u.exec();
-                
-                if (m_supplierBellBtn) {
-                   m_supplierBellBtn->setStyleSheet(
-                        "QPushButton { background-color: #c0392b; border-radius: 22px; color: white; font-size: 20px; border: none; }"
-                        "QPushButton:hover { background-color: #e74c3c; }");
-                   m_supplierBellBtn->setToolTip("AI Recommendation Available for " + type);
-                }
             }
         });
     }

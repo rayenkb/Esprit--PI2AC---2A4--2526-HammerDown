@@ -810,7 +810,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -843,7 +843,7 @@ QProgressBar::chunk { background-color: #D4AF37; border-radius: 4px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -1035,7 +1035,7 @@ Last updated: Today 01:40 AM</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -1068,7 +1068,7 @@ QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
       </property>
       <property name="value">
@@ -1451,7 +1451,7 @@ Consistency Index: high</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -1484,7 +1484,7 @@ QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #2196F3; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -1517,7 +1517,7 @@ QProgressBar::chunk { background-color: #2196F3; border-radius: 4px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #9C27B0; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -1797,7 +1797,7 @@ QComboBox QAbstractItemView { background-color: #332211; color: white; selection
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
       </property>
       <property name="value">
@@ -1830,7 +1830,7 @@ QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
       </property>
       <property name="value">
@@ -1863,7 +1863,7 @@ QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
       </property>
       <property name="value">

@@ -378,6 +378,7 @@ private slots:
     
     // Supplier Map
     void setupSupplierMapTab();
+    void setupSupplierAiAdvisorTab();
     void refreshSupplierMap();
     void onSupplierGeocodeFinished(QNetworkReply *reply);
     void checkSupplierVicinity(int supplierId = -1);
@@ -653,6 +654,13 @@ private:
     QTimeEdit *m_teOpeningHour = nullptr;
     QTimeEdit *m_teClosingHour = nullptr;
     QPushButton *m_supplierBellBtn = nullptr;
+
+    // AI Advisor Tab
+    QWidget *m_supplierAiTab = nullptr;
+    QLabel *m_aiAdvStatus = nullptr;
+    QTextEdit *m_aiAdvResult = nullptr;
+    QPushButton *m_aiAdvRunBtn = nullptr;
+    QProgressBar *m_aiAdvProgress = nullptr;
     
     QHash<QString, QPixmap> m_supplierMapTileCache;
     QSet<QString> m_supplierMapPendingTiles;
