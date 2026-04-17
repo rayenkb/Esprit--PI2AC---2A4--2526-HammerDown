@@ -273,7 +273,8 @@ public:
     void setupEmployeeModes();
     void toggleEmployeeFields(bool active);
     void onEmployeeEnsureHistoryTable();
-    void logActivity(const QString &action, const QString &module = "General");
+    void ensureEquipmentHistoryDatabaseObjects();
+    void logActivity(const QString &action, const QString &module = "General", const QJsonObject &extra = QJsonObject());
     void setupSupplierModes();
     void setupEquipmentModes();
     void setupOrderModes();

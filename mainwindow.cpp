@@ -1870,6 +1870,7 @@ MainWindow::MainWindow(QWidget *parent)
     onSupplierEnsureReviewsTable();
     onSupplierPopulateRatingCombos();
     onEmployeeEnsureHistoryTable();
+    ensureEquipmentHistoryDatabaseObjects();
 
     // --- Apply Hover Animations to Management Module Buttons ---
     // Employee Management
@@ -10288,7 +10289,15 @@ void MainWindow::onEquipmentAdd()
 
     // Success animation
     playEquipSuccessAnimation(type);
-    logActivity("Added new equipment: " + type + " (ID: " + QString::number(eqId) + ")", "Equipment");
+
+    QJsonObject equipMeta;
+    equipMeta["equipment_operation"] = "ADD";
+    equipMeta["equipment_id"] = eqId;
+    equipMeta["equipment_type"] = type;
+    equipMeta["equipment_description"] = desc;
+    equipMeta["equipment_status"] = etat;
+    equipMeta["equipment_price"] = price;
+    logActivity("Added new equipment: " + type + " (ID: " + QString::number(eqId) + ")", "Equipment", equipMeta);
     
     onEquipmentClearFields();
     onEquipmentRefreshView();
@@ -10374,7 +10383,15 @@ void MainWindow::onEquipmentModify()
     }
 
     QMessageBox::information(this, "Success", "Equipment updated successfully.");
-    logActivity("Modified equipment: " + finalType + " (ID: " + id + ")", "Equipment");
+
+    QJsonObject equipMeta;
+    equipMeta["equipment_operation"] = "MODIFY";
+    equipMeta["equipment_id"] = id.toInt();
+    equipMeta["equipment_type"] = finalType;
+    equipMeta["equipment_description"] = finalDesc;
+    equipMeta["equipment_status"] = finalStatus;
+    equipMeta["equipment_price"] = finalPrice;
+    logActivity("Modified equipment: " + finalType + " (ID: " + id + ")", "Equipment", equipMeta);
     onEquipmentClearFields();
     onEquipmentRefreshView();
     onEquipmentHistoryRefresh();
@@ -10386,6 +10403,8 @@ void MainWindow::onEquipmentDelete()
     QString eqId;
     QString type;
     QString desc;
+    QString status;
+    double unitPrice = 0.0;
 
     QModelIndex idx = ui_equipment->table_equipments->currentIndex();
     if (idx.isValid()) {
@@ -10393,11 +10412,15 @@ void MainWindow::onEquipmentDelete()
         if (!model) return;
         eqId = model->data(model->index(idx.row(), 2)).toString();
         type = model->data(model->index(idx.row(), 3)).toString();
+        unitPrice = model->data(model->index(idx.row(), 5)).toDouble();
+        status = model->data(model->index(idx.row(), 6)).toString();
         desc = model->data(model->index(idx.row(), 8)).toString();
     } else {
         eqId = ui_equipment->le_id->text().trimmed();
         type = ui_equipment->le_type->text().trimmed();
         desc = ui_equipment->te_desc->toPlainText().trimmed();
+        status = ui_equipment->cb_status->currentText();
+        unitPrice = ui_equipment->dsb_unit_price->value();
     }
 
     if (eqId.isEmpty()) {
@@ -10426,7 +10449,15 @@ void MainWindow::onEquipmentDelete()
     if (!desc.isEmpty()) {
         deleteLabel += " - " + desc;
     }
-    logActivity("Deleted equipment: " + deleteLabel + " (ID: " + eqId + ")", "Equipment");
+
+    QJsonObject equipMeta;
+    equipMeta["equipment_operation"] = "DELETE";
+    equipMeta["equipment_id"] = eqId.toInt();
+    equipMeta["equipment_type"] = type;
+    equipMeta["equipment_description"] = desc;
+    equipMeta["equipment_status"] = status;
+    equipMeta["equipment_price"] = unitPrice;
+    logActivity("Deleted equipment: " + deleteLabel + " (ID: " + eqId + ")", "Equipment", equipMeta);
 
     QMessageBox::information(this, "Deleted", "Equipment deleted successfully.");
     onEquipmentClearFields();
@@ -10636,118 +10667,200 @@ void MainWindow::onEquipmentHistoryRefresh()
 
 void MainWindow::onEquipmentHistorySearch()
 {
-    QString search = ui_equipment->le_history_search->text().trimmed();
+    const QString search = ui_equipment->le_history_search->text().trimmed();
     const QString searchUpper = search.toUpper();
 
-    auto setupSection = [&](QTableView* view, const QString& operation) {
-        if (operation == "DELETE") {
-            QStandardItemModel *deleteModel = new QStandardItemModel(this);
-            deleteModel->setHorizontalHeaderLabels({"ID", "Type", "Description", "Status", "Price", "Date"});
+    auto setupSectionFromDb = [&](QTableView *view, const QString &operation) -> bool {
+        QString sql =
+            "SELECT EQUIPMENT_ID AS \"ID\", "
+            "NVL(EQUIPMENT_TYPE, '-') AS \"Type\", "
+            "NVL(DESCRIPTION, '-') AS \"Description\", "
+            "NVL(STATUS, CASE WHEN UPPER(OPERATION_TYPE) = 'DELETE' THEN 'Deleted' ELSE '-' END) AS \"Status\", "
+            "NVL(TO_CHAR(UNIT_PRICE, 'FM9999999990.00'), '-') AS \"Price\", "
+            "TO_CHAR(CHANGE_DATE, 'YYYY-MM-DD') AS \"Date\" "
+            "FROM EQUIPMENT_HISTORY "
+            "WHERE UPPER(OPERATION_TYPE) = :op";
 
-            QJsonArray auditArray;
-            QFile file("hammerdown_audit_log.json");
-            if (file.open(QIODevice::ReadOnly)) {
-                const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-                if (doc.isArray()) {
-                    auditArray = doc.array();
-                }
-                file.close();
-            }
-
-            const QRegularExpression deleteRx(
-                "^Deleted\\s+equipment:\\s*(.*?)\\s*\\(ID:\\s*(\\d+)\\)\\s*$",
-                QRegularExpression::CaseInsensitiveOption);
-
-            for (int i = auditArray.size() - 1; i >= 0; --i) {
-                if (!auditArray.at(i).isObject()) {
-                    continue;
-                }
-
-                const QJsonObject entry = auditArray.at(i).toObject();
-                if (entry.value("module_name").toString().compare("Equipment", Qt::CaseInsensitive) != 0) {
-                    continue;
-                }
-
-                const QString action = entry.value("action_details").toString();
-                const QRegularExpressionMatch match = deleteRx.match(action);
-                if (!match.hasMatch()) {
-                    continue;
-                }
-
-                const QString id = match.captured(2).trimmed();
-                const QString typeAndDesc = match.captured(1).trimmed();
-
-                QString type = typeAndDesc;
-                QString description;
-                const int splitAt = typeAndDesc.indexOf(" - ");
-                if (splitAt >= 0) {
-                    type = typeAndDesc.left(splitAt).trimmed();
-                    description = typeAndDesc.mid(splitAt + 3).trimmed();
-                }
-
-                QDateTime dt = QDateTime::fromMSecsSinceEpoch(entry.value("timestamp_ms").toVariant().toLongLong());
-                if (!dt.isValid()) {
-                    dt = QDateTime::fromString(entry.value("timestamp_iso").toString(), Qt::ISODate);
-                }
-                const QString dateStr = dt.isValid() ? dt.date().toString("yyyy-MM-dd") : QString();
-
-                if (!searchUpper.isEmpty()) {
-                    const QString haystack = (id + " " + type + " " + description).toUpper();
-                    if (!haystack.contains(searchUpper)) {
-                        continue;
-                    }
-                }
-
-                QList<QStandardItem*> row;
-                row << new QStandardItem(id)
-                    << new QStandardItem(type)
-                    << new QStandardItem(description)
-                    << new QStandardItem("Deleted")
-                    << new QStandardItem("-")
-                    << new QStandardItem(dateStr);
-                deleteModel->appendRow(row);
-            }
-
-            view->setModel(deleteModel);
-            view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-            return;
-        }
-
-        QString sql;
-        if (operation == "ADD") {
-            sql = "SELECT EQUIPMENT_ID AS \"ID\", EQUIPMENT_TYPE AS \"Type\", DESCRIPTION AS \"Description\", "
-                  "STATUS AS \"Status\", UNIT_PRICE AS \"Price\", TO_CHAR(PURCHASE_DATE, 'YYYY-MM-DD') AS \"Date\" "
-                  "FROM EQUIPMENT WHERE STATUS != 'Retired'";
-        } else if (operation == "MODIFY") {
-            sql = "SELECT EQUIPMENT_ID AS \"ID\", EQUIPMENT_TYPE AS \"Type\", DESCRIPTION AS \"Description\", "
-                  "STATUS AS \"Status\", UNIT_PRICE AS \"Price\", TO_CHAR(NEXT_MAINTENANCE, 'YYYY-MM-DD') AS \"Date\" "
-                  "FROM EQUIPMENT WHERE NEXT_MAINTENANCE IS NOT NULL AND STATUS != 'Retired'";
-        }
-        
         if (!search.isEmpty()) {
-            sql += " AND (UPPER(EQUIPMENT_TYPE) LIKE '%" + search.toUpper() + "%' "
-                   " OR CAST(EQUIPMENT_ID AS VARCHAR2(20)) LIKE '%" + search + "%' "
-                   " OR UPPER(DESCRIPTION) LIKE '%" + search.toUpper() + "%')";
+            sql +=
+                " AND (UPPER(NVL(EQUIPMENT_TYPE, '')) LIKE :s_type "
+                "OR UPPER(NVL(DESCRIPTION, '')) LIKE :s_desc "
+                "OR UPPER(NVL(STATUS, '')) LIKE :s_status "
+                "OR CAST(EQUIPMENT_ID AS VARCHAR2(30)) LIKE :s_id)";
         }
-        
-        if (operation == "ADD") sql += " ORDER BY PURCHASE_DATE DESC";
-        else if (operation == "MODIFY") sql += " ORDER BY NEXT_MAINTENANCE DESC";
-        else sql += " ORDER BY EQUIPMENT_ID DESC";
+
+        sql += " ORDER BY CHANGE_DATE DESC, HISTORY_ID DESC";
+
+        QSqlQuery query;
+        query.prepare(sql);
+        query.bindValue(":op", operation.toUpper());
+        if (!search.isEmpty()) {
+            const QString likeUpper = "%" + searchUpper + "%";
+            query.bindValue(":s_type", likeUpper);
+            query.bindValue(":s_desc", likeUpper);
+            query.bindValue(":s_status", likeUpper);
+            query.bindValue(":s_id", "%" + search + "%");
+        }
+
+        if (!query.exec()) {
+            qDebug() << "Equipment history DB query failed (" << operation << "):" << query.lastError().text();
+            return false;
+        }
 
         QSqlQueryModel *model = new QSqlQueryModel(this);
-        model->setQuery(sql);
-        
+        model->setQuery(std::move(query));
         if (model->lastError().isValid()) {
-            qDebug() << "Logical History Error (" << operation << "):" << model->lastError().text();
+            qDebug() << "Equipment history model error (" << operation << "):" << model->lastError().text();
+            model->deleteLater();
+            return false;
+        }
+
+        view->setModel(model);
+        view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        return true;
+    };
+
+    const bool dbAddOk = setupSectionFromDb(ui_equipment->tableView_history_add, "ADD");
+    const bool dbModifyOk = setupSectionFromDb(ui_equipment->tableView_history_modify, "MODIFY");
+    const bool dbDeleteOk = setupSectionFromDb(ui_equipment->tableView_historique, "DELETE");
+    if (dbAddOk && dbModifyOk && dbDeleteOk) {
+        return;
+    }
+
+    // Fallback for environments where Oracle history objects are unavailable.
+
+    QJsonArray auditArray;
+    {
+        QFile file("hammerdown_audit_log.json");
+        if (file.open(QIODevice::ReadOnly)) {
+            const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+            if (doc.isArray()) {
+                auditArray = doc.array();
+            }
+            file.close();
+        }
+    }
+
+    const QRegularExpression addRx(
+        "^Added\\s+new\\s+equipment:\\s*(.*?)\\s*\\(ID:\\s*(\\d+)\\)\\s*$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpression modifyRx(
+        "^Modified\\s+equipment:\\s*(.*?)\\s*\\(ID:\\s*(\\d+)\\)\\s*$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpression deleteRx(
+        "^Deleted\\s+equipment:\\s*(.*?)\\s*\\(ID:\\s*(\\d+)\\)\\s*$",
+        QRegularExpression::CaseInsensitiveOption);
+
+    auto entryDate = [](const QJsonObject &entry) {
+        QDateTime dt = QDateTime::fromMSecsSinceEpoch(entry.value("timestamp_ms").toVariant().toLongLong());
+        if (!dt.isValid()) {
+            dt = QDateTime::fromString(entry.value("timestamp_iso").toString(), Qt::ISODate);
+        }
+        return dt.isValid() ? dt.toString("yyyy-MM-dd") : QString();
+    };
+
+    auto setupSection = [&](QTableView *view, const QString &operation) {
+        QStandardItemModel *model = new QStandardItemModel(this);
+        model->setHorizontalHeaderLabels({"ID", "Type", "Description", "Status", "Price", "Date"});
+
+        for (int i = auditArray.size() - 1; i >= 0; --i) {
+            if (!auditArray.at(i).isObject()) {
+                continue;
+            }
+
+            const QJsonObject entry = auditArray.at(i).toObject();
+            if (entry.value("module_name").toString().compare("Equipment", Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+
+            QString op = entry.value("equipment_operation").toString().trimmed().toUpper();
+            QString id = entry.value("equipment_id").toVariant().toString().trimmed();
+            QString type = entry.value("equipment_type").toString().trimmed();
+            QString description = entry.value("equipment_description").toString().trimmed();
+            QString status = entry.value("equipment_status").toString().trimmed();
+
+            QString price;
+            const QJsonValue priceVal = entry.value("equipment_price");
+            if (!priceVal.isUndefined() && !priceVal.isNull()) {
+                const double parsedPrice = priceVal.toVariant().toDouble();
+                if (parsedPrice > 0.0) {
+                    price = QString::number(parsedPrice, 'f', 2);
+                }
+            }
+
+            const QString action = entry.value("action_details").toString().trimmed();
+            if (op.isEmpty()) {
+                QRegularExpressionMatch match;
+                if ((match = addRx.match(action)).hasMatch()) {
+                    op = "ADD";
+                    if (type.isEmpty()) type = match.captured(1).trimmed();
+                    if (id.isEmpty()) id = match.captured(2).trimmed();
+                } else if ((match = modifyRx.match(action)).hasMatch()) {
+                    op = "MODIFY";
+                    if (type.isEmpty()) type = match.captured(1).trimmed();
+                    if (id.isEmpty()) id = match.captured(2).trimmed();
+                } else if ((match = deleteRx.match(action)).hasMatch()) {
+                    op = "DELETE";
+
+                    const QString typeAndDesc = match.captured(1).trimmed();
+                    if (id.isEmpty()) id = match.captured(2).trimmed();
+
+                    if (type.isEmpty()) {
+                        type = typeAndDesc;
+                    }
+
+                    if (description.isEmpty()) {
+                        const int splitAt = typeAndDesc.indexOf(" - ");
+                        if (splitAt >= 0) {
+                            type = typeAndDesc.left(splitAt).trimmed();
+                            description = typeAndDesc.mid(splitAt + 3).trimmed();
+                        }
+                    }
+                }
+            }
+
+            if (op != operation) {
+                continue;
+            }
+
+            if (operation == "ADD" && status.isEmpty()) {
+                status = "Added";
+            } else if (operation == "MODIFY" && status.isEmpty()) {
+                status = "Modified";
+            } else if (operation == "DELETE") {
+                status = "Deleted";
+            }
+
+            if (id.isEmpty()) id = "-";
+            if (type.isEmpty()) type = "-";
+            if (description.isEmpty()) description = "-";
+            if (status.isEmpty()) status = "-";
+            if (price.isEmpty()) price = "-";
+
+            if (!searchUpper.isEmpty()) {
+                const QString haystack = (id + " " + type + " " + description + " " + status + " " + price).toUpper();
+                if (!haystack.contains(searchUpper)) {
+                    continue;
+                }
+            }
+
+            QList<QStandardItem*> row;
+            row << new QStandardItem(id)
+                << new QStandardItem(type)
+                << new QStandardItem(description)
+                << new QStandardItem(status)
+                << new QStandardItem(price)
+                << new QStandardItem(entryDate(entry));
+            model->appendRow(row);
         }
 
         view->setModel(model);
         view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     };
 
-    setupSection(ui_equipment->tableView_history_add,    "ADD");
+    setupSection(ui_equipment->tableView_history_add, "ADD");
     setupSection(ui_equipment->tableView_history_modify, "MODIFY");
-    setupSection(ui_equipment->tableView_historique,     "DELETE");
+    setupSection(ui_equipment->tableView_historique, "DELETE");
 }
 
 void MainWindow::onEquipmentHistoryClear()
@@ -13546,6 +13659,131 @@ void MainWindow::onEmployeeEnsureHistoryTable() {
     }
 }
 
+void MainWindow::ensureEquipmentHistoryDatabaseObjects()
+{
+    QSqlDatabase db = QSqlDatabase::database();
+    if (!db.isValid() || !db.isOpen()) {
+        qDebug() << "Equipment history bootstrap skipped: no open database connection.";
+        return;
+    }
+
+    auto execStep = [](const QString &sql, const QString &stepName) {
+        QSqlQuery q;
+        if (!q.exec(sql)) {
+            qDebug() << "Equipment history bootstrap failed at" << stepName << ":" << q.lastError().text();
+            return false;
+        }
+        return true;
+    };
+
+    const QString createTableBlock = R"SQL(
+BEGIN
+    EXECUTE IMMEDIATE '
+        CREATE TABLE EQUIPMENT_HISTORY (
+            HISTORY_ID NUMBER PRIMARY KEY,
+            EQUIPMENT_ID NUMBER,
+            OPERATION_TYPE VARCHAR2(10 CHAR) NOT NULL,
+            EQUIPMENT_TYPE VARCHAR2(255 CHAR),
+            DESCRIPTION VARCHAR2(4000 CHAR),
+            STATUS VARCHAR2(100 CHAR),
+            UNIT_PRICE NUMBER(12,2),
+            QUANTITY NUMBER,
+            CHANGE_DATE DATE DEFAULT SYSDATE NOT NULL,
+            CHANGED_BY VARCHAR2(128 CHAR)
+        )';
+EXCEPTION
+    WHEN OTHERS THEN
+        IF SQLCODE != -955 THEN
+            RAISE;
+        END IF;
+END;
+)SQL";
+
+    const QString createSequenceBlock = R"SQL(
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE SEQUENCE EQUIPMENT_HISTORY_SEQ START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE';
+EXCEPTION
+    WHEN OTHERS THEN
+        IF SQLCODE != -955 THEN
+            RAISE;
+        END IF;
+END;
+)SQL";
+
+    const QString createIndexBlock = R"SQL(
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE INDEX IDX_EQUIPMENT_HISTORY_OP_DATE ON EQUIPMENT_HISTORY (OPERATION_TYPE, CHANGE_DATE)';
+EXCEPTION
+    WHEN OTHERS THEN
+        IF SQLCODE != -955 THEN
+            RAISE;
+        END IF;
+END;
+)SQL";
+
+    const QString createTriggerSql = R"SQL(
+CREATE OR REPLACE TRIGGER TRG_EQUIPMENT_HISTORY_AUDIT
+AFTER INSERT OR UPDATE OR DELETE ON EQUIPMENT
+FOR EACH ROW
+BEGIN
+    IF INSERTING THEN
+        INSERT INTO EQUIPMENT_HISTORY (
+            HISTORY_ID, EQUIPMENT_ID, OPERATION_TYPE, EQUIPMENT_TYPE, DESCRIPTION,
+            STATUS, UNIT_PRICE, QUANTITY, CHANGE_DATE, CHANGED_BY
+        ) VALUES (
+            EQUIPMENT_HISTORY_SEQ.NEXTVAL,
+            :NEW.EQUIPMENT_ID,
+            'ADD',
+            :NEW.EQUIPMENT_TYPE,
+            :NEW.DESCRIPTION,
+            :NEW.STATUS,
+            :NEW.UNIT_PRICE,
+            :NEW.QUANTITY,
+            SYSDATE,
+            USER
+        );
+    ELSIF UPDATING THEN
+        INSERT INTO EQUIPMENT_HISTORY (
+            HISTORY_ID, EQUIPMENT_ID, OPERATION_TYPE, EQUIPMENT_TYPE, DESCRIPTION,
+            STATUS, UNIT_PRICE, QUANTITY, CHANGE_DATE, CHANGED_BY
+        ) VALUES (
+            EQUIPMENT_HISTORY_SEQ.NEXTVAL,
+            :NEW.EQUIPMENT_ID,
+            'MODIFY',
+            :NEW.EQUIPMENT_TYPE,
+            :NEW.DESCRIPTION,
+            :NEW.STATUS,
+            :NEW.UNIT_PRICE,
+            :NEW.QUANTITY,
+            SYSDATE,
+            USER
+        );
+    ELSIF DELETING THEN
+        INSERT INTO EQUIPMENT_HISTORY (
+            HISTORY_ID, EQUIPMENT_ID, OPERATION_TYPE, EQUIPMENT_TYPE, DESCRIPTION,
+            STATUS, UNIT_PRICE, QUANTITY, CHANGE_DATE, CHANGED_BY
+        ) VALUES (
+            EQUIPMENT_HISTORY_SEQ.NEXTVAL,
+            :OLD.EQUIPMENT_ID,
+            'DELETE',
+            :OLD.EQUIPMENT_TYPE,
+            :OLD.DESCRIPTION,
+            :OLD.STATUS,
+            :OLD.UNIT_PRICE,
+            :OLD.QUANTITY,
+            SYSDATE,
+            USER
+        );
+    END IF;
+END;
+)SQL";
+
+    if (!execStep(createTableBlock, "create table")) return;
+    if (!execStep(createSequenceBlock, "create sequence")) return;
+    if (!execStep(createIndexBlock, "create index")) return;
+    if (!execStep(createTriggerSql, "create trigger")) return;
+}
+
 void MainWindow::setupOrderMapTab()
 {
     if (!ui_order || !ui_order->tabWidget) return;
@@ -15872,33 +16110,45 @@ void MainWindow::playSupplierDeleteAnimation(const QString &supplierName) {
     }
 }
 
-void MainWindow::logActivity(const QString &action, const QString &module)
+void MainWindow::logActivity(const QString &action, const QString &module, const QJsonObject &extra)
 {
-    // Log activity to JSON file for audit trail
-    const QString filePath = "hammerdown_activity_log.json";
+    const QString filePath = "hammerdown_audit_log.json";
     QJsonArray logArray;
-    
+
     // Load existing log
     {
         QFile file(filePath);
         if (file.open(QIODevice::ReadOnly)) {
             const QByteArray raw = file.readAll();
             file.close();
-            
+
             const QJsonDocument doc = QJsonDocument::fromJson(raw);
             if (doc.isArray()) logArray = doc.array();
         }
     }
-    
+
+    int nextLogId = 1;
+    for (const QJsonValue &entry : logArray) {
+        if (!entry.isObject()) {
+            continue;
+        }
+        const int id = entry.toObject().value("log_id").toInt();
+        if (id >= nextLogId) {
+            nextLogId = id + 1;
+        }
+    }
+
     // Create new log entry
     const QDateTime now = QDateTime::currentDateTime();
     QJsonObject obj;
-    obj["log_id"] = logArray.size() + 1;
+    obj["log_id"] = nextLogId;
     obj["timestamp_iso"] = now.toString(Qt::ISODate);
     obj["timestamp_ms"] = static_cast<qint64>(now.toMSecsSinceEpoch());
-    obj["action"] = action;
+    obj["action_details"] = action;
+    obj["module_name"] = module;
+    obj["action"] = action; // Legacy keys kept for backward compatibility.
     obj["module"] = module;
-    
+
     // Get current employee name
     QString empName = "System";
     if (currentEmployeeId > 0) {
@@ -15910,9 +16160,13 @@ void MainWindow::logActivity(const QString &action, const QString &module)
         }
     }
     obj["employee_name"] = empName;
-    
+
+    for (auto it = extra.begin(); it != extra.end(); ++it) {
+        obj[it.key()] = it.value();
+    }
+
     logArray.append(obj);
-    
+
     // Save back to file
     QFile out(filePath);
     if (out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
