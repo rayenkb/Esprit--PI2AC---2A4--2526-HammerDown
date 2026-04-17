@@ -1869,7 +1869,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     onSupplierEnsureReviewsTable();
     onSupplierPopulateRatingCombos();
-    onEmployeeEnsureHistoryTable();
+    // onEmployeeEnsureHistoryTable(); // Removed redundant startup log entry
     ensureEquipmentHistoryDatabaseObjects();
 
     // --- Apply Hover Animations to Management Module Buttons ---
@@ -9776,8 +9776,16 @@ void MainWindow::setupEmployeeStats()
         pIdx++;
     }
 
-    QChart *c1 = new QChart(); c1->addSeries(pie); styleObsidianChart(c1, "Workforce Matrix"); c1->legend()->setAlignment(Qt::AlignRight);
-    QChartView *v1 = new QChartView(c1); makeObsidianPanel(v1); v1->setMinimumSize(500, 380);
+    QChart *c1 = new QChart();
+    c1->addSeries(pie);
+    styleObsidianChart(c1, "Workforce Matrix");
+    c1->legend()->setAlignment(Qt::AlignBottom); // Move legend to bottom to center the donut holes
+    c1->legend()->setFont(QFont("Outfit", 9, QFont::Medium));
+    c1->legend()->setLabelBrush(QBrush(QColor("#D4AF37")));
+    
+    QChartView *v1 = new QChartView(c1);
+    makeObsidianPanel(v1);
+    v1->setMinimumSize(500, 420);
 
     // Interactive 3D Float effect when hovered for the pie slices
     connect(pie, &QPieSeries::hovered, pie, [=](QPieSlice *slice, bool state){
@@ -9787,6 +9795,7 @@ void MainWindow::setupEmployeeStats()
             slice->setLabelFont(QFont("Outfit", 12, QFont::Bold));
         } else {
             slice->setExploded(false);
+            slice->setExplodeDistanceFactor(0.04);
             slice->setLabelFont(QFont("Outfit", 10, QFont::Medium));
         }
     });
@@ -9794,31 +9803,30 @@ void MainWindow::setupEmployeeStats()
     // Dynamic Central Label (Centered Percentage)
     QLabel *lblCenter = new QLabel(v1);
     lblCenter->setAlignment(Qt::AlignCenter); 
-    lblCenter->setText(QString("<div style='text-align:center;'>"
-                               "<span style='font-size:24px; color:#D4AF37; font-weight:bold;'>%1%</span><br/>"
-                               "<span style='font-size:11px; color:#AAA; font-family:Outfit;'>SYNERGY</span>"
-                               "</div>").arg(totalCount > 0 ? (int)((double)counts.size()/totalCount*100) : 0));
-    lblCenter->setStyleSheet("background: transparent; border: none; font-family: 'Outfit';");
+    lblCenter->setStyleSheet("background: transparent; border: none;");
     
     QVBoxLayout *cL = new QVBoxLayout(v1);
-    cL->setContentsMargins(0,0,0,0);
+    cL->setContentsMargins(0,0,0,30); // Offset upwards slightly to account for bottom legend
     cL->addWidget(lblCenter, 0, Qt::AlignCenter);
 
     QPointer<QLabel> pL = lblCenter;
     auto updateLabel = [pL](const QString &t, double p, int c) {
         if(!pL) return;
-        pL->setText(QString("<div style='text-align:center;'><span style='color:#D4AF37; font-size:11px; font-weight:800; text-transform:uppercase;'>%1</span><br/>"
-                           "<span style='font-size:24px; font-weight:bold; color:white;'>%2%</span><br/>"
-                           "<span style='color:#AAA; font-size:10px;'>COUNT: %3</span></div>")
+        pL->setText(QString("<div style='text-align:center;'>"
+                           "<span style='color:#D4AF37; font-family:\"Outfit\", \"Segoe UI\"; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:1px;'>%1</span><br/>"
+                           "<span style='font-size:32px; font-family:\"Outfit\", sans-serif; font-weight:900; color:white; margin: 4px 0;'>%2%</span><br/>"
+                           "<span style='color:#A0825A; font-family:\"Outfit\"; font-size:11px; font-weight:bold; opacity: 0.8;'>RECORDS: %3</span>"
+                           "</div>")
                     .arg(t).arg((int)p).arg(c));
     };
-    updateLabel("Synergy", 100.0, totalCount);
+    updateLabel("Workforce", 100.0, totalCount);
 
     for (QPieSlice *s : pie->slices()) {
         connect(s, &QPieSlice::hovered, this, [s, updateLabel, totalCount](bool st){
-            s->setExploded(st); s->setExplodeDistanceFactor(st ? 0.12 : 0.04); 
+            s->setExploded(st); 
+            s->setExplodeDistanceFactor(st ? 0.12 : 0.04); 
             if(st) updateLabel(s->label().split(" (").first(), s->percentage()*100.0, s->value()); 
-            else updateLabel("RESOURCES", 100.0, totalCount);
+            else updateLabel("Workforce", 100.0, totalCount);
         });
     }
 
@@ -9969,18 +9977,12 @@ void MainWindow::onEmployeeAdd()
         return;
     }
 
-    QSqlQuery chk;
-    chk.prepare("SELECT COUNT(*) FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
-    chk.bindValue(":id", empId);
-    if (chk.exec() && chk.next() && chk.value(0).toInt() > 0) {
-        QMessageBox::warning(this, "Duplicate ID", "An employee with this ID already exists.");
-        return;
-    }
+    // DROP unique constraint to allow multiple employees with same email as requested
+    QSqlQuery dropUK("ALTER TABLE EMPLOYEES DROP CONSTRAINT UK_EMPLOYEES_EMAIL");
+    dropUK.exec(); // Ignore failure if already dropped
+    QSqlQuery dropUQ("ALTER TABLE EMPLOYEES DROP CONSTRAINT UQ_EMPLOYEES_EMAIL");
+    dropUQ.exec();
 
-    // Forcefully remove the SQL-level unique constraint on EMAIL so the insertion never fails due to duplicate email.
-    QSqlQuery dropConst("ALTER TABLE EMPLOYEES DROP CONSTRAINT UQ_EMPLOYEES_EMAIL");
-    dropConst.exec(); // Explicitly ignore error if constraint already dropped
-    
     QSqlQuery q;
     q.prepare("INSERT INTO EMPLOYEES (EMPLOYEE_ID, LAST_NAME, FIRST_NAME, JOB_TITLE, AGE, PASSWORD, ADDRESS, SALARY, EMAIL, PHONE_NUMBER, HIRE_DATE, EMPLOYEE_STATUS)"
               " VALUES (:id, :nom, :prenom, :fonction, :age, :mdp, :address, :salaire, :email, :num, SYSDATE, 'Active')");
@@ -10001,42 +10003,54 @@ void MainWindow::onEmployeeAdd()
         logActivity("Added new employee: " + prenom + " " + nom + " (ID: " + id + ")", "Employees");
         
         if (!email.isEmpty()) {
-            QString subj = "Welcome to HammerDown Association!";
-            QString body = 
-               "<html><body style='font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;'>"
-               "<div style='max-width: 600px; margin: 0 auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1);'>"
-               "<div style='background: #8B6F47; padding: 30px; text-align: center; border-bottom: 5px solid #D4AF37;'>"
-               "<h1 style='color: white; margin: 0; font-size: 28px; letter-spacing: 2px;'>HAMMER DOWN</h1>"
-               "<p style='color: #F0E6D2; margin: 5px 0 0 0; font-weight: bold;'>PREMIUM WOODCRAFT & LUXURY SUPPLIES</p>"
+            QString subj = "OFFICIAL WELCOME: " + prenom.toUpper() + " " + nom.toUpper();
+            QString body =
+               "<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body style='margin: 0; padding: 0; background-color: #1a1a1a; font-family: Arial, sans-serif;'>"
+               "<div style='max-width: 600px; margin: 0 auto; background: linear-gradient(135deg, #2c2416 0%, #1a1a1a 100%); border: 2px solid #8B6F47; border-radius: 10px; overflow: hidden;'>"
+               "<div style='background: linear-gradient(135deg, #8B6F47 0%, #5A4A32 100%); padding: 30px; text-align: center;'>"
+               "<h1 style='color: #D4AF37; margin: 0; font-size: 28px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);'>&#9874; HAMMER DOWN ASSOCIATION &#9874;</h1>"
+               "<p style='color: #E8D5B5; margin: 10px 0 0 0; font-size: 14px; letter-spacing: 2px;'>LUXURY CRAFTSMANSHIP & DESIGN</p>"
                "</div>"
-               "<div style='padding: 30px; color: #333;'>"
-               "<h2 style='color: #8B6F47;'>Welcome Aboard, " + prenom + "!</h2>"
-               "<p style='font-size: 16px; line-height: 1.6;'>We are absolutely thrilled to welcome you to the <b>HammerDown Association</b>. Your position as <b>" + fonction + "</b> is vital to our mission of delivering uncompromising quality and masterpiece construction.</p>"
-               "<h3 style='color: #D4AF37; border-bottom: 1px solid #eee; padding-bottom: 5px;'>Your Employee Profile</h3>"
-               "<ul style='list-style-type: none; padding-left: 0;'>"
-               "<li><b>Employee ID:</b> " + id + "</li>"
-               "<li><b>Department Role:</b> " + fonction + "</li>"
-               "<li><b>System Status:</b> <span style='color: green;'>Active</span></li>"
-               "</ul>"
-               "<h3 style='color: #D4AF37; border-bottom: 1px solid #eee; padding-bottom: 5px;'>Company Terms & Expectations</h3>"
-               "<p style='font-size: 14px; color: #555;'><ol>"
-               "<li><b>Excellence in Craft:</b> We expect every member to uphold the highest standard of luxury design.</li>"
-               "<li><b>Integrity & Safety:</b> Workshop protocol and heavy machinery safety are absolute priorities.</li>"
-               "<li><b>Confidentiality:</b> All architectural designs and client supply chains are strictly proprietary.</li>"
-               "</ol></p>"
-               "<p style='margin-top: 30px; text-align: center; font-size: 14px; color: #777;'><i>Please log into your corporate portal immediately to update your avatar and review your benefits package.</i></p>"
+               "<div style='padding: 30px; color: #E8D5B5;'>"
+               "<h2 style='color: #D4AF37; margin-top: 0;'>Welcome " + prenom + " " + nom + "!</h2>"
+               "<p style='font-size: 16px; line-height: 1.6; color: #C4B49A;'>"
+               "We are thrilled to welcome you to the <strong style='color: #D4AF37;'>HammerDown Association</strong> family. "
+               "Your expertise and passion will be invaluable as we continue to create exceptional luxury designs for our distinguished clientele."
+               "</p>"
+               "<div style='background: rgba(139, 111, 71, 0.2); border-left: 4px solid #D4AF37; padding: 20px; margin: 25px 0; border-radius: 0 5px 5px 0;'>"
+               "<h3 style='color: #D4AF37; margin-top: 0;'>Your Employee Details</h3>"
+               "<p style='margin: 5px 0; color: #C4B49A;'><strong style='color: #D4AF37;'>Name:</strong> " + prenom + " " + nom + "</p>"
+               "<p style='margin: 5px 0; color: #C4B49A;'><strong style='color: #D4AF37;'>Role:</strong> " + fonction + "</p>"
+               "<p style='margin: 5px 0; color: #C4B49A;'><strong style='color: #D4AF37;'>Employee ID:</strong> " + id + "</p>"
                "</div>"
-               "<div style='background: #222; color: #777; text-align: center; padding: 15px; font-size: 12px;'>"
-               "&copy; 2026 HammerDown Association. All rights reserved.<br/>100 Luxury Lane, Workshop District"
+               "<h3 style='color: #D4AF37; border-bottom: 2px solid #8B6F47; padding-bottom: 10px;'>Terms & Policies</h3>"
+               "<div style='background: rgba(0,0,0,0.3); padding: 20px; border-radius: 5px; margin: 15px 0;'>"
+               "<ol style='color: #C4B49A; padding-left: 20px; line-height: 1.8;'>"
+               "<li><strong style='color: #D4AF37;'>Excellence in Craft:</strong> We expect every member to uphold the highest standards of luxury design and artisanal craftsmanship in every project.</li>"
+               "<li><strong style='color: #D4AF37;'>Integrity & Safety:</strong> Workshop protocols and heavy machinery safety are absolute priorities. All safety guidelines must be followed without exception.</li>"
+               "<li><strong style='color: #D4AF37;'>Confidentiality:</strong> All architectural designs, client information, and supply chain details are strictly proprietary and confidential.</li>"
+               "<li><strong style='color: #D4AF37;'>Professional Conduct:</strong> Maintain the highest level of professionalism when interacting with clients and fellow team members.</li>"
+               "<li><strong style='color: #D4AF37;'>Intellectual Property:</strong> All work created during your employment remains the intellectual property of HammerDown Association.</li>"
+               "<li><strong style='color: #D4AF37;'>Benefits Eligibility:</strong> Health insurance, retirement plans, and other benefits become effective after 30 days of continuous employment.</li>"
+               "</ol>"
+               "</div>"
+               "<p style='text-align: center; font-size: 14px; color: #8B6F47; margin-top: 30px; font-style: italic;'>"
+               "Please log into your corporate portal immediately to update your profile and review your complete benefits package."
+               "</p>"
+               "</div>"
+               "<div style='background: linear-gradient(135deg, #2c2416 0%, #1a1a1a 100%); border-top: 2px solid #8B6F47; color: #8B6F47; text-align: center; padding: 20px; font-size: 12px;'>"
+               "<p style='margin: 5px 0;'>&copy; 2026 HammerDown Association. All rights reserved.</p>"
+               "<p style='margin: 5px 0;'>100 Luxury Lane, Workshop District</p>"
+               "<p style='margin: 5px 0; color: #5A4A32;'>This email was sent automatically. Please do not reply.</p>"
                "</div></div></body></html>";
                
             QFutureWatcher<SmtpResult> *watcher = new QFutureWatcher<SmtpResult>(this);
             connect(watcher, &QFutureWatcher<SmtpResult>::finished, this, [=]() {
                 SmtpResult result = watcher->result();
                 if (!result.success) {
-                    qDebug() << "Email Relay Info:" << result.errorMessage;
+                    qDebug() << "SMTP Error Details:" << result.errorMessage;
                     
-                    // Zero-Error Fallback: Save locally if relay is limited
+                    // Zero-Error Fallback: Save locally if relay fails
                     QDir().mkpath("sent_emails");
                     QString fileName = QString("sent_emails/welcome_%1_%2.html").arg(empId).arg(QDateTime::currentMSecsSinceEpoch());
                     QFile file(fileName);
@@ -10045,20 +10059,61 @@ void MainWindow::onEmployeeAdd()
                         file.close();
                     }
                     
-                    QMessageBox::information(this, "Process Complete", 
-                        "Employee added successfully.\n"
-                        "Note: Branded welcome packet has been queued/archived.\n"
-                        "Location: " + fileName);
+                    QString errorDetails = result.errorMessage;
+                    QString troubleshooting;
+
+                    if (errorDetails.contains("Authentication", Qt::CaseInsensitive)) {
+                        troubleshooting = "\n\n[TROUBLESHOOTING] Gmail Authentication failed. Please:\n"
+                                        "1. Enable 2-Factor Authentication on your Gmail account\n"
+                                        "2. Generate an App Password at https://myaccount.google.com/apppasswords\n"
+                                        "3. Select 'Mail' and 'Other (Custom name)' -> enter app name\n"
+                                        "4. Copy the 16-character password (no spaces) into the code\n"
+                                        "5. Replace 'YOUR_APP_PASSWORD_HERE' in mainwindow.cpp line 10110";
+                    } else if (errorDetails.contains("Connection", Qt::CaseInsensitive)) {
+                        troubleshooting = "\n\n[TROUBLESHOOTING] Connection failed. Please:\n"
+                                        "1. Check your internet connection\n"
+                                        "2. Verify firewall/antivirus allows outgoing SMTP on port 587\n"
+                                        "3. Try disabling VPN if active";
+                    } else if (errorDetails.contains("rejected", Qt::CaseInsensitive) ||
+                               errorDetails.contains("spam", Qt::CaseInsensitive)) {
+                        troubleshooting = "\n\n[TROUBLESHOOTING] Email rejected. Please:\n"
+                                        "1. Verify the recipient email address is valid\n"
+                                        "2. Check recipient's spam folder\n"
+                                        "3. The email was saved locally as backup";
+                    } else {
+                        troubleshooting = "\n\n[TROUBLESHOOTING] Gmail SMTP issues:\n"
+                                        "1. Ensure 'Less secure app access' is NOT required (use App Password instead)\n"
+                                        "2. Gmail allows 500 emails/day with App Passwords\n"
+                                        "3. Check your Google account for any security alerts\n"
+                                        "4. Email saved locally as fallback";
+                    }
+                    
+                    QMessageBox::warning(this, "Email Delivery Failed", 
+                        "Employee added successfully.\n\n"
+                        "However, welcome email could not be sent.\n"
+                        "Error: " + errorDetails + troubleshooting + "\n\n"
+                        "Email saved to: " + fileName);
                 } else {
-                    QMessageBox::information(this, "Success", "Employee added and welcome email dispatched successfully.");
+                    QMessageBox::information(this, "Success", "Employee added and welcome email dispatched successfully to:\n" + email);
                 }
                 watcher->deleteLater();
             });
             
-            const QString host     = "smtp-relay.brevo.com";
+            // Gmail SMTP Configuration
+            // To use Gmail, you need to create an App Password:
+            // 1. Go to https://myaccount.google.com/security
+            // 2. Enable 2-Factor Authentication
+            // 3. Generate an App Password for "Mail" on "Other device"
+            // 4. Copy the 16-character password and replace it below
+            const QString host     = "smtp.gmail.com";
             const quint16 port     = 587;
-            const QString username = "rayenkabar780@gmail.com"; // Your Brevo Sender Email
-            const QString password = "xsmtpsib-87c2fb8b2fd4f260176840d024467dcabacccc643a60a7e5f3aa5394be562fdb-S9hVfpx8rkgB2MT6"; // Your Brevo SMTP Key
+            const QString username = "rayenkabar780@gmail.com"; // Your Gmail address
+            // REPLACE THIS with your Gmail App Password (16 characters, no spaces)
+            const QString password = "ouqqfgnwuhsedghd"; // <-- REPLACE THIS!
+
+            qDebug() << "Sending email to:" << email;
+            qDebug() << "Using SMTP host:" << host << "port:" << port;
+            qDebug() << "Sender:" << username;
             
             QFuture<SmtpResult> future = QtConcurrent::run([=]() {
                 return SmtpSender::send(host, port, username, password, email, subj, body, "");
@@ -10108,8 +10163,11 @@ void MainWindow::onEmployeeModify()
 
     if (salaire < 0) { QMessageBox::warning(this, "Validation", "Negative SALARY is not permitted."); return; }
 
-    QSqlQuery dropConst("ALTER TABLE EMPLOYEES DROP CONSTRAINT UQ_EMPLOYEES_EMAIL");
-    dropConst.exec();
+    // DROP constraint to allow same email for multiple employees as requested
+    QSqlQuery dropUK("ALTER TABLE EMPLOYEES DROP CONSTRAINT UK_EMPLOYEES_EMAIL");
+    dropUK.exec();
+    QSqlQuery dropUQ("ALTER TABLE EMPLOYEES DROP CONSTRAINT UQ_EMPLOYEES_EMAIL");
+    dropUQ.exec();
 
     QSqlQuery q;
     q.prepare("UPDATE EMPLOYEES SET LAST_NAME=:nom, FIRST_NAME=:prenom, JOB_TITLE=:fonction,"
@@ -13637,11 +13695,11 @@ void MainWindow::onEmployeeEnsureHistoryTable() {
     obj["timestamp_ms"] = static_cast<qint64>(now.toMSecsSinceEpoch());
     
     // Get current employee name
-    QString empName = "Unknown User";
+    QString empName = "System Manager";
     QSqlQuery nq;
     nq.prepare("SELECT FIRST_NAME || ' ' || LAST_NAME FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
     nq.bindValue(":id", currentEmployeeId);
-    if (nq.exec() && nq.next()) {
+    if (currentEmployeeId > 0 && nq.exec() && nq.next()) {
         empName = nq.value(0).toString();
     }
     
@@ -16150,7 +16208,7 @@ void MainWindow::logActivity(const QString &action, const QString &module, const
     obj["module"] = module;
 
     // Get current employee name
-    QString empName = "System";
+    QString empName = "Administrator";
     if (currentEmployeeId > 0) {
         QSqlQuery nq;
         nq.prepare("SELECT FIRST_NAME || ' ' || LAST_NAME FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");

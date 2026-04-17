@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QUuid>
 #include <QByteArray>
+#include <QDebug>
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -132,72 +133,103 @@ SmtpResult SmtpSender::send(
     const QString &body,
     const QString &attachmentPath)
 {
+    qDebug() << "[SMTP] Starting email send to:" << to;
+    qDebug() << "[SMTP] Host:" << host << "Port:" << port;
+    qDebug() << "[SMTP] Username:" << username;
+
     QSslSocket socket;
     socket.setProtocol(QSsl::TlsV1_2OrLater);
 
     // 1. Open plain TCP connection (STARTTLS — not direct SSL)
+    qDebug() << "[SMTP] Connecting to host...";
     socket.connectToHost(host, port);
-    if (!socket.waitForConnected(10000))
+    if (!socket.waitForConnected(10000)) {
+        qDebug() << "[SMTP] Connection failed:" << socket.errorString();
         return {false, "Connection failed: " + socket.errorString()};
+    }
+    qDebug() << "[SMTP] Connected successfully";
 
     // 2. Server greeting  220
     QByteArray resp = readSmtpResponse(&socket);
+    qDebug() << "[SMTP] Server greeting:" << resp;
     if (smtpCode(resp) != 220)
         return {false, "Unexpected greeting: " + resp};
 
     // 3. EHLO
+    qDebug() << "[SMTP] Sending EHLO...";
     if (!smtpCmd(&socket, "EHLO localhost", resp, 250))
         return {false, "EHLO failed: " + resp};
+    qDebug() << "[SMTP] EHLO response:" << resp;
 
     // 4. STARTTLS
+    qDebug() << "[SMTP] Starting TLS...";
     if (!smtpCmd(&socket, "STARTTLS", resp, 220))
         return {false, "STARTTLS failed: " + resp};
+    qDebug() << "[SMTP] STARTTLS accepted";
 
     // 5. Upgrade to TLS
+    qDebug() << "[SMTP] Upgrading to TLS encryption...";
     socket.startClientEncryption();
-    if (!socket.waitForEncrypted(10000))
+    if (!socket.waitForEncrypted(10000)) {
+        qDebug() << "[SMTP] TLS upgrade failed:" << socket.errorString();
         return {false, "TLS upgrade failed: " + socket.errorString()};
+    }
+    qDebug() << "[SMTP] TLS encryption active";
 
     // 6. EHLO again over TLS
+    qDebug() << "[SMTP] Sending EHLO over TLS...";
     if (!smtpCmd(&socket, "EHLO localhost", resp, 250))
         return {false, "EHLO (TLS) failed: " + resp};
 
     // 7. AUTH LOGIN
+    qDebug() << "[SMTP] Authenticating...";
     if (!smtpCmd(&socket, "AUTH LOGIN", resp, 334))
         return {false, "AUTH LOGIN failed: " + resp};
 
+    qDebug() << "[SMTP] Sending username...";
     if (!smtpCmd(&socket, username.toUtf8().toBase64(), resp, 334))
         return {false, "Username rejected: " + resp};
 
-    if (!smtpCmd(&socket, password.toUtf8().toBase64(), resp, 235))
+    qDebug() << "[SMTP] Sending password...";
+    if (!smtpCmd(&socket, password.toUtf8().toBase64(), resp, 235)) {
+        qDebug() << "[SMTP] Authentication failed - check your SMTP key";
         return {false, "Authentication failed: " + resp};
+    }
+    qDebug() << "[SMTP] Authentication successful";
 
     // 8. Envelope
+    qDebug() << "[SMTP] Setting sender...";
     if (!smtpCmd(&socket, "MAIL FROM:<" + username.toUtf8() + ">", resp, 250))
         return {false, "MAIL FROM failed: " + resp};
 
+    qDebug() << "[SMTP] Setting recipient...";
     if (!smtpCmd(&socket, "RCPT TO:<" + to.toUtf8() + ">", resp, 250))
         return {false, "RCPT TO failed: " + resp};
 
     // 9. DATA
+    qDebug() << "[SMTP] Sending DATA command...";
     if (!smtpCmd(&socket, "DATA", resp, 354))
         return {false, "DATA command failed: " + resp};
 
     // 10. Send MIME message, terminated by <CRLF>.<CRLF>
+    qDebug() << "[SMTP] Sending message body...";
     QByteArray mime = buildMimeMessage(username, to, subject, body, attachmentPath);
     mime += "\r\n.\r\n";
     socket.write(mime);
     socket.flush();
 
     resp = readSmtpResponse(&socket);
+    qDebug() << "[SMTP] Message delivery response:" << resp;
     if (smtpCode(resp) != 250)
         return {false, "Message rejected: " + resp};
 
     // 11. QUIT
+    qDebug() << "[SMTP] Sending QUIT...";
     socket.write("QUIT\r\n");
     socket.flush();
     socket.waitForReadyRead(5000);
     socket.disconnectFromHost();
 
+    qDebug() << "[SMTP] Email sent successfully!";
     return {true, {}};
 }
