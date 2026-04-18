@@ -1050,7 +1050,12 @@ void GLViewport::drawOrientationCube()
     int y = pad + shiftDown;
     QRect rect(x, y, size, size);
 
-    glViewport(x, height() - y - size, size, size);
+    // Use framebuffer-pixel viewport coordinates so placement is stable on HiDPI displays.
+    const qreal dpr = devicePixelRatioF();
+    const int glX = qRound(x * dpr);
+    const int glY = qRound((height() - y - size) * dpr);
+    const int glSize = qMax(1, qRound(size * dpr));
+    glViewport(glX, glY, glSize, glSize);
     glClear(GL_DEPTH_BUFFER_BIT);
 
     QMatrix4x4 proj;
@@ -1109,7 +1114,9 @@ void GLViewport::drawOrientationCube()
     glMatrixMode(GL_PROJECTION);
     applyProjectionMatrix();
     glMatrixMode(GL_MODELVIEW);
-    glViewport(0, 0, width(), height());
+    const int fbWidth = qMax(1, qRound(width() * dpr));
+    const int fbHeight = qMax(1, qRound(height() * dpr));
+    glViewport(0, 0, fbWidth, fbHeight);
 
     QVector3D camPos = computeViewMatrix().inverted().map(QVector3D(0, 0, 0));
     QVector3D viewDir = (m_camTarget - camPos).normalized();
@@ -2102,7 +2109,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     snapLayout->addLayout(snapRow3);
 
     sideLayout->addWidget(snapGroup);
-
+    
     // ── Properties ──
     auto *propGroup = new QGroupBox("Properties");
     propGroup->setStyleSheet(kGroupStyle);
