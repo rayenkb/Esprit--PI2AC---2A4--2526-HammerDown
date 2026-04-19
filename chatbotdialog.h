@@ -57,7 +57,7 @@ private:
     QString getColumnDefaultValue(const QString &tableName, const QString &columnName);
     QStringList getDistinctColumnValues(const QString &tableName, const QString &columnName);
     QStringList getAllowedColumnValues(const QString &tableName, const QString &columnName);
-    void callApi(const QString &userMessage);
+    void callApi(const QString &userMessage, bool isSystemRetry = false);
     void callImageApi(const QString &prompt);
     void retryWithNextModel();
     bool isImageRequest(const QString &text) const;
@@ -85,6 +85,7 @@ private:
     bool m_isWeatherBot;
     int retryCount;
     int rateLimitRetries;
+    int sqlRetryCount;       // tracks AI self-correction attempts for blocked SQL
     QString pendingUserMessage;
     QStringList modelList;
 };
