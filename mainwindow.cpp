@@ -74,6 +74,10 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QSpinBox>
+#include <QDateEdit>
+#include <QTextEdit>
+#include <QStackedWidget>
+#include <QItemSelectionModel>
 #include <QDesktopServices>
 #include <QUrl>
 #include <QUrlQuery>
@@ -1381,6 +1385,29 @@ MainWindow::MainWindow(QWidget *parent)
     
     chatRefreshTimer = new QTimer(this);
     connect(chatRefreshTimer, &QTimer::timeout, this, &MainWindow::onChatRefresh);
+
+    // Keep equipment pages in sync with direct DB CRUD changes done outside the app.
+    equipmentSyncTimer = new QTimer(this);
+    equipmentSyncTimer->setInterval(2000);
+    connect(equipmentSyncTimer, &QTimer::timeout, this, [this]() {
+        if (!ui || !ui->stackedWidget || !ui_equipment || !ui_equipment->tabWidget) {
+            return;
+        }
+
+        const bool onEquipmentModule = (ui->stackedWidget->currentWidget() == equipmentPage);
+
+        QWidget *currentTab = ui_equipment->tabWidget->currentWidget();
+        // Keep history state in sync with direct DB CRUD done outside app.
+        onEquipmentHistorySearch();
+
+        // Keep view fresh when user is on tabs where table staleness is visible.
+        if (onEquipmentModule && (currentTab == ui_equipment->tab_view || currentTab == ui_equipment->tab_history)) {
+            onEquipmentRefreshView();
+        }
+    });
+
+    // Keep timer running; callback is guarded to no-op outside equipment page.
+    equipmentSyncTimer->start();
     
     // Connect Chat buttons
     connect(ui_equipment->btn_chat_send, &QPushButton::clicked, this, &MainWindow::onChatSendMessage);
@@ -1825,9 +1852,6 @@ MainWindow::MainWindow(QWidget *parent)
         if (ui_equipment->tabWidget->widget(idx) == ui_equipment->tab_view) {
             onEquipmentRefreshView();
         }
-        else if (ui_equipment->tabWidget->widget(idx) == ui_equipment->tab_history) {
-            onEquipmentHistoryRefresh();
-        }
         else if (ui_equipment->tabWidget->widget(idx) == ui_equipment->tab_chat) {
             onChatEmployeeListRefresh();
             chatRefreshTimer->start(3000);
@@ -1841,10 +1865,14 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     // History Connections
-    connect(ui_equipment->btn_refresh_history, &QPushButton::clicked, this, &MainWindow::onEquipmentHistoryRefresh);
-    connect(ui_equipment->btn_clear_history,   &QPushButton::clicked, this, &MainWindow::onEquipmentHistoryClear);
-    connect(ui_equipment->le_history_search,   &QLineEdit::textChanged, this, &MainWindow::onEquipmentHistoryRefresh);
-    connect(ui_equipment->btn_history_search, &QPushButton::clicked, this, &MainWindow::onEquipmentHistoryRefresh);
+    connect(ui_equipment->btn_refresh_history, &QPushButton::clicked,
+            this, &MainWindow::onEquipmentHistoryRefresh, Qt::UniqueConnection);
+    connect(ui_equipment->btn_clear_history, &QPushButton::clicked,
+            this, &MainWindow::onEquipmentHistoryClear, Qt::UniqueConnection);
+    connect(ui_equipment->le_history_search, &QLineEdit::returnPressed,
+            this, &MainWindow::onEquipmentHistorySearch, Qt::UniqueConnection);
+    connect(ui_equipment->btn_history_search, &QPushButton::clicked,
+            this, &MainWindow::onEquipmentHistorySearch, Qt::UniqueConnection);
 
     // --- Supplier Delivery Rating System ---
     connect(ui_supplier->btn_submit_review,   &QPushButton::clicked, this, &MainWindow::onSupplierReviewSubmit);
@@ -1873,7 +1901,8 @@ MainWindow::MainWindow(QWidget *parent)
     onSupplierEnsureReviewsTable();
     onSupplierPopulateRatingCombos();
     // onEmployeeEnsureHistoryTable(); // Removed redundant startup log entry
-    ensureEquipmentHistoryDatabaseObjects();
+    // Keep history fully driven from EQUIPMENT table snapshots/state.
+    // ensureEquipmentHistoryDatabaseObjects();
 
     // --- Apply Hover Animations to Management Module Buttons ---
     // Employee Management
@@ -2679,7 +2708,13 @@ void MainWindow::on_gs_fournisseur_clicked() {
     // Proactive trigger when entering supplier management
     QTimer::singleShot(200, this, &MainWindow::checkWorkshopStockAndNotifyAI);
 }
-void MainWindow::on_gs_equipment_clicked()   { ui->stackedWidget->setCurrentIndex(5); ui_equipment->tabWidget->setCurrentIndex(0); }
+void MainWindow::on_gs_equipment_clicked()
+{
+    ui->stackedWidget->setCurrentIndex(5);
+    ui_equipment->tabWidget->setCurrentIndex(0);
+    onEquipmentRefreshView();
+    onEquipmentHistorySearch();
+}
 void MainWindow::on_gs_order_clicked()       { ui->stackedWidget->setCurrentIndex(6); ui_order->tabWidget->setCurrentIndex(0); }
 
 // Navigation sidebar
@@ -2691,7 +2726,13 @@ void MainWindow::on_nav_employees_clicked()  {
 }
 void MainWindow::on_nav_clients_clicked()    { ui->stackedWidget->setCurrentIndex(3); ui_client->tabWidget->setCurrentIndex(0); }
 void MainWindow::on_nav_suppliers_clicked()  { ui->stackedWidget->setCurrentIndex(4); ui_supplier->tabWidget->setCurrentIndex(0); }
-void MainWindow::on_nav_equipments_clicked() { ui->stackedWidget->setCurrentIndex(5); ui_equipment->tabWidget->setCurrentIndex(0); }
+void MainWindow::on_nav_equipments_clicked()
+{
+    ui->stackedWidget->setCurrentIndex(5);
+    ui_equipment->tabWidget->setCurrentIndex(0);
+    onEquipmentRefreshView();
+    onEquipmentHistorySearch();
+}
 void MainWindow::on_nav_orders_clicked()     { ui->stackedWidget->setCurrentIndex(6); ui_order->tabWidget->setCurrentIndex(0); }
 
 // Logout / Home
@@ -7385,23 +7426,30 @@ void MainWindow::setupEquipmentModes()
     });
 
     // Wire up History tab buttons
-    connect(ui_equipment->btn_refresh_history, &QPushButton::clicked, this, &MainWindow::onEquipmentHistoryRefresh);
-    connect(ui_equipment->btn_history_search,  &QPushButton::clicked, this, &MainWindow::onEquipmentHistorySearch);
-    connect(ui_equipment->le_history_search,   &QLineEdit::returnPressed, this, &MainWindow::onEquipmentHistorySearch);
-    connect(ui_equipment->btn_export_history,  &QPushButton::clicked, this, &MainWindow::onEquipmentExportPDF);
-    connect(ui_equipment->btn_clear_history,   &QPushButton::clicked, this, &MainWindow::onEquipmentHistoryClear);
+    connect(ui_equipment->btn_refresh_history, &QPushButton::clicked,
+            this, &MainWindow::onEquipmentHistoryRefresh, Qt::UniqueConnection);
+    connect(ui_equipment->btn_history_search, &QPushButton::clicked,
+            this, &MainWindow::onEquipmentHistorySearch, Qt::UniqueConnection);
+    connect(ui_equipment->le_history_search, &QLineEdit::returnPressed,
+            this, &MainWindow::onEquipmentHistorySearch, Qt::UniqueConnection);
+    connect(ui_equipment->btn_export_history, &QPushButton::clicked,
+            this, &MainWindow::onEquipmentExportPDF, Qt::UniqueConnection);
+    connect(ui_equipment->btn_clear_history, &QPushButton::clicked,
+            this, &MainWindow::onEquipmentHistoryClear, Qt::UniqueConnection);
     connect(ui_equipment->btn_export_stats,    &QPushButton::clicked, this, &MainWindow::onEquipmentExportStatsPDF);
     connect(ui_equipment->btn_bulk_update_status, &QPushButton::clicked, this, &MainWindow::onEquipmentBulkUpdateStatus);
     connect(ui_equipment->btn_bulk_delete_all, &QPushButton::clicked, this, &MainWindow::onEquipmentDeleteAll);
 
-    // Auto-refresh history or chat when switching tabs
+    // Handle module tab switches.
     connect(ui_equipment->tabWidget, &QTabWidget::currentChanged, this, [this](int idx){
         QWidget *selected = ui_equipment->tabWidget->widget(idx);
         
         // Stop chat timer by default unless on chat tab
         chatRefreshTimer->stop();
         
-        if (selected == ui_equipment->tab_history) {
+        if (selected == ui_equipment->tab_view) {
+            onEquipmentRefreshView();
+        } else if (selected == ui_equipment->tab_history) {
             onEquipmentHistoryRefresh();
         } else if (selected == ui_equipment->tab_stats) {
             setupEquipmentStats();
@@ -10745,8 +10793,6 @@ void MainWindow::onClientBrowseMail()
 }
 
 
-
-
 void MainWindow::onEquipmentHistoryRefresh()
 {
     onEquipmentHistorySearch();
@@ -10754,182 +10800,236 @@ void MainWindow::onEquipmentHistoryRefresh()
 
 void MainWindow::onEquipmentHistorySearch()
 {
-    const QString search = ui_equipment->le_history_search->text().trimmed();
-    const QString searchUpper = search.toUpper();
-
-    auto setupSectionFromDb = [&](QTableView *view, const QString &operation) -> bool {
-        QString sql =
-            "SELECT EQUIPMENT_ID AS \"ID\", "
-            "NVL(EQUIPMENT_TYPE, '-') AS \"Type\", "
-            "NVL(DESCRIPTION, '-') AS \"Description\", "
-            "NVL(STATUS, CASE WHEN UPPER(OPERATION_TYPE) = 'DELETE' THEN 'Deleted' ELSE '-' END) AS \"Status\", "
-            "NVL(TO_CHAR(UNIT_PRICE, 'FM9999999990.00'), '-') AS \"Price\", "
-            "TO_CHAR(CHANGE_DATE, 'YYYY-MM-DD') AS \"Date\" "
-            "FROM EQUIPMENT_HISTORY "
-            "WHERE UPPER(OPERATION_TYPE) = :op";
-
-        if (!search.isEmpty()) {
-            sql +=
-                " AND (UPPER(NVL(EQUIPMENT_TYPE, '')) LIKE :s_type "
-                "OR UPPER(NVL(DESCRIPTION, '')) LIKE :s_desc "
-                "OR UPPER(NVL(STATUS, '')) LIKE :s_status "
-                "OR CAST(EQUIPMENT_ID AS VARCHAR2(30)) LIKE :s_id)";
-        }
-
-        sql += " ORDER BY CHANGE_DATE DESC, HISTORY_ID DESC";
-
-        QSqlQuery query;
-        query.prepare(sql);
-        query.bindValue(":op", operation.toUpper());
-        if (!search.isEmpty()) {
-            const QString likeUpper = "%" + searchUpper + "%";
-            query.bindValue(":s_type", likeUpper);
-            query.bindValue(":s_desc", likeUpper);
-            query.bindValue(":s_status", likeUpper);
-            query.bindValue(":s_id", "%" + search + "%");
-        }
-
-        if (!query.exec()) {
-            qDebug() << "Equipment history DB query failed (" << operation << "):" << query.lastError().text();
-            return false;
-        }
-
-        QSqlQueryModel *model = new QSqlQueryModel(this);
-        model->setQuery(std::move(query));
-        if (model->lastError().isValid()) {
-            qDebug() << "Equipment history model error (" << operation << "):" << model->lastError().text();
-            model->deleteLater();
-            return false;
-        }
-
-        view->setModel(model);
-        view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-        return true;
-    };
-
-    const bool dbAddOk = setupSectionFromDb(ui_equipment->tableView_history_add, "ADD");
-    const bool dbModifyOk = setupSectionFromDb(ui_equipment->tableView_history_modify, "MODIFY");
-    const bool dbDeleteOk = setupSectionFromDb(ui_equipment->tableView_historique, "DELETE");
-    if (dbAddOk && dbModifyOk && dbDeleteOk) {
+    if (!ui_equipment) {
         return;
     }
 
-    // Fallback for environments where Oracle history objects are unavailable.
+    const QString search = ui_equipment->le_history_search->text().trimmed();
+    const QString searchUpper = search.toUpper();
 
-    QJsonArray auditArray;
-    {
-        QFile file("hammerdown_audit_log.json");
-        if (file.open(QIODevice::ReadOnly)) {
-            const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-            if (doc.isArray()) {
-                auditArray = doc.array();
-            }
-            file.close();
+    auto readHistoryState = []() -> QJsonObject {
+        QFile f("hammerdown_history_state.json");
+        if (!f.open(QIODevice::ReadOnly)) {
+            return QJsonObject();
+        }
+        const QJsonDocument d = QJsonDocument::fromJson(f.readAll());
+        f.close();
+        return d.isObject() ? d.object() : QJsonObject();
+    };
+
+    auto writeHistoryState = [](const QJsonObject &obj) {
+        QFile f("hammerdown_history_state.json");
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+            f.close();
+        }
+    };
+
+    auto getString = [](const QJsonObject &obj, const QString &a, const QString &b = QString()) -> QString {
+        QString v = obj.value(a).toString().trimmed();
+        if (v.isEmpty() && !b.isEmpty()) {
+            v = obj.value(b).toString().trimmed();
+        }
+        return v;
+    };
+
+    auto getInt = [](const QJsonObject &obj, const QString &a, const QString &b = QString()) -> int {
+        int v = obj.value(a).toVariant().toInt();
+        if (v <= 0 && !b.isEmpty()) {
+            v = obj.value(b).toVariant().toInt();
+        }
+        return v;
+    };
+
+    QJsonObject historyState = readHistoryState();
+    int addedMinId = qMax(0, historyState.value("equipment_added_min_id").toInt(0));
+
+    const QJsonArray previousSnapshot = historyState.value("equipment_snapshot").toArray();
+    QJsonObject previousById;
+    for (const QJsonValue &v : previousSnapshot) {
+        if (!v.isObject()) {
+            continue;
+        }
+        const QJsonObject obj = v.toObject();
+        const int id = getInt(obj, "id", "equipment_id");
+        if (id > 0) {
+            previousById[QString::number(id)] = obj;
         }
     }
 
-    const QRegularExpression addRx(
-        "^Added\\s+new\\s+equipment:\\s*(.*?)\\s*\\(ID:\\s*(\\d+)\\)\\s*$",
-        QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpression modifyRx(
-        "^Modified\\s+equipment:\\s*(.*?)\\s*\\(ID:\\s*(\\d+)\\)\\s*$",
-        QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpression deleteRx(
-        "^Deleted\\s+equipment:\\s*(.*?)\\s*\\(ID:\\s*(\\d+)\\)\\s*$",
-        QRegularExpression::CaseInsensitiveOption);
+    QJsonArray modifyHistory = historyState.value("equipment_modify_history").toArray();
+    QJsonArray deleteHistory = historyState.value("equipment_delete_history").toArray();
 
-    auto entryDate = [](const QJsonObject &entry) {
-        QDateTime dt = QDateTime::fromMSecsSinceEpoch(entry.value("timestamp_ms").toVariant().toLongLong());
-        if (!dt.isValid()) {
-            dt = QDateTime::fromString(entry.value("timestamp_iso").toString(), Qt::ISODate);
+    QJsonArray currentRows;
+    QJsonObject currentById;
+    int currentMaxId = 0;
+
+    QSqlQuery q;
+    const bool queryOk = q.exec(
+        "SELECT "
+        "EQUIPMENT_ID, "
+        "NVL(EQUIPMENT_TYPE, '-') AS EQUIPMENT_TYPE, "
+        "NVL(DESCRIPTION, '-') AS DESCRIPTION, "
+        "NVL(STATUS, '-') AS STATUS, "
+        "NVL(TO_CHAR(UNIT_PRICE, 'FM9999999990.00'), '-') AS PRICE, "
+        "NVL(TO_CHAR(PURCHASE_DATE, 'YYYY-MM-DD'), '-') AS PURCHASE_DATE "
+        "FROM EQUIPMENT "
+        "ORDER BY EQUIPMENT_ID DESC");
+
+    if (queryOk) {
+        while (q.next()) {
+            const int id = q.value(0).toInt();
+            if (id <= 0) {
+                continue;
+            }
+
+            QJsonObject rowObj;
+            rowObj["id"] = id;
+            rowObj["type"] = q.value(1).toString();
+            rowObj["description"] = q.value(2).toString();
+            rowObj["status"] = q.value(3).toString();
+            rowObj["price"] = q.value(4).toString();
+            rowObj["date"] = q.value(5).toString();
+
+            currentRows.append(rowObj);
+            currentById[QString::number(id)] = rowObj;
+            if (id > currentMaxId) {
+                currentMaxId = id;
+            }
         }
-        return dt.isValid() ? dt.toString("yyyy-MM-dd") : QString();
+    } else {
+        qDebug() << "Failed to load equipment rows for history:" << q.lastError().text();
+    }
+
+    if (currentMaxId < addedMinId) {
+        addedMinId = 0;
+        historyState["equipment_added_min_id"] = 0;
+    }
+
+    if (queryOk) {
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        const QString nowDate = QDate::currentDate().toString("yyyy-MM-dd");
+
+        const QStringList currentKeys = currentById.keys();
+        for (const QString &idKey : currentKeys) {
+            if (!previousById.contains(idKey)) {
+                continue;
+            }
+
+            const QJsonObject cur = currentById.value(idKey).toObject();
+            const QJsonObject old = previousById.value(idKey).toObject();
+
+            const bool changed =
+                getString(cur, "type") != getString(old, "type") ||
+                getString(cur, "description") != getString(old, "description") ||
+                getString(cur, "status") != getString(old, "status") ||
+                getString(cur, "price") != getString(old, "price") ||
+                getString(cur, "date") != getString(old, "date");
+
+            if (!changed) {
+                continue;
+            }
+
+            QJsonObject ev = cur;
+            ev["status"] = "Modified";
+            ev["timestamp_ms"] = QString::number(nowMs);
+            ev["date"] = nowDate;
+            modifyHistory.append(ev);
+            while (modifyHistory.size() > 800) {
+                modifyHistory.removeAt(0);
+            }
+        }
+
+        const QStringList previousKeys = previousById.keys();
+        for (const QString &idKey : previousKeys) {
+            if (currentById.contains(idKey)) {
+                continue;
+            }
+
+            const QJsonObject old = previousById.value(idKey).toObject();
+            QJsonObject ev = old;
+            ev["status"] = "Deleted";
+            ev["timestamp_ms"] = QString::number(nowMs);
+            ev["date"] = nowDate;
+            deleteHistory.append(ev);
+            while (deleteHistory.size() > 800) {
+                deleteHistory.removeAt(0);
+            }
+        }
+
+        historyState["equipment_snapshot"] = currentRows;
+        historyState["equipment_modify_history"] = modifyHistory;
+        historyState["equipment_delete_history"] = deleteHistory;
+        writeHistoryState(historyState);
+    }
+
+    auto buildHaystack = [&](const QJsonObject &obj, const QString &fallbackStatus) {
+        const int idNum = getInt(obj, "id", "equipment_id");
+        const QString id = (idNum > 0) ? QString::number(idNum) : QString("-");
+        const QString type = getString(obj, "type", "equipment_type");
+        const QString description = getString(obj, "description", "equipment_description");
+        QString status = getString(obj, "status", "equipment_status");
+        if (status.isEmpty()) {
+            status = fallbackStatus;
+        }
+        const QString price = getString(obj, "price", "equipment_price");
+        QString dateText = getString(obj, "date");
+        if (dateText.isEmpty()) {
+            QDateTime dt = QDateTime::fromMSecsSinceEpoch(getString(obj, "timestamp_ms").toLongLong());
+            if (dt.isValid()) {
+                dateText = dt.date().toString("yyyy-MM-dd");
+            }
+        }
+        return (id + " " + type + " " + description + " " + status + " " + price + " " + dateText).toUpper();
     };
 
-    auto setupSection = [&](QTableView *view, const QString &operation) {
+    auto renderRows = [&](QTableView *view, const QJsonArray &rows, const QString &fallbackStatus, int minIdExclusive, bool iterateReversed) {
+        if (!view) {
+            return;
+        }
+
         QStandardItemModel *model = new QStandardItemModel(this);
         model->setHorizontalHeaderLabels({"ID", "Type", "Description", "Status", "Price", "Date"});
 
-        for (int i = auditArray.size() - 1; i >= 0; --i) {
-            if (!auditArray.at(i).isObject()) {
-                continue;
+        constexpr int kMaxRowsPerSection = 300;
+        int appended = 0;
+
+        auto appendRowFromObject = [&](const QJsonObject &obj) {
+            if (appended >= kMaxRowsPerSection) {
+                return;
             }
 
-            const QJsonObject entry = auditArray.at(i).toObject();
-            if (entry.value("module_name").toString().compare("Equipment", Qt::CaseInsensitive) != 0) {
-                continue;
+            const int idNum = getInt(obj, "id", "equipment_id");
+            if (minIdExclusive >= 0 && idNum > 0 && idNum <= minIdExclusive) {
+                return;
             }
-
-            QString op = entry.value("equipment_operation").toString().trimmed().toUpper();
-            QString id = entry.value("equipment_id").toVariant().toString().trimmed();
-            QString type = entry.value("equipment_type").toString().trimmed();
-            QString description = entry.value("equipment_description").toString().trimmed();
-            QString status = entry.value("equipment_status").toString().trimmed();
-
-            QString price;
-            const QJsonValue priceVal = entry.value("equipment_price");
-            if (!priceVal.isUndefined() && !priceVal.isNull()) {
-                const double parsedPrice = priceVal.toVariant().toDouble();
-                if (parsedPrice > 0.0) {
-                    price = QString::number(parsedPrice, 'f', 2);
-                }
-            }
-
-            const QString action = entry.value("action_details").toString().trimmed();
-            if (op.isEmpty()) {
-                QRegularExpressionMatch match;
-                if ((match = addRx.match(action)).hasMatch()) {
-                    op = "ADD";
-                    if (type.isEmpty()) type = match.captured(1).trimmed();
-                    if (id.isEmpty()) id = match.captured(2).trimmed();
-                } else if ((match = modifyRx.match(action)).hasMatch()) {
-                    op = "MODIFY";
-                    if (type.isEmpty()) type = match.captured(1).trimmed();
-                    if (id.isEmpty()) id = match.captured(2).trimmed();
-                } else if ((match = deleteRx.match(action)).hasMatch()) {
-                    op = "DELETE";
-
-                    const QString typeAndDesc = match.captured(1).trimmed();
-                    if (id.isEmpty()) id = match.captured(2).trimmed();
-
-                    if (type.isEmpty()) {
-                        type = typeAndDesc;
-                    }
-
-                    if (description.isEmpty()) {
-                        const int splitAt = typeAndDesc.indexOf(" - ");
-                        if (splitAt >= 0) {
-                            type = typeAndDesc.left(splitAt).trimmed();
-                            description = typeAndDesc.mid(splitAt + 3).trimmed();
-                        }
-                    }
-                }
-            }
-
-            if (op != operation) {
-                continue;
-            }
-
-            if (operation == "ADD" && status.isEmpty()) {
-                status = "Added";
-            } else if (operation == "MODIFY" && status.isEmpty()) {
-                status = "Modified";
-            } else if (operation == "DELETE") {
-                status = "Deleted";
-            }
-
-            if (id.isEmpty()) id = "-";
-            if (type.isEmpty()) type = "-";
-            if (description.isEmpty()) description = "-";
-            if (status.isEmpty()) status = "-";
-            if (price.isEmpty()) price = "-";
 
             if (!searchUpper.isEmpty()) {
-                const QString haystack = (id + " " + type + " " + description + " " + status + " " + price).toUpper();
+                const QString haystack = buildHaystack(obj, fallbackStatus);
                 if (!haystack.contains(searchUpper)) {
-                    continue;
+                    return;
                 }
             }
+
+            const QString id = (idNum > 0) ? QString::number(idNum) : QString("-");
+            QString type = getString(obj, "type", "equipment_type");
+            QString description = getString(obj, "description", "equipment_description");
+            QString status = getString(obj, "status", "equipment_status");
+            QString price = getString(obj, "price", "equipment_price");
+            QString dateText = getString(obj, "date");
+
+            if (status.isEmpty()) status = fallbackStatus;
+            if (type.isEmpty()) type = "-";
+            if (description.isEmpty()) description = "-";
+            if (price.isEmpty()) price = "-";
+
+            if (dateText.isEmpty()) {
+                QDateTime dt = QDateTime::fromMSecsSinceEpoch(getString(obj, "timestamp_ms").toLongLong());
+                if (dt.isValid()) {
+                    dateText = dt.date().toString("yyyy-MM-dd");
+                }
+            }
+            if (dateText.isEmpty()) dateText = "-";
 
             QList<QStandardItem*> row;
             row << new QStandardItem(id)
@@ -10937,22 +11037,123 @@ void MainWindow::onEquipmentHistorySearch()
                 << new QStandardItem(description)
                 << new QStandardItem(status)
                 << new QStandardItem(price)
-                << new QStandardItem(entryDate(entry));
+                << new QStandardItem(dateText);
             model->appendRow(row);
+            ++appended;
+        };
+
+        if (iterateReversed) {
+            for (int i = rows.size() - 1; i >= 0 && appended < kMaxRowsPerSection; --i) {
+                if (!rows.at(i).isObject()) {
+                    continue;
+                }
+                appendRowFromObject(rows.at(i).toObject());
+            }
+        } else {
+            for (int i = 0; i < rows.size() && appended < kMaxRowsPerSection; ++i) {
+                if (!rows.at(i).isObject()) {
+                    continue;
+                }
+                appendRowFromObject(rows.at(i).toObject());
+            }
         }
 
         view->setModel(model);
         view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        view->setSortingEnabled(true);
+        if (model->rowCount() > 0) {
+            view->sortByColumn(5, Qt::DescendingOrder);
+        }
     };
 
-    setupSection(ui_equipment->tableView_history_add, "ADD");
-    setupSection(ui_equipment->tableView_history_modify, "MODIFY");
-    setupSection(ui_equipment->tableView_historique, "DELETE");
+    renderRows(ui_equipment->tableView_history_add, currentRows, "Added", addedMinId, false);
+    renderRows(ui_equipment->tableView_history_modify, modifyHistory, "Modified", -1, true);
+    renderRows(ui_equipment->tableView_historique, deleteHistory, "Deleted", -1, true);
+
 }
 
 void MainWindow::onEquipmentHistoryClear()
 {
-    QMessageBox::information(this, "Clear History", "History is now logically linked to the main equipment table and cannot be cleared separately.");
+    if (!ui_equipment) {
+        return;
+    }
+
+    QTableView *targetView = ui_equipment->tableView_history_add;
+    QString sectionLabel = "Added";
+    QString operation = "ADD";
+
+    if (ui_equipment->tabWidget_history_sections) {
+        const int currentIdx = ui_equipment->tabWidget_history_sections->currentIndex();
+        if (currentIdx == ui_equipment->tabWidget_history_sections->indexOf(ui_equipment->tab_history_modify)) {
+            targetView = ui_equipment->tableView_history_modify;
+            sectionLabel = "Modified";
+            operation = "MODIFY";
+        } else if (currentIdx == ui_equipment->tabWidget_history_sections->indexOf(ui_equipment->tab_history_delete)) {
+            targetView = ui_equipment->tableView_historique;
+            sectionLabel = "Deleted";
+            operation = "DELETE";
+        }
+    }
+
+    if (!targetView) {
+        return;
+    }
+
+    auto readHistoryState = []() -> QJsonObject {
+        QFile f("hammerdown_history_state.json");
+        if (!f.open(QIODevice::ReadOnly)) {
+            return QJsonObject();
+        }
+        const QJsonDocument d = QJsonDocument::fromJson(f.readAll());
+        f.close();
+        return d.isObject() ? d.object() : QJsonObject();
+    };
+
+    auto writeHistoryState = [](const QJsonObject &obj) {
+        QFile f("hammerdown_history_state.json");
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+            f.close();
+        }
+    };
+
+    int addedCutoffId = -1;
+    if (operation == "ADD") {
+        QSqlQuery qMax;
+        if (qMax.exec("SELECT NVL(MAX(EQUIPMENT_ID), 0) FROM EQUIPMENT") && qMax.next()) {
+            addedCutoffId = qMax.value(0).toInt();
+        } else {
+            addedCutoffId = 0;
+        }
+
+        QJsonObject state = readHistoryState();
+        state["equipment_added_min_id"] = addedCutoffId;
+        writeHistoryState(state);
+    }
+
+    int removedRows = 0;
+    if (operation == "MODIFY" || operation == "DELETE") {
+        QJsonObject state = readHistoryState();
+        const QString key = (operation == "MODIFY") ? "equipment_modify_history" : "equipment_delete_history";
+        const QJsonArray oldRows = state.value(key).toArray();
+        removedRows = oldRows.size();
+        state[key] = QJsonArray();
+        writeHistoryState(state);
+    }
+
+    onEquipmentHistorySearch();
+
+    if (operation == "ADD") {
+        QMessageBox::information(this,
+                                 "Clear Logs",
+                                 QString("Cleared %1 history view. Existing equipment up to ID %2 is hidden; only newly inserted equipment will appear after refresh.")
+                                     .arg(sectionLabel, QString::number(addedCutoffId)));
+    } else {
+        QMessageBox::information(this,
+                                 "Clear Logs",
+                                 QString("Cleared %1 logs. Removed rows: %2.")
+                                     .arg(sectionLabel, QString::number(removedRows)));
+    }
 }
 
 void MainWindow::onEquipmentCustomContextMenu(const QPoint &pos)
@@ -10986,9 +11187,17 @@ void MainWindow::onEquipmentHistoryCustomContextMenu(const QPoint &pos, int tabl
     QModelIndex index = view->indexAt(pos);
     if (!index.isValid()) return;
 
-    // Get the Date (Last column usually)
-    int dateCol = view->model()->columnCount() - 1;
-    QDate date = QDate::fromString(view->model()->data(view->model()->index(index.row(), dateCol)).toString(), "YYYY-MM-DD");
+    // Date is stored in visible column 5 (with optional hidden metadata columns after it).
+    int dateCol = (view->model()->columnCount() > 5) ? 5 : (view->model()->columnCount() - 1);
+    QDate date = QDate::fromString(view->model()->data(view->model()->index(index.row(), dateCol)).toString(), "yyyy-MM-dd");
+
+    if (!date.isValid() && view->model()->columnCount() > 6) {
+        const QString ts = view->model()->data(view->model()->index(index.row(), 6)).toString();
+        const QDateTime dt = QDateTime::fromString(ts, "yyyy-MM-dd HH:mm:ss");
+        if (dt.isValid()) {
+            date = dt.date();
+        }
+    }
     if (!date.isValid()) date = QDate::currentDate();
 
     QMenu menu(this);

@@ -69,6 +69,9 @@
 #include <QHash>
 #include <QSet>
 #include <QTableView>
+#include <QStackedWidget>
+#include <QDateEdit>
+#include <QTextEdit>
 
 // --- Voice Waveform Widget ---
 class VoiceWaveformWidget : public QWidget {
@@ -524,6 +527,7 @@ private:
     
     // Chat Timer
     QTimer *chatRefreshTimer;
+    QTimer *equipmentSyncTimer = nullptr;
     
     // Audio components
     QMediaPlayer *loginAudioPlayer;
