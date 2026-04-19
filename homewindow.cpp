@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFrame>
 #include <QGraphicsBlurEffect>
+#include <QGraphicsDropShadowEffect>
 #include <QLabel>
 #include <QMediaPlayer>
 #include <QSlider>
@@ -54,8 +55,18 @@ HomeWindow::HomeWindow(QWidget *parent) :
     connect(ui->btn_disconnect,  &QPushButton::clicked, this, &HomeWindow::handleDisconnect);
     connect(ui->btn_chat,        &QPushButton::clicked, this, &HomeWindow::handleChatBot);
     connect(ui->btn_help,         &QPushButton::clicked, this, &HomeWindow::handleHelp);
+    connect(ui->btn_profile_arrow, &QPushButton::clicked, this, &HomeWindow::handleProfileMenu);
     
     // Apply professional styling
+    ui->profile_frame->installEventFilter(this);
+    
+    auto *shadow = new QGraphicsDropShadowEffect(this);
+    shadow->setBlurRadius(20);
+    shadow->setOffset(0, 4);
+    ui->profile_frame->setGraphicsEffect(shadow);
+
+    updateProfileAnimations();
+
     setupHomeButtons();
 }
 
@@ -81,6 +92,11 @@ bool HomeWindow::eventFilter(QObject *watched, QEvent *event)
                 ui->btn_settings->setIcon(QIcon(m_settingsGearPixmap));
             }
         }
+    } else if (ui && watched == ui->profile_frame) {
+        if (event->type() == QEvent::MouseButtonRelease) {
+            handleProfileMenu();
+            return true;
+        }
     }
     return QFrame::eventFilter(watched, event);
 }
@@ -96,6 +112,51 @@ void HomeWindow::handleOrder()        { emit orderClicked();        }
 void HomeWindow::handleFournisseur() { emit fournisseurClicked(); }
 void HomeWindow::handleEquipment()   { emit equipmentClicked();   }
 void HomeWindow::handleDisconnect()  { emit disconnectClicked();   }
+
+void HomeWindow::handleProfileMenu()
+{
+    QMenu menu(this);
+    menu.setStyleSheet(R"(
+        QMenu {
+            background-color: #1A1208;
+            border: 2px solid #8B6F47;
+            border-radius: 12px;
+            color: #F5E6D3;
+            padding: 8px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        QMenu::item {
+            padding: 10px 30px;
+            margin: 2px;
+            border-radius: 6px;
+        }
+        QMenu::item:selected {
+            background-color: #8B6F47;
+            color: white;
+        }
+        QMenu::separator {
+            height: 1px;
+            background: #4A3B26;
+            margin: 6px 10px;
+        }
+    )");
+
+    QAction *profileAct = new QAction(tr("👤 View Profile"), &menu);
+    QAction *signOutAct = new QAction(tr("🚪 Sign Out"), &menu);
+    
+    menu.addAction(profileAct);
+    menu.addSeparator();
+    menu.addAction(signOutAct);
+
+    connect(profileAct, &QAction::triggered, this, &HomeWindow::userProfileClicked);
+    connect(signOutAct, &QAction::triggered, this, &HomeWindow::handleDisconnect);
+
+    // Calculate position: align with the right side of the profile frame
+    QPoint pos = ui->profile_frame->mapToGlobal(QPoint(ui->profile_frame->width() - 180, ui->profile_frame->height() + 5));
+    menu.setFixedWidth(180);
+    menu.exec(pos);
+}
 
 void HomeWindow::handleChatBot()
 {
@@ -267,6 +328,7 @@ void HomeWindow::handleSettingsClicked()
         standardButton->setChecked(true);
         animationButton->setChecked(false);
         m_isStandardMode = true;
+        updateProfileAnimations();
         // Ensure btn_chat is visible when switching back to Standard mode
         ui->btn_chat->setVisible(true);
         dialog.accept();
@@ -278,6 +340,7 @@ void HomeWindow::handleSettingsClicked()
         animationButton->setChecked(true);
         standardButton->setChecked(false);
         m_isStandardMode = false;
+        updateProfileAnimations();
         // Allow animation to be triggered again when switching back to Animation mode
         m_animationTriggered = false;
         ui->btn_help->setEnabled(true);
@@ -900,6 +963,63 @@ void HomeWindow::resumeSuspendedAudioAfterOverlay()
 void HomeWindow::stopAnimationAudio()
 {
     stopHomeAudio();
+}
+
+void HomeWindow::setMode(bool isStandard)
+{
+    m_isStandardMode = isStandard;
+    updateProfileAnimations();
+}
+
+void HomeWindow::updateProfileAnimations()
+{
+    if (!ui || !ui->status_dot) return;
+
+    // Clean up existing animations
+    if (m_statusPulseAnimation) {
+        m_statusPulseAnimation->stop();
+        m_statusPulseAnimation->deleteLater();
+        m_statusPulseAnimation = nullptr;
+    }
+    if (m_profileBreathAnim) {
+        m_profileBreathAnim->stop();
+        m_profileBreathAnim->deleteLater();
+        m_profileBreathAnim = nullptr;
+    }
+
+    if (m_isStandardMode) {
+        // Standard mode: Resets
+        if (ui->status_dot->graphicsEffect()) {
+            QGraphicsOpacityEffect *eff = qobject_cast<QGraphicsOpacityEffect*>(ui->status_dot->graphicsEffect());
+            if (eff) eff->setOpacity(1.0);
+        }
+    } else {
+        // ... previous dot logic ...
+        QGraphicsOpacityEffect *dotEff = qobject_cast<QGraphicsOpacityEffect*>(ui->status_dot->graphicsEffect());
+        if (!dotEff) {
+            dotEff = new QGraphicsOpacityEffect(ui->status_dot);
+            ui->status_dot->setGraphicsEffect(dotEff);
+        }
+        
+        m_statusPulseAnimation = new QPropertyAnimation(dotEff, "opacity", this);
+        m_statusPulseAnimation->setDuration(1200);
+        m_statusPulseAnimation->setStartValue(1.0);
+        m_statusPulseAnimation->setKeyValueAt(0.5, 0.3);
+        m_statusPulseAnimation->setEndValue(1.0);
+        m_statusPulseAnimation->setLoopCount(-1);
+        m_statusPulseAnimation->setEasingCurve(QEasingCurve::InOutSine);
+        m_statusPulseAnimation->start();
+        
+        // Creative Breathing Animation
+        m_profileBreathAnim = new QPropertyAnimation(ui->profile_frame, "geometry", this);
+        QRect ori = ui->profile_frame->geometry();
+        m_profileBreathAnim->setDuration(3000);
+        m_profileBreathAnim->setStartValue(ori);
+        m_profileBreathAnim->setKeyValueAt(0.5, QRect(ori.x() - 1, ori.y() - 1, ori.width() + 2, ori.height() + 2));
+        m_profileBreathAnim->setEndValue(ori);
+        m_profileBreathAnim->setLoopCount(-1);
+        m_profileBreathAnim->start();
+    }
 }
 
 void HomeWindow::setupHomeButtons()

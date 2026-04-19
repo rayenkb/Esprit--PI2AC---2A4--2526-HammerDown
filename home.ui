@@ -343,38 +343,50 @@ QPushButton:pressed { background-color: rgba(217, 83, 79, 0.3); }</string>
   <widget class="QFrame" name="profile_frame">
    <property name="geometry">
     <rect>
-     <x>900</x>
+     <x>930</x>
      <y>15</y>
-     <width>250</width>
+     <width>230</width>
      <height>60</height>
     </rect>
    </property>
+   <property name="cursor">
+    <cursorShape>PointingHandCursor</cursorShape>
+   </property>
    <property name="styleSheet">
     <string notr="true">#profile_frame {
-    background: rgba(50, 40, 30, 0.6);
-    border: 1px solid #8B6F47;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+        stop:0 rgba(70, 50, 30, 0.85), 
+        stop:0.5 rgba(40, 30, 20, 0.9),
+        stop:1 rgba(20, 15, 10, 0.95));
+    border: 2px solid #8B6F47;
     border-radius: 30px;
+}
+#profile_frame:hover {
+    border: 2px solid #d4a96a;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+        stop:0 rgba(90, 70, 50, 0.9), 
+        stop:1 rgba(40, 30, 20, 1.0));
 }
 QLabel { background: transparent; border: none; color: white; }</string>
    </property>
    <layout class="QHBoxLayout" name="profileLayout">
     <property name="spacing">
-     <number>10</number>
+     <number>8</number>
     </property>
     <property name="leftMargin">
-     <number>5</number>
+     <number>6</number>
     </property>
     <property name="topMargin">
      <number>5</number>
     </property>
     <property name="rightMargin">
-     <number>5</number>
+     <number>12</number>
     </property>
     <property name="bottomMargin">
      <number>5</number>
     </property>
     <item>
-     <widget class="QLabel" name="lbl_user_avatar">
+     <widget class="QFrame" name="avatar_container">
       <property name="minimumSize">
        <size>
         <width>50</width>
@@ -388,28 +400,58 @@ QLabel { background: transparent; border: none; color: white; }</string>
        </size>
       </property>
       <property name="styleSheet">
-       <string notr="true">border: 1.5px solid #d4a96a; border-radius: 25px; background: rgba(255,255,255,0.1);</string>
+       <string notr="true">background: transparent;</string>
       </property>
-      <property name="text">
-       <string/>
-      </property>
-      <property name="scaledContents">
-       <bool>true</bool>
-      </property>
+      <widget class="QLabel" name="lbl_user_avatar">
+       <property name="geometry">
+        <rect>
+         <x>0</x>
+         <y>0</y>
+         <width>50</width>
+         <height>50</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">border: 2px solid #d4a96a; border-radius: 25px; background: rgba(0,0,0,0.3);</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="scaledContents">
+        <bool>true</bool>
+       </property>
+      </widget>
+      <widget class="QFrame" name="status_dot">
+       <property name="geometry">
+        <rect>
+         <x>36</x>
+         <y>36</y>
+         <width>12</width>
+         <height>12</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: #4CAF50; border: 2px solid #2A1E10; border-radius: 6px;</string>
+       </property>
+      </widget>
      </widget>
     </item>
     <item>
      <layout class="QVBoxLayout" name="userInfoLayout">
       <property name="spacing">
-       <number>0</number>
+       <number>-2</number>
       </property>
       <item>
        <widget class="QLabel" name="lbl_user_name">
         <property name="font">
          <font>
-          <pointsize>10</pointsize>
+          <family>Outfit</family>
+          <pointsize>11</pointsize>
           <bold>true</bold>
          </font>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">color: #FFFFFF; subcontrol-origin: padding;</string>
         </property>
         <property name="text">
          <string>First Name</string>
@@ -420,11 +462,13 @@ QLabel { background: transparent; border: none; color: white; }</string>
        <widget class="QLabel" name="lbl_user_role">
         <property name="font">
          <font>
+          <family>Outfit</family>
           <pointsize>8</pointsize>
+          <bold>true</bold>
          </font>
         </property>
         <property name="styleSheet">
-         <string notr="true">color: #D4AF37;</string>
+         <string notr="true">color: rgba(212, 175, 55, 0.8); letter-spacing: 0.5px;</string>
         </property>
         <property name="text">
          <string>Job Title</string>
@@ -432,6 +476,62 @@ QLabel { background: transparent; border: none; color: white; }</string>
        </widget>
       </item>
      </layout>
+    </item>
+    <item>
+     <spacer name="horizontalSpacer">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <property name="sizeType">
+       <enum>QSizePolicy::Fixed</enum>
+      </property>
+      <property name="sizeHint" stdset="0">
+       <size>
+        <width>10</width>
+        <height>20</height>
+       </size>
+      </property>
+     </spacer>
+    </item>
+    <item>
+     <widget class="QPushButton" name="btn_profile_arrow">
+      <property name="minimumSize">
+       <size>
+        <width>32</width>
+        <height>32</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>32</width>
+        <height>32</height>
+       </size>
+      </property>
+      <property name="cursor">
+       <cursorShape>PointingHandCursor</cursorShape>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QPushButton {
+    background: rgba(139, 111, 71, 0.15);
+    color: #ffd700;
+    font-size: 15px;
+    font-weight: bold;
+    border: 1.5px solid rgba(139, 111, 71, 0.5);
+    border-radius: 16px;
+}
+QPushButton:hover {
+    background: rgba(212, 169, 106, 0.3);
+    color: white;
+    border: 1.5px solid #d4a96a;
+}
+QPushButton:pressed {
+    background: rgba(139, 111, 71, 0.5);
+}</string>
+      </property>
+      <property name="text">
+       <string>▾</string>
+      </property>
+     </widget>
     </item>
    </layout>
   </widget>

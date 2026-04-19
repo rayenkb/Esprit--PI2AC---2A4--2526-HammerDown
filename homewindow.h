@@ -8,6 +8,7 @@
 #include <QAudioOutput>
 
 class QVariantAnimation;
+class QPropertyAnimation;
 
 class ChatBotDialog;
 
@@ -34,7 +35,7 @@ public:
         m_currentVolume = vol;
         if (m_animationAudioOutput) m_animationAudioOutput->setVolume(vol);
     }
-    void setMode(bool isStandard) { m_isStandardMode = isStandard; }
+    void setMode(bool isStandard);
 
 signals:
     void employesClicked();
@@ -45,6 +46,7 @@ signals:
     void languageChanged(const QString &language);
     void volumeChanged(qreal volume);
     void disconnectClicked();
+    void userProfileClicked();
     void settingsDialogOpened();
     void settingsDialogClosed();
     void botawkAnimationStarted();
@@ -62,6 +64,7 @@ private slots:
     void handleDisconnect();
     void handleChatBot();
     void handleHelp();
+    void handleProfileMenu();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -90,6 +93,10 @@ private:
     void setupHomeButtons();
     void stopAnimationAudio();
     void playReverseAnimation();
+    void updateProfileAnimations();
+
+    QPropertyAnimation *m_statusPulseAnimation = nullptr;
+    QPropertyAnimation *m_profileBreathAnim = nullptr;
 };
 
 #endif // HOMEWINDOW_H

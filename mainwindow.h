@@ -439,6 +439,7 @@ private slots:
     // --- Face Recognition & Avatar ---
     void onUploadAvatar();
     void onScanFace();
+    void on_userProfileClicked();
     void updateUserProfileDisplay();
     // --- Language Management ---
     void onLanguageChanged(const QString &language);

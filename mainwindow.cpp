@@ -1188,6 +1188,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(homeWindow, &HomeWindow::languageChanged,    this, &MainWindow::onLanguageChanged);
     connect(homeWindow, &HomeWindow::volumeChanged,      this, &MainWindow::setAudioVolume);
     connect(homeWindow, &HomeWindow::disconnectClicked,  this, &MainWindow::on_btn_logout_clicked);
+    connect(homeWindow, &HomeWindow::userProfileClicked,  this, &MainWindow::on_userProfileClicked);
     connect(homeWindow, &HomeWindow::settingsDialogOpened, this, &MainWindow::pauseHomeAudioForSettings);
     connect(homeWindow, &HomeWindow::settingsDialogClosed, this, &MainWindow::resumeHomeAudioAfterSettings);
     connect(homeWindow, &HomeWindow::tutorialOpened, this, &MainWindow::pauseHomeAudioForTutorial);
@@ -2665,10 +2666,10 @@ void MainWindow::on_login_clicked()
 }
 
 // Home -> Modules
-void MainWindow::on_gs_employes_clicked()    { 
-    ui->stackedWidget->setCurrentIndex(2); 
-    ui_employee->tabWidget->setCurrentIndex(0); 
-    onEmployeeRefreshView(); 
+void MainWindow::on_gs_employes_clicked() {
+    ui->stackedWidget->setCurrentIndex(2);
+    ui_employee->tabWidget->setCurrentIndex(0);
+    onEmployeeRefreshView();
     onEmployeeRefreshHistory();
 }
 void MainWindow::on_gs_client_clicked()      { ui->stackedWidget->setCurrentIndex(3); ui_client->tabWidget->setCurrentIndex(0); }
@@ -13697,6 +13698,17 @@ QPixmap MainWindow::getCircularPixmap(const QPixmap &src) {
     painter.drawPixmap(x, y, src);
     
     return out;
+}
+
+void MainWindow::on_userProfileClicked() {
+    ui->stackedWidget->setCurrentIndex(2); 
+    if (ui_employee && ui_employee->tabWidget) ui_employee->tabWidget->setCurrentIndex(0);
+    QRadioButton *rbMod = ui_employee->tab_add->findChild<QRadioButton*>("rb_employee_mod_mode");
+    if (rbMod) rbMod->setChecked(true);
+    if (ui_employee && ui_employee->le_id) {
+        ui_employee->le_id->setText(QString::number(currentEmployeeId));
+        onEmployeeRefreshView(); // Refresh to ensure data is loaded
+    }
 }
 
 void MainWindow::onEmployeeEnsureHistoryTable() {

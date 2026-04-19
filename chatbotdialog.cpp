@@ -1089,8 +1089,8 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
     int nextId = getNextId("EMPLOYEES", "EMPLOYEE_ID");
 
     QSqlQuery insertQuery;
-    insertQuery.prepare("INSERT INTO EMPLOYEES (EMPLOYEE_ID, FIRST_NAME, LAST_NAME, JOB_TITLE, EMAIL, PHONE_NUMBER, SALARY, DEPARTMENT, AGE, EMPLOYEE_STATUS) "
-                        "VALUES (:id, :first, :last, :job, :email, :phone, :salary, :dept, :age, :status)");
+    insertQuery.prepare("INSERT INTO EMPLOYEES (EMPLOYEE_ID, FIRST_NAME, LAST_NAME, JOB_TITLE, EMAIL, PHONE_NUMBER, ADDRESS, SALARY, DEPARTMENT, AGE, EMPLOYEE_STATUS) "
+                        "VALUES (:id, :first, :last, :job, :email, :phone, :address, :salary, :dept, :age, :status)");
 
     int success = 0;
     QStringList errors;
@@ -1111,6 +1111,7 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
             "EMPLOYEES", "PHONE_NUMBER", usedEmployeePhones,
             [&]() { return generatePhoneLike(); },
             QString::number(80000000 + (nextId % 10000000)));
+        QString address = fitToColumn("EMPLOYEES", "ADDRESS", generateTunisiaAddress());
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -1120,6 +1121,7 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
             insertQuery.bindValue(":job", job);
             insertQuery.bindValue(":email", email);
             insertQuery.bindValue(":phone", phone);
+            insertQuery.bindValue(":address", address);
             insertQuery.bindValue(":salary", salary);
             insertQuery.bindValue(":dept", dept);
             insertQuery.bindValue(":age", age);
