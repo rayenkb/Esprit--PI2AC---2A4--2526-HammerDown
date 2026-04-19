@@ -2705,8 +2705,11 @@ void MainWindow::on_gs_client_clicked()      { ui->stackedWidget->setCurrentInde
 void MainWindow::on_gs_fournisseur_clicked() { 
     ui->stackedWidget->setCurrentIndex(4); 
     ui_supplier->tabWidget->setCurrentIndex(0); 
-    // Proactive trigger when entering supplier management
-    QTimer::singleShot(200, this, &MainWindow::checkWorkshopStockAndNotifyAI);
+    // Only trigger AI scan on first visit per session
+    if (!m_aiAdvisorStartupDone) {
+        m_aiAdvisorStartupDone = true;
+        QTimer::singleShot(200, this, &MainWindow::checkWorkshopStockAndNotifyAI);
+    }
 }
 void MainWindow::on_gs_equipment_clicked()
 {
@@ -4896,7 +4899,7 @@ void MainWindow::onSupplierRefreshView()
     model->setQuery(
         "SELECT 1 AS \"Action\", 2 AS \"Del\", SUPPLIER_ID AS \"ID\", "
         "SUPPLIER_NAME AS \"Company\", ADDRESS AS \"Address\","
-        " EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", TYPE_NOTIFICATION AS \"Type\","
+        " EMAIL AS \"Email\", PHONE_NUMBER AS \"Phone\", PRODUCT_TYPE AS \"Product Type\","
         " POSTAL_CODE AS \"Postal Code\""
         " FROM SUPPLIERS ORDER BY SUPPLIER_ID"
     );
@@ -4984,17 +4987,18 @@ void MainWindow::onSupplierAdd()
 
     QSqlQuery q;
     q.prepare("INSERT INTO SUPPLIERS (SUPPLIER_ID, SUPPLIER_NAME, ADDRESS, EMAIL, PHONE_NUMBER,"
-              " TYPE_NOTIFICATION, POSTAL_CODE, REGISTRATION_DATE, ACCOUNT_STATUS, OPENING_TIME, CLOSING_TIME)"
-              " VALUES (:id, :nom, :addr, :email, :tel, :type, :cp, SYSDATE, 'Active', :openTime, :closeTime)");
-    q.bindValue(":id",        suppId);
-    q.bindValue(":nom",       nom);
-    q.bindValue(":addr",      addr);
-    q.bindValue(":email",     email);
-    q.bindValue(":tel",       tel);
-    q.bindValue(":type",      type);
-    q.bindValue(":cp",        cp);
-    q.bindValue(":openTime",  openTime);
-    q.bindValue(":closeTime", closeTime);
+              " TYPE_NOTIFICATION, POSTAL_CODE, REGISTRATION_DATE, ACCOUNT_STATUS, OPENING_TIME, CLOSING_TIME, PRODUCT_TYPE)"
+              " VALUES (:id, :nom, :addr, :email, :tel, :type, :cp, SYSDATE, 'Active', :openTime, :closeTime, :productType)");
+    q.bindValue(":id",          suppId);
+    q.bindValue(":nom",         nom);
+    q.bindValue(":addr",        addr);
+    q.bindValue(":email",       email);
+    q.bindValue(":tel",         tel);
+    q.bindValue(":type",        type);
+    q.bindValue(":cp",          cp);
+    q.bindValue(":openTime",    openTime);
+    q.bindValue(":closeTime",   closeTime);
+    q.bindValue(":productType", ui_supplier->le_product_type->text().trimmed());
 
     if (q.exec()) {
         if (homeWindow && homeWindow->isAnimationMode()) {
@@ -5063,17 +5067,19 @@ void MainWindow::onSupplierModify()
 
     QSqlQuery q;
     q.prepare("UPDATE SUPPLIERS SET SUPPLIER_NAME=:nom, ADDRESS=:addr, EMAIL=:email, PHONE_NUMBER=:tel,"
-              " TYPE_NOTIFICATION=:type, POSTAL_CODE=:cp, OPENING_TIME=:openTime, CLOSING_TIME=:closeTime"
+              " TYPE_NOTIFICATION=:type, POSTAL_CODE=:cp, OPENING_TIME=:openTime, CLOSING_TIME=:closeTime,"
+              " PRODUCT_TYPE=:productType"
               " WHERE SUPPLIER_ID=:id");
-    q.bindValue(":nom",       nom);
-    q.bindValue(":addr",      addr);
-    q.bindValue(":email",     email);
-    q.bindValue(":tel",       tel);
-    q.bindValue(":type",      type);
-    q.bindValue(":cp",        cp);
-    q.bindValue(":openTime",  openTime);
-    q.bindValue(":closeTime", closeTime);
-    q.bindValue(":id",        suppId);
+    q.bindValue(":nom",         nom);
+    q.bindValue(":addr",        addr);
+    q.bindValue(":email",       email);
+    q.bindValue(":tel",         tel);
+    q.bindValue(":type",        type);
+    q.bindValue(":cp",          cp);
+    q.bindValue(":openTime",    openTime);
+    q.bindValue(":closeTime",   closeTime);
+    q.bindValue(":productType", ui_supplier->le_product_type->text().trimmed());
+    q.bindValue(":id",          suppId);
 
     if (q.exec()) {
         if (q.numRowsAffected() > 0) {
@@ -5271,7 +5277,7 @@ void MainWindow::onSupplierExportPDF()
         {tr("Address"),    22},
         {tr("Email"),      18},
         {tr("Phone"),      12},
-        {tr("Type"),       12},
+        {tr("Product Type"), 12},
         {tr("Postal"),      8},
     };
     // Pre-compute pixel widths
@@ -5466,15 +5472,17 @@ void MainWindow::onSupplierLoad(const QModelIndex &index)
 
     // Load opening/closing hours from DB directly
     QSqlQuery hq;
-    hq.prepare("SELECT OPENING_TIME, CLOSING_TIME FROM SUPPLIERS WHERE SUPPLIER_ID = :id");
+    hq.prepare("SELECT OPENING_TIME, CLOSING_TIME, PRODUCT_TYPE FROM SUPPLIERS WHERE SUPPLIER_ID = :id");
     hq.bindValue(":id", suppId.toInt());
     if (hq.exec() && hq.next()) {
         QString ot = hq.value(0).toString();
         QString ct = hq.value(1).toString();
+        QString pt = hq.value(2).toString();
         if (m_teOpeningHour)
             m_teOpeningHour->setTime(ot.isEmpty() ? QTime(8, 0) : QTime::fromString(ot, "HH:mm"));
         if (m_teClosingHour)
             m_teClosingHour->setTime(ct.isEmpty() ? QTime(18, 0) : QTime::fromString(ct, "HH:mm"));
+        ui_supplier->le_product_type->setText(pt);
     }
 
     // Switch to the Manage Suppliers tab (index 0)
@@ -5600,7 +5608,8 @@ void MainWindow::onSupplierEnsureReviewsTable()
     q.exec("ALTER TABLE SUPPLIERS ADD RATINGS_JSON CLOB");
     q.exec("ALTER TABLE SUPPLIERS ADD AVERAGE_RATING NUMBER(3,2) DEFAULT 0");
     q.exec("ALTER TABLE SUPPLIERS ADD NOTIFICATIONS_JSON CLOB");
-    // Ignore ORA-01430 if they already exist
+    q.exec("ALTER TABLE SUPPLIERS ADD PRODUCT_TYPE VARCHAR(200)");
+    // Ignore ORA-01430 / SQLite "duplicate column" errors if columns already exist
 }
 
 void MainWindow::onSupplierPopulateRatingCombos()
@@ -5633,7 +5642,7 @@ void MainWindow::onSupplierPopulateRatingCombos()
     // 3. Populate Equipment
     ui_supplier->cb_equipment_rating->clear();
     ui_supplier->cb_equipment_rating->addItem("-- Select Equipment --", 0);
-    QSqlQuery qEquip("SELECT EQUIPMENT_ID, DESCRIPTION FROM EQUIPMENT WHERE STATUS != 'Retired' ORDER BY DESCRIPTION");
+    QSqlQuery qEquip("SELECT EQUIPMENT_ID, TO_CHAR(DESCRIPTION) FROM EQUIPMENT WHERE STATUS != 'Retired' ORDER BY TO_CHAR(DESCRIPTION)");
     if (qEquip.exec()) {
         while (qEquip.next()) {
             ui_supplier->cb_equipment_rating->addItem(qEquip.value(1).toString(), qEquip.value(0));
@@ -6332,7 +6341,7 @@ void MainWindow::setupSupplierStats()
     QPieSeries *seriesCat = new QPieSeries();
     seriesCat->setHoleSize(0.45);
     
-    QSqlQuery qCats("SELECT TYPE_NOTIFICATION, COUNT(*) FROM SUPPLIERS GROUP BY TYPE_NOTIFICATION");
+    QSqlQuery qCats("SELECT PRODUCT_TYPE, COUNT(*) FROM SUPPLIERS GROUP BY PRODUCT_TYPE");
     int catIdx = 0;
     int totalSuppliers = 0;
     QList<QPair<QString, int>> catData;
@@ -6380,35 +6389,30 @@ void MainWindow::setupSupplierStats()
     if (ui_supplier->chart_types_view) ui_supplier->chart_types_view->hide();
     ui_supplier->frame_chart_types->layout()->addWidget(viewCat);
 
-    // --- 3. Chart 2: Monthly Satisfaction Trend (Real Data) ---
-    QBarSet *setScore = new QBarSet(trKey("Avg Rating"));
+    // --- 3. Chart 2: Supplier Satisfaction (Real Data) ---
+    QBarSet *setScore = new QBarSet(trKey("Avg Rating %"));
     QStringList categories;
     
-    QMap<int, QList<double>> monthScores;
-    QSqlQuery qGet("SELECT RATINGS_JSON FROM SUPPLIERS WHERE RATINGS_JSON IS NOT NULL");
-    while (qGet.next()) {
-        QString json = qGet.value(0).toString();
-        if (json.isEmpty()) continue;
-        QJsonArray arr = QJsonDocument::fromJson(json.toUtf8()).array();
-        for (int i=0; i<arr.size(); i++) {
-            QJsonObject obj = arr[i].toObject();
-            QDate d = QDate::fromString(obj["date"].toString().left(10), "yyyy-MM-dd");
-            int m = d.month(); // 1-12
-            if (m >= 1 && m <= 12) {
-                monthScores[m].append(obj["rating"].toDouble());
-            }
-        }
+    QSqlQuery qGet("SELECT SUPPLIER_NAME, AVERAGE_RATING FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active' ORDER BY AVERAGE_RATING DESC");
+    int limit = 0;
+    while (qGet.next() && limit < 10) { // Limit to top 10 suppliers
+        QString name = qGet.value(0).toString();
+        double rating = qGet.value(1).toDouble();
+        
+        // Show even if 0, but if you want to skip 0, you can add 'WHERE AVERAGE_RATING > 0'
+        
+        QString shortName = name.length() > 10 ? name.left(8) + ".." : name;
+        categories << shortName;
+        *setScore << (rating * 20.0); // 0-5 -> 0-100%
+        limit++;
     }
     
-    QList<int> months = monthScores.keys();
-    std::sort(months.begin(), months.end());
-    for (int m : months) {
-        double sum = 0;
-        for (double val : monthScores[m]) sum += val;
-        categories << QDate(2000, m, 1).toString("Mon");
-        double avgPct = (sum / monthScores[m].size()) * 20.0; // 0-5 -> 0-100%
-        *setScore << avgPct;
+    // Fallback if empty to prevent crash
+    if (categories.isEmpty()) {
+        categories << "None";
+        *setScore << 0;
     }
+
     setScore->setLabel(trKey("Satisfaction %"));
     setScore->setColor(QColor("#D4AF37"));
 
@@ -6417,7 +6421,7 @@ void MainWindow::setupSupplierStats()
 
     QChart *chartTrend = new QChart();
     chartTrend->addSeries(seriesTrend);
-    chartTrend->setTitle(trKey("Monthly Satisfaction Trend"));
+    chartTrend->setTitle(trKey("Supplier Satisfaction"));
     chartTrend->setTitleBrush(QBrush(QColor("#D4AF37")));
     chartTrend->setAnimationOptions(QChart::SeriesAnimations);
     chartTrend->setBackgroundBrush(Qt::transparent);
@@ -7149,8 +7153,9 @@ void MainWindow::setupSupplierModes()
     m_supplierBellBtn->setToolTip("Supplier Notifications");
     m_supplierBellBtn->show();
     connect(m_supplierBellBtn, &QPushButton::clicked, this, &MainWindow::onSupplierBellClicked);
-    // Defer notification scan until after all setup is complete
+    // Run once at startup after setup is complete
     QTimer::singleShot(1500, this, [this](){
+        m_aiAdvisorStartupDone = true;
         checkAndPostSupplierNotifications();
         checkWorkshopStockAndNotifyAI();
     });
@@ -15525,6 +15530,9 @@ void MainWindow::setupSupplierAiAdvisorTab()
     ui_supplier->tabWidget->addTab(m_supplierAiTab, "AI Advisor");
 
     connect(m_aiAdvRunBtn, &QPushButton::clicked, this, [this]() {
+        // Manual re-analysis: reset guards so all low-stock items are re-checked
+        m_aiScanInProgress = false;
+        m_aiNotifiedMaterials.clear();
         m_aiAdvStatus->setText("Consulting AI Models...");
         m_aiAdvProgress->show();
         m_aiAdvResult->clear();
@@ -15965,25 +15973,32 @@ void MainWindow::checkAndPostSupplierNotifications()
     }
 }
 
-QString MainWindow::gatherSupplierContextForAi(const QString &materialType) {
-    QString context = "Available Suppliers for " + materialType + ":\n";
-    QSqlQuery q("SELECT SUPPLIER_ID, SUPPLIER_NAME, AVERAGE_RATING, OPENING_TIME, CLOSING_TIME, RATINGS_JSON FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active'");
-    
-    int count = 0;
+QString MainWindow::gatherSupplierContextForAi(const QString &equipmentType) {
+    QSqlQuery q("SELECT SUPPLIER_ID, SUPPLIER_NAME, AVERAGE_RATING, OPENING_TIME, CLOSING_TIME, RATINGS_JSON, PRODUCT_TYPE FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active'");
+
+    struct SupplierInfo {
+        int    id;
+        QString name;
+        double  rating;
+        QString hours;
+        QString productType;
+        QStringList transactions;
+    };
+
+    QList<SupplierInfo> activeSuppliers;
+
     while (q.next()) {
-        count++;
-        int id = q.value(0).toInt();
-        QString name = q.value(1).toString();
-        double rating = q.value(2).toDouble();
-        QString hours = q.value(3).toString() + " to " + q.value(4).toString();
+        SupplierInfo s;
+        s.id          = q.value(0).toInt();
+        s.name        = q.value(1).toString();
+        s.rating      = q.value(2).toDouble();
+        s.hours       = q.value(3).toString() + " to " + q.value(4).toString();
+        s.productType = q.value(6).toString();
+
+        // Load transaction history
         QString ratingsJson = q.value(5).toString();
-        
-        context += QString("- %1 (ID: %2)\n").arg(name).arg(id);
-        context += QString("  Rating: %1/5, Hours: %2\n").arg(rating, 0, 'f', 1).arg(hours);
-        
         if (!ratingsJson.isEmpty()) {
             QJsonArray arr = QJsonDocument::fromJson(ratingsJson.toUtf8()).array();
-            QStringList historicalPrices;
             for (int i = 0; i < arr.size(); ++i) {
                 QJsonObject obj = arr[i].toObject();
                 int eqId = obj["equipment_id"].toInt();
@@ -15992,71 +16007,88 @@ QString MainWindow::gatherSupplierContextForAi(const QString &materialType) {
                     eqQ.prepare("SELECT EQUIPMENT_TYPE, UNIT_PRICE FROM EQUIPMENT WHERE EQUIPMENT_ID = :id");
                     eqQ.bindValue(":id", eqId);
                     if (eqQ.exec() && eqQ.next()) {
-                        QString eqType = eqQ.value(0).toString();
-                        if (eqType.contains(materialType, Qt::CaseInsensitive) || materialType.contains(eqType, Qt::CaseInsensitive)) {
-                            historicalPrices << QString("%1 dt (%2)").arg(eqQ.value(1).toDouble(), 0, 'f', 2).arg(obj["note"].toString());
-                        }
+                        s.transactions << QString("%1 dt for '%2'")
+                            .arg(eqQ.value(1).toDouble(), 0, 'f', 2)
+                            .arg(eqQ.value(0).toString());
                     }
                 }
             }
-            if (!historicalPrices.isEmpty()) {
-                context += "  Historical Pricing: " + historicalPrices.join(", ") + "\n";
-            } else {
-                context += "  Historical Pricing: No specific records found.\n";
-            }
         }
+        activeSuppliers.append(s);
     }
-    return (count == 0) ? "No active suppliers found." : context;
+
+    // Sort by rating descending (best first)
+    auto byRating = [](const SupplierInfo &a, const SupplierInfo &b) {
+        return a.rating > b.rating;
+    };
+    std::sort(activeSuppliers.begin(), activeSuppliers.end(), byRating);
+
+    // Build the context string
+    QString context;
+    context += QString("LOW STOCK: %1\n\n").arg(equipmentType);
+    context += "ACTIVE SUPPLIERS (Evaluate their 'Product Type' to see if they match the low stock item):\n";
+
+    for (const auto &s : activeSuppliers) {
+        context += QString("  - %1 (ID: %2) | Product Type: %3 | Rating: %4/5 | Hours: %5")
+            .arg(s.name).arg(s.id)
+            .arg(s.productType.isEmpty() ? "Not specified" : s.productType)
+            .arg(s.rating, 0, 'f', 1)
+            .arg(s.hours);
+            
+        if (s.rating <= 2.0 && s.rating > 0) context += " [LOW RATING - USE WITH CAUTION]";
+        if (!s.transactions.isEmpty())
+            context += "\n    Past transactions: " + s.transactions.join(", ");
+        context += "\n";
+    }
+
+    if (activeSuppliers.isEmpty())
+        return "No active suppliers found in the system.";
+
+    return context;
 }
+
 
 void MainWindow::checkWorkshopStockAndNotifyAI()
 {
     if (m_aiScanInProgress) {
+        // Already running — hide progress if the tab button was just clicked
+        if (m_aiAdvProgress && m_aiAdvProgress->isVisible()) {
+            m_aiAdvProgress->hide();
+            m_aiAdvStatus->setText("Analysis already in progress...");
+        }
         return;
     }
 
     m_aiScanInProgress = true;
+    // Use a shared counter so the async callbacks can safely decrement it
+    // even after this function's stack frame is gone.
+    QSharedPointer<int> pendingCallbacks(new int(0));
 
     QSqlQuery q("SELECT EQUIPMENT_TYPE, QUANTITY FROM EQUIPMENT WHERE QUANTITY < 5 AND STATUS != 'Retired'");
     while (q.next()) {
         QString type = q.value(0).toString();
         int qty = q.value(1).toInt();
         
-        QStringList materials = {"Wood", "Oak", "Timber", "Paint", "Leather", "Glue", "Nails", "Screw", "Log", "Plank"};
-        bool isMaterial = false;
-        for (const auto &m : materials) {
-            if (type.contains(m, Qt::CaseInsensitive)) { isMaterial = true; break; }
-        }
-        
-        if (!isMaterial) {
+        // All low-stock non-retired equipment triggers AI analysis (no hardcoded filter)
+        // Use in-memory set for per-session dedup — prevents re-firing on every nav/click
+        if (m_aiNotifiedMaterials.contains(type)) {
             continue;
         }
+        m_aiNotifiedMaterials.insert(type);
 
-        bool alreadyNotified = false;
-        QSqlQuery qCheck("SELECT NOTIFICATIONS_JSON FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active'");
-        while(qCheck.next()) {
-            QJsonArray arr = QJsonDocument::fromJson(qCheck.value(0).toString().toUtf8()).array();
-            for(int i=0; i<arr.size(); ++i) {
-                QJsonObject o = arr[i].toObject();
-                if (o["type"].toString() == "AI_STOCK_ALERT" && o["is_read"].toInt() == 0 && o["msg"].toString().contains(type)) {
-                    alreadyNotified = true;
-                    break;
-                }
-            }
-            if (alreadyNotified) break;
-        }
-        
-        if (alreadyNotified) {
-            continue;
-        }
-
+        (*pendingCallbacks)++;
         QString supplierContext = gatherSupplierContextForAi(type);
-        QString sysPrompt = "You are an AI Carpentry Workshop Assistant. Analyze the supplier list and recommend the *single best* supplier for the low-stock material. "
-                            "Criteria: High rating (>4.0), lower historical pricing, and current availability. "
-                            "Budget: 1500 dt. Quantity needed: 40 units. Respond with: 'RECOMMENDED: [Supplier Name]. Reason: [Short rationalized explanation]'";
-        QString userPrompt = QString("MATERIAL LOW: %1 (Qty: %2). Context:\n%3").arg(type).arg(qty).arg(supplierContext);
+        QString sysPrompt =
+            "You are an AI Carpentry Workshop Assistant. A workshop item is low on stock and you must recommend the SINGLE BEST supplier to reorder from.\n"
+            "RULES:\n"
+            "1. Read the 'Product Type' of each supplier and match it against the low stock item.\n"
+            "2. ONLY recommend a supplier if their Product Type logically aligns with the item. If none match perfectly, recommend the closest alternative.\n"
+            "3. Among matching suppliers, choose the one with the HIGHEST rating.\n"
+            "4. If a supplier has a low rating (2 stars or less), explicitly warn the manager.\n"
+            "5. Be concise. Format: 'RECOMMENDED: [Name] (Rating: X/5). Reason: [1-2 sentences]'";
+        QString userPrompt = QString("%1").arg(supplierContext);
         
-        callAiModel(sysPrompt, userPrompt, [this, type](QString result) {
+        callAiModel(sysPrompt, userPrompt, [this, type, pendingCallbacks](QString result) {
             if (result.contains("API Response Error") || result.contains("Connection Failed") || result.contains("AI Error")) {
                 result = "<b>Error:</b> The AI API key is invalid or Groq service is unavailable. Falling back to default: <b>Tech Supplies Tunis</b> is recommended based on past 5-star ratings for this material.";
             }
@@ -16064,19 +16096,20 @@ void MainWindow::checkWorkshopStockAndNotifyAI()
             // Update AI Advisor Tab
             if (m_aiAdvResult) {
                 QString currentText = m_aiAdvResult->toHtml();
-                QString newEntry = QString(
-                    "<div style='margin-bottom: 20px; padding: 15px; background: rgba(212, 175, 55, 0.1); border-left: 5px solid #D4AF37;'>"
-                    "<b style='color: #D4AF37; font-size: 16px;'>📍 Recommendation for %1:</b><br>"
-                    "<p style='margin-top: 10px;'>%2</p>"
-                    "</div>"
-                ).arg(type).arg(result);
+                QString pinEmoji = QString(QChar(0xD83D)) + QChar(0xDCCD); // 📍
+                QString newEntry = (
+                    QString("<div style='margin-bottom: 20px; padding: 15px; background: rgba(212, 175, 55, 0.1); border-left: 5px solid #D4AF37;'>")
+                    + "<b style='color: #D4AF37; font-size: 16px;'>" + pinEmoji + " Recommendation for " + type + ":</b><br>"
+                    + "<p style='margin-top: 10px;'>" + result + "</p>"
+                    + "</div>"
+                );
                 m_aiAdvResult->setHtml(newEntry + currentText);
                 m_aiAdvStatus->setText("Analysis Complete");
                 m_aiAdvProgress->hide();
             }
 
-            // Also keep a record in the database for persistence (but no notification bell)
-            QSqlQuery qSupp("SELECT SUPPLIER_ID, NOTIFICATIONS_JSON FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active' AND ROWNUM = 1");
+            // Persist as a read log entry (use ROWNUM <= 1 for Oracle)
+            QSqlQuery qSupp("SELECT SUPPLIER_ID, NOTIFICATIONS_JSON FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active' AND ROWNUM <= 1");
             if (qSupp.next()) {
                 int sId = qSupp.value(0).toInt();
                 QJsonArray arr = QJsonDocument::fromJson(qSupp.value(1).toString().toUtf8()).array();
@@ -16086,7 +16119,7 @@ void MainWindow::checkWorkshopStockAndNotifyAI()
                 n["type"] = "AI_ADVISOR_LOG";
                 n["msg"] = QString("[AI Advisory] %1: %2").arg(type).arg(result);
                 n["date"] = now.toString("dd/MM HH:mm");
-                n["is_read"] = 1; // Mark as read immediately since it's in the tab
+                n["is_read"] = 1; // Mark as read immediately — it's shown in the tab, not the bell
                 arr.append(n);
                 
                 QSqlQuery u;
@@ -16095,17 +16128,27 @@ void MainWindow::checkWorkshopStockAndNotifyAI()
                 u.bindValue(":id", sId);
                 u.exec();
             }
+
+            // Release the scan lock once all callbacks return
+            (*pendingCallbacks)--;
+            if (*pendingCallbacks <= 0) {
+                m_aiScanInProgress = false;
+            }
         });
     }
 
-    m_aiScanInProgress = false;
+    // If no async calls were made, release the lock immediately and update UI
+    if (*pendingCallbacks == 0) {
+        m_aiScanInProgress = false;
+        if (m_aiAdvProgress) m_aiAdvProgress->hide();
+        if (m_aiAdvStatus)   m_aiAdvStatus->setText("No low-stock materials found to analyze.");
+    }
 }
 
 void MainWindow::onSupplierBellClicked()
 {
-    // Refresh first
+    // Refresh notification state only (no AI re-scan — that's handled on startup)
     checkAndPostSupplierNotifications();
-    checkWorkshopStockAndNotifyAI();
 
     struct NotifItem {
         int supplierId;
@@ -16169,7 +16212,9 @@ void MainWindow::onSupplierBellClicked()
         QString bgColor;
         if (type == "NEW_SUPPLIER")    { icon = QString(QChar(0x2705)); bgColor = "#1e3d1e"; }
         else if (type == "SUPPLIER_CLOSED") { icon = QString(QChar(0x26D4)); bgColor = "#3d1e1e"; }
+        else if (type == "AI_ADVISOR_LOG") { continue; } // Skip internal AI log entries from the bell popup
         else                           { icon = QString(QChar(0x26A0)); bgColor = "#3d2e00"; }
+
 
         QFrame *card = new QFrame(inner);
         card->setStyleSheet(QString("background: %1; border-radius: 10px; border: 1px solid #8B6F47;").arg(bgColor));

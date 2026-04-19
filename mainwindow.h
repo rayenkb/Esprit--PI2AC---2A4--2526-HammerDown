@@ -694,6 +694,8 @@ private:
     QNetworkAccessManager *aiNetworkManager = nullptr;
     QString aiApiKey;
     bool m_aiScanInProgress = false;
+    bool m_aiAdvisorStartupDone = false;  // Prevents re-scanning on every nav visit
+    QSet<QString> m_aiNotifiedMaterials;  // In-session dedup: materials already analyzed
 
 
     // Client Management Dynamic UIs

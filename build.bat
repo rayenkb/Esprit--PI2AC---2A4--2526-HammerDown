@@ -4,13 +4,13 @@ echo.
 
 REM Set Qt paths (adjust if Qt is installed elsewhere)
 set QT_PATH=C:\Qt\6.7.3\mingw_64
-set PATH=%QT_PATH%\bin;%PATH%
+set "PATH=%QT_PATH%\bin;%PATH%"
 
 REM Check if Qt tools are available
 where qmake >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo WARNING: qmake not found in PATH. Trying to set Qt path...
-    set PATH=%QT_PATH%\bin;%PATH%
+    set "PATH=%QT_PATH%\bin;%PATH%"
     
     where qmake >nul 2>nul
     if %ERRORLEVEL% NEQ 0 (
