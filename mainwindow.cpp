@@ -1236,6 +1236,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui_employee->btn_stats_ai_gen, &QPushButton::clicked, this, &MainWindow::onStatsAiClicked);
     // connect(ui_employee->btn_ai_pulse, &QPushButton::clicked, this, &MainWindow::onAIPulseClicked);
     connect(ui_employee->btn_ai_performance, &QPushButton::clicked, this, &MainWindow::onAiPerformanceClicked);
+    connect(ui_employee->btn_test_arduino, &QPushButton::clicked, this, &MainWindow::onTestArduino);
     
     // --- Employee Input Validation & Restrictions ---
     ui_employee->le_id->setValidator(new QIntValidator(1, 9999999, this));
@@ -9674,7 +9675,7 @@ void MainWindow::onAiPerformanceClicked()
         QTextEdit *content = new QTextEdit(perfDlg);
         content->setHtml(result);
         content->setStyleSheet(
-            "QTextEdit { background: rgba(0, 0, 0, 0.4); color: #E0E0E0; border: 1px solid rgba(212,175,55,0.3); border-radius: 12px; "
+            "QTextEdit { background: #1a1a2e; color: #E0E0E0; border: 1px solid #D4AF37; border-radius: 12px; "
             "padding: 20px; font-size: 14px; font-family: 'Segoe UI'; line-height: 1.6; }");
         content->setReadOnly(true);
         
@@ -9701,15 +9702,23 @@ void MainWindow::onAiPerformanceClicked()
         layout->addLayout(btnLayout);
         
         connect(closeBtn, &QPushButton::clicked, perfDlg, &QDialog::accept);
-        connect(pdfBtn, &QPushButton::clicked, perfDlg, [content](){
-            QString fileName = QFileDialog::getSaveFileName(nullptr, "Export AI Performance Report", "", "PDF Files (*.pdf)");
+        connect(pdfBtn, &QPushButton::clicked, perfDlg, [content, result](){
+            QString fileName = QFileDialog::getSaveFileName(nullptr, "Export AI Performance Report",
+                QDir::homePath() + "/AI_Performance_Report_" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss") + ".pdf",
+                "PDF Files (*.pdf)");
             if (fileName.isEmpty()) return;
             if (!fileName.endsWith(".pdf", Qt::CaseInsensitive)) fileName += ".pdf";
 
-            QPrinter printer(QPrinter::HighResolution);
+            QPrinter printer(QPrinter::ScreenResolution);
             printer.setOutputFormat(QPrinter::PdfFormat);
             printer.setOutputFileName(fileName);
-            content->document()->print(&printer);
+            printer.setPageSize(QPageSize(QPageSize::A4));
+            printer.setPageOrientation(QPageLayout::Portrait);
+
+            QTextDocument doc;
+            doc.setHtml(result);
+            doc.setPageSize(printer.pageRect(QPrinter::Point).size());
+            doc.print(&printer);
             QMessageBox::information(nullptr, "Success", "Report exported successfully to PDF!");
         });
         
@@ -9717,6 +9726,58 @@ void MainWindow::onAiPerformanceClicked()
         // ui_employee->lbl_ai_pulse_result->setVisible(false);
     });
 }
+
+void MainWindow::onTestArduino()
+{
+    if (arduino == nullptr) {
+        arduino = new QSerialPort(this);
+    }
+
+    if (arduino->isOpen()) {
+        arduino->write("START");
+        QMessageBox::information(this, "Arduino", "Test sequence triggered on Arduino!");
+        return;
+    }
+
+    // Attempt to find and connect to Arduino
+    // We look for any port that mentions Arduino or just pick the first one if it's a clone
+    const auto serialPortInfos = QSerialPortInfo::availablePorts();
+    QString targetPort = "";
+
+    for (const QSerialPortInfo &info : serialPortInfos) {
+        if (info.description().contains("Arduino", Qt::CaseInsensitive) ||
+            info.manufacturer().contains("Arduino", Qt::CaseInsensitive)) {
+            targetPort = info.portName();
+            break;
+        }
+    }
+
+    // Fallback: pick the first available port if no "Arduino" named port found
+    if (targetPort.isEmpty() && !serialPortInfos.isEmpty()) {
+        targetPort = serialPortInfos.first().portName();
+    }
+
+    if (targetPort.isEmpty()) {
+        QMessageBox::warning(this, "Connection Error", "No Arduino detected. Please ensure it is plugged in.");
+        return;
+    }
+
+    arduino->setPortName(targetPort);
+    arduino->setBaudRate(QSerialPort::Baud9600);
+    arduino->setDataBits(QSerialPort::Data8);
+    arduino->setParity(QSerialPort::NoParity);
+    arduino->setStopBits(QSerialPort::OneStop);
+    arduino->setFlowControl(QSerialPort::NoFlowControl);
+
+    if (arduino->open(QIODevice::ReadWrite)) {
+        // Many Arduinos reset on connection. If yours doesn't, we send a trigger.
+        arduino->write("START"); 
+        QMessageBox::information(this, "Success", "Linked to Arduino on " + targetPort + ".\nSequence started!");
+    } else {
+        QMessageBox::critical(this, "Error", "Failed to open port " + targetPort + ":\n" + arduino->errorString());
+    }
+}
+
 
 void MainWindow::callAiModel(const QString &sysPrompt, const QString &userPrompt, std::function<void(QString)> callback)
 {
@@ -10056,6 +10117,15 @@ void MainWindow::onEmployeeAdd()
     int empId = id.toInt(&idOk);
     if (!idOk || empId <= 0) {
         QMessageBox::warning(this, "Validation", "Employee ID must be a positive number.");
+        return;
+    }
+
+    // Check if employee ID already exists
+    QSqlQuery checkQuery;
+    checkQuery.prepare("SELECT COUNT(*) FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
+    checkQuery.bindValue(":id", empId);
+    if (checkQuery.exec() && checkQuery.next() && checkQuery.value(0).toInt() > 0) {
+        QMessageBox::warning(this, "Duplicate ID", "An employee with ID " + id + " already exists. Please use a different ID.");
         return;
     }
 
@@ -13874,8 +13944,8 @@ void MainWindow::updateUserProfileDisplay() {
            if (nameLabel) nameLabel->setText(firstName);
            if (roleLabel) roleLabel->setText(jobTitle);
            
-           QString avatarPath = QString("assets/av/face_%1.png").arg(currentEmployeeId);
-           if (!QFile::exists(avatarPath)) avatarPath = QString("assets/av/employee_%1.png").arg(currentEmployeeId);
+           // Profile sidebar shows AVATAR only (employee_[ID].png) - never the face scan image
+           QString avatarPath = QString("assets/av/employee_%1.png").arg(currentEmployeeId);
 
            if (avatarLabel) {
                if (QFile::exists(avatarPath)) {
@@ -16067,7 +16137,7 @@ void MainWindow::checkWorkshopStockAndNotifyAI()
     QSqlQuery q("SELECT EQUIPMENT_TYPE, QUANTITY FROM EQUIPMENT WHERE QUANTITY < 5 AND STATUS != 'Retired'");
     while (q.next()) {
         QString type = q.value(0).toString();
-        int qty = q.value(1).toInt();
+        // int qty = q.value(1).toInt(); // Removed unused variable
         
         // All low-stock non-retired equipment triggers AI analysis (no hardcoded filter)
         // Use in-memory set for per-session dedup — prevents re-firing on every nav/click

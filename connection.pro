@@ -6,7 +6,7 @@
 #
 #-------------------------------------------------
 
-QT       += core gui widgets charts sql multimedia multimediawidgets printsupport network svg openglwidgets concurrent
+QT       += core gui widgets charts sql multimedia multimediawidgets printsupport network svg openglwidgets concurrent serialport
 
 win32: LIBS += -lopengl32
 

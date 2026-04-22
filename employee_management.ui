@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>EmployeeManagement</class>
  <widget class="QWidget" name="EmployeeManagement">
@@ -785,6 +785,23 @@ QPushButton:hover { background-color: #D97706; border: 2px solid #FFF; box-shado
       <string>Predict employee performance and identify high-potential talent</string>
      </property>
     </widget>
+    <widget class="QPushButton" name="btn_test_arduino">
+     <property name="geometry">
+      <rect>
+       <x>400</x>
+       <y>65</y>
+       <width>150</width>
+       <height>40</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background-color: #2D5A27; border-radius: 20px; color: white; font-weight: bold; font-size: 13px; border: 2px solid #3E7A37; }
+QPushButton:hover { background-color: #3E7A37; border: 2px solid #FFF; }</string>
+     </property>
+     <property name="text">
+      <string>📟 Test Arduino</string>
+     </property>
+    </widget>
    </widget>
    <widget class="QWidget" name="tab_stats">
     <attribute name="title">
@@ -1159,22 +1176,5 @@ QPushButton:pressed {
   <include location="resources.qrc"/>
   <include location="resources.qrc"/>
  </resources>
- <connections>
-  <connection>
-   <sender>btn_help_add</sender>
-   <signal>toggled(bool)</signal>
-   <receiver>lbl_hint_add</receiver>
-   <slot>setVisible(bool)</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>20</x>
-     <y>20</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>20</x>
-     <y>20</y>
-    </hint>
-   </hints>
-  </connection>
- </connections>
+ <connections/>
 </ui>

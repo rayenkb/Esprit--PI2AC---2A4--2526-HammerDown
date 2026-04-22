@@ -72,6 +72,8 @@
 #include <QStackedWidget>
 #include <QDateEdit>
 #include <QTextEdit>
+#include <QtSerialPort/QSerialPort>
+#include <QtSerialPort/QSerialPortInfo>
 
 // --- Voice Waveform Widget ---
 class VoiceWaveformWidget : public QWidget {
@@ -363,6 +365,7 @@ private slots:
     void onEmployeeMailTemplateChanged(int index);
     void processEmpCameraFrame();
     void callAiModel(const QString &sysPrompt, const QString &userPrompt, std::function<void(QString)> callback);
+    void onTestArduino();
     
     // --- Supplier Management ---
     void onSupplierClearFields();
@@ -710,6 +713,8 @@ private:
     void togglePresentationMode();
     void advancePresentation();
     void startKenBurnsEffect();
+    
+    QSerialPort *arduino = nullptr;
     
 protected:
     void keyPressEvent(QKeyEvent *event) override;

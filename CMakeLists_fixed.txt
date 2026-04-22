@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find Qt6 components including SQL
-find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Charts Sql PrintSupport Network OpenGLWidgets MultimediaWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Charts Sql PrintSupport Network OpenGLWidgets MultimediaWidgets SerialPort)
 find_package(OpenGL REQUIRED)
 find_package(OpenCV REQUIRED)
 
@@ -68,7 +68,7 @@ set(PROJECT_SOURCES
 include_directories(${OpenCV_INCLUDE_DIRS})
 add_executable(HammerDown ${PROJECT_SOURCES})
 
-target_link_libraries(HammerDown PRIVATE Qt6::Widgets Qt6::Multimedia Qt6::Charts Qt6::Sql Qt6::PrintSupport Qt6::Network Qt6::OpenGLWidgets Qt6::MultimediaWidgets OpenGL::GL ${OpenCV_LIBS})
+target_link_libraries(HammerDown PRIVATE Qt6::Widgets Qt6::Multimedia Qt6::Charts Qt6::Sql Qt6::PrintSupport Qt6::Network Qt6::OpenGLWidgets Qt6::MultimediaWidgets Qt6::SerialPort OpenGL::GL ${OpenCV_LIBS})
 
 # Set target properties
 set_target_properties(HammerDown PROPERTIES
