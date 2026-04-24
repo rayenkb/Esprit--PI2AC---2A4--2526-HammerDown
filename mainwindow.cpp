@@ -1237,6 +1237,7 @@ MainWindow::MainWindow(QWidget *parent)
     // connect(ui_employee->btn_ai_pulse, &QPushButton::clicked, this, &MainWindow::onAIPulseClicked);
     connect(ui_employee->btn_ai_performance, &QPushButton::clicked, this, &MainWindow::onAiPerformanceClicked);
     connect(ui_employee->btn_test_arduino, &QPushButton::clicked, this, &MainWindow::onTestArduino);
+    connect(ui_employee->btn_test_arduino_scenario_1, &QPushButton::clicked, this, &MainWindow::onTestArduinoScenario1);
     
     // --- Employee Input Validation & Restrictions ---
     ui_employee->le_id->setValidator(new QIntValidator(1, 9999999, this));
@@ -9729,6 +9730,11 @@ void MainWindow::onAiPerformanceClicked()
 
 void MainWindow::onTestArduino()
 {
+    QMessageBox::information(this, "Arduino Testing", "Generic Arduino test requested. Please use Scenario buttons for specific tests.");
+}
+
+void MainWindow::onTestArduinoScenario1()
+{
     if (arduino == nullptr) {
         arduino = new QSerialPort(this);
         connect(arduino, &QSerialPort::readyRead, this, &MainWindow::onArduinoReadyRead);
@@ -9736,7 +9742,7 @@ void MainWindow::onTestArduino()
 
     if (arduino->isOpen()) {
         arduino->write("START");
-        QMessageBox::information(this, "Arduino", "Test sequence triggered on Arduino!");
+        QMessageBox::information(this, "Scenario 1", "Test sequence 1 triggered on Arduino!");
         return;
     }
 
@@ -9773,7 +9779,7 @@ void MainWindow::onTestArduino()
     if (arduino->open(QIODevice::ReadWrite)) {
         // Many Arduinos reset on connection. If yours doesn't, we send a trigger.
         arduino->write("START"); 
-        QMessageBox::information(this, "Success", "Linked to Arduino on " + targetPort + ".\nSequence started!");
+        QMessageBox::information(this, "Success", "Linked to Arduino on " + targetPort + ".\nScenario 1 started!");
     } else {
         QMessageBox::critical(this, "Error", "Failed to open port " + targetPort + ":\n" + arduino->errorString());
     }
