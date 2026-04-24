@@ -19,6 +19,7 @@
 #include <QColor>
 #include <QList>
 #include <QPushButton>
+#include <QToolButton>
 #include <QComboBox>
 #include <QSlider>
 #include <QLabel>
@@ -45,7 +46,6 @@ struct SceneObject {
     QVector3D position{0, 0, 0};
     QVector3D rotation{0, 0, 0};
     QVector3D scale{1, 1, 1};
-    QVector3D pivot{0, 0, 0};
     QColor color{200, 160, 100};
     QString name;
     bool visible = true;
@@ -64,7 +64,7 @@ public:
     enum class ViewPreset { Top, Bottom, Left, Right, Front, Back, Perspective };
     enum class ShadingMode { Solid, Wireframe, SolidWire, Unlit };
     enum class GizmoAxis { None, AxisX, AxisY, AxisZ };
-    enum class GizmoMode { None, Move, Rotate, Scale, Pivot };
+    enum class GizmoMode { None, Move, Rotate, Scale };
 
     void setObjects(QList<SceneObject> *objs) { m_objects = objs; }
     void setSelectedIndex(int idx) { m_selectedIdx = idx; update(); }
@@ -83,7 +83,7 @@ public:
     QVector3D placementAnchorGround() const { return m_spawnAnchor - QVector3D(0.0f, 1.72f, 0.0f); }
 
     // Tool mode
-    enum Tool { Select, Move, Rotate, Scale, Pivot };
+    enum Tool { Select, Move, Rotate, Scale };
     void setTool(Tool t) { m_tool = t; }
     void setShowGrid(bool v) { m_showGrid = v; update(); }
     void setShowWireframe(bool v) { m_shadingMode = v ? ShadingMode::Wireframe : ShadingMode::Solid; update(); }
@@ -185,6 +185,7 @@ private:
     QPoint m_lastMouse;
     bool m_rotating = false;
     bool m_panning = false;
+    bool m_dollying = false;
     bool m_dragging = false;
     Tool m_tool = Select;
     GizmoMode m_gizmoMode = GizmoMode::None;
@@ -194,7 +195,6 @@ private:
     QList<QVector3D> m_startPositions;
     QList<QVector3D> m_startRotations;
     QList<QVector3D> m_startScales;
-    QList<QVector3D> m_startPivots;
 
     QTimer m_inertiaTimer;
     QVector2D m_orbitVelocity{0.0f, 0.0f};
@@ -264,6 +264,9 @@ private slots:
     void onUndo();
     void onRedo();
     void selectWholeObjectFromCurrent();
+    void hideSelectedObjects();
+    void unhideAllObjects();
+    void isolateSelectedObjects();
 
 private:
     struct SceneSnapshot {
@@ -276,6 +279,7 @@ private:
     void applySnapshot(const SceneSnapshot &snapshot);
     void pushUndoSnapshot();
     void clearRedoStack();
+    QList<int> selectedObjectIndices() const;
     int objectIndexFromRow(int row) const;
     int rowFromObjectIndex(int objIndex) const;
     int computeDepth(int index) const;
@@ -306,7 +310,6 @@ private:
 
     // Toolbar
     QPushButton *m_btnSelect, *m_btnMove, *m_btnRotate, *m_btnScale;
-    QPushButton *m_btnPivot = nullptr;
     QCheckBox *m_gridCheck, *m_wireCheck = nullptr;
     QCheckBox *m_boundsCheck = nullptr;
     QComboBox *m_shadingCombo = nullptr;
@@ -314,6 +317,9 @@ private:
     QComboBox *m_snapMoveCombo = nullptr;
     QComboBox *m_snapRotateCombo = nullptr;
     QComboBox *m_snapScaleCombo = nullptr;
+    QPushButton *m_btnHideSelected = nullptr;
+    QPushButton *m_btnIsolateSelected = nullptr;
+    QPushButton *m_btnUnhideAll = nullptr;
 
     // Previous property values (used to compute position delta for multi-select)
     QVector3D m_prevPropPos, m_prevPropRot, m_prevPropScale;
