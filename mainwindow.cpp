@@ -9731,6 +9731,7 @@ void MainWindow::onTestArduino()
 {
     if (arduino == nullptr) {
         arduino = new QSerialPort(this);
+        connect(arduino, &QSerialPort::readyRead, this, &MainWindow::onArduinoReadyRead);
     }
 
     if (arduino->isOpen()) {
@@ -9778,6 +9779,60 @@ void MainWindow::onTestArduino()
     }
 }
 
+
+void MainWindow::onArduinoReadyRead()
+{
+    if (!arduino) return;
+    while (arduino->canReadLine()) {
+        QByteArray line = arduino->readLine().trimmed();
+        QString msg = QString::fromUtf8(line);
+
+        if (msg.startsWith("UID:")) {
+            QString uid = msg.mid(4).trimmed();
+            
+            // Show a popup to confirm Qt received the scan
+            QMessageBox::information(this, "RFID Scanned", "Qt received scan: " + uid);
+
+            // Find the active employee with this RFID card
+            QSqlQuery findQ;
+            findQ.prepare(
+                "SELECT EMPLOYEE_ID, FIRST_NAME, LAST_NAME, LAST_CHECKIN_DATE "
+                "FROM EMPLOYEES "
+                "WHERE RFID_UID = :uid AND EMPLOYEE_STATUS = 'Active'"
+            );
+            findQ.bindValue(":uid", uid);
+
+            if (findQ.exec() && findQ.next()) {
+                int empId            = findQ.value(0).toInt();
+                QString firstName    = findQ.value(1).toString();
+                QString lastName     = findQ.value(2).toString();
+                QDate lastCheckin    = findQ.value(3).toDate();
+                QDate today          = QDate::currentDate();
+
+                // Grant access
+                arduino->write("GRANT\n");
+                QMessageBox::information(this, "Access Granted", "Match found for: " + firstName + " " + lastName + "\nSending GRANT to Arduino!");
+
+                // Only mark present if not already checked-in today
+                if (lastCheckin != today) {
+                    QSqlQuery updateQ;
+                    updateQ.prepare(
+                        "UPDATE EMPLOYEES SET LAST_CHECKIN_DATE = TRUNC(SYSDATE) "
+                        "WHERE EMPLOYEE_ID = :id"
+                    );
+                    updateQ.bindValue(":id", empId);
+                    if (updateQ.exec()) {
+                        QSqlDatabase::database().commit();
+                    }
+                }
+            } else {
+                // No employee found with this UID
+                arduino->write("DENY\n");
+                QMessageBox::warning(this, "Access Denied", "No active employee found for UID: " + uid + "\nSending DENY to Arduino.");
+            }
+        }
+    }
+}
 
 void MainWindow::callAiModel(const QString &sysPrompt, const QString &userPrompt, std::function<void(QString)> callback)
 {

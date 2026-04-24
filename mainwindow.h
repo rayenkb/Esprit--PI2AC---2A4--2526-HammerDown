@@ -366,6 +366,7 @@ private slots:
     void processEmpCameraFrame();
     void callAiModel(const QString &sysPrompt, const QString &userPrompt, std::function<void(QString)> callback);
     void onTestArduino();
+    void onArduinoReadyRead();
     
     // --- Supplier Management ---
     void onSupplierClearFields();

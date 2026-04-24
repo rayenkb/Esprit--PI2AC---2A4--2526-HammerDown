@@ -12,9 +12,9 @@ static bool createConnection()
     QSqlDatabase db = QSqlDatabase::addDatabase("QOCI");
     db.setHostName("localhost");
     db.setPort(1521);
-    db.setDatabaseName("Source_Projet2A");
-    db.setUserName("skrrt");
-    db.setPassword("exprix");
+    db.setDatabaseName("amine");
+    db.setUserName("amine");
+    db.setPassword("amine14");
 
     if (!db.open()) {
         qDebug() << "QOCI driver failed, trying ODBC...";
@@ -24,7 +24,7 @@ static bool createConnection()
         db = QSqlDatabase::addDatabase("QODBC");
         
         // Option A: Use TNS name (if configured in tnsnames.ora)
-        db.setDatabaseName("Source_Projet2A");
+        db.setDatabaseName("amine");
         
         /* Option B: Full connection string (uncomment if Option A doesn't work)
         db.setDatabaseName(
@@ -35,8 +35,8 @@ static bool createConnection()
         );
         */
         
-        db.setUserName("skrrt");
-        db.setPassword("exprix");
+        db.setUserName("amine");
+        db.setPassword("amine14");
         
         if (!db.open()) {
             qDebug() << "Database connection failed!";
@@ -56,10 +56,22 @@ static bool createConnection()
     QSqlQuery testQuery;
     if (testQuery.exec("SELECT 1 FROM DUAL")) {
         qDebug() << "Database test query successful!";
+
+        // Ensure RFID_UID column exists on EMPLOYEES
+        QSqlQuery q1;
+        if (!q1.exec("ALTER TABLE EMPLOYEES ADD RFID_UID VARCHAR2(50)"))
+            qDebug() << "RFID_UID note:" << q1.lastError().text();
+
+        // Ensure LAST_CHECKIN_DATE column exists on EMPLOYEES
+        QSqlQuery q2;
+        if (!q2.exec("ALTER TABLE EMPLOYEES ADD LAST_CHECKIN_DATE DATE"))
+            qDebug() << "LAST_CHECKIN_DATE note:" << q2.lastError().text();
+
+
     } else {
         qDebug() << "Database test query failed: " << testQuery.lastError().text();
     }
-    
+
     return true;
 }
 
