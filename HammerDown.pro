@@ -58,7 +58,8 @@ SOURCES += \
     costswidget.cpp \
     costswidget_engine.cpp \
     costswidget_tco.cpp \
-    costswidget_subtabs.cpp
+    costswidget_subtabs.cpp \
+    equipment.cpp
 
 # Header files
 HEADERS += \
@@ -77,7 +78,8 @@ HEADERS += \
     modelingwidget.h \
     nexuswidget.h \
     welcomenotificationbar.h \
-    costswidget.h
+    costswidget.h \
+    equipment.h
 
 # UI files
 FORMS += \

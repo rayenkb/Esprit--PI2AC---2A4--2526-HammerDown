@@ -61,6 +61,7 @@
 #include <QAudioBuffer>
 #include <QCompleter>
 #include <QStringListModel>
+#include "equipment.h"
 #include <QLabel>
 #include <QProgressBar>
 #include <QVBoxLayout>
@@ -270,7 +271,6 @@ public:
     void setupClientStats();
     void setupClientManagement();
     void setupClientDataMatrix();
-    void setupEquipmentStats();
     void setupSupplierStats();
     void setupEmployeeStats();
     void setupClientCalendar();
@@ -278,10 +278,9 @@ public:
     void setupEmployeeModes();
     void toggleEmployeeFields(bool active);
     void onEmployeeEnsureHistoryTable();
-    void ensureEquipmentHistoryDatabaseObjects();
+    MAINWINDOW_EQUIPMENT_PUBLIC_DECLS
     void logActivity(const QString &action, const QString &module = "General", const QJsonObject &extra = QJsonObject());
     void setupSupplierModes();
-    void setupEquipmentModes();
     void setupOrderModes();
     void setupGlobalStyles();
     QPixmap getCircularPixmap(const QPixmap &src);
@@ -295,14 +294,14 @@ private slots:
     void on_gs_employes_clicked();
     void on_gs_client_clicked();
     void on_gs_fournisseur_clicked();
-    void on_gs_equipment_clicked();
+
     void on_gs_order_clicked();
 
     // --- Sidebar Navigation ---
     void on_nav_employees_clicked();
     void on_nav_clients_clicked();
     void on_nav_suppliers_clicked();
-    void on_nav_equipments_clicked();
+
     void on_nav_orders_clicked();
 
     // --- System Navigation ---
@@ -404,45 +403,13 @@ private slots:
     void onSupplierReviewRatingChanged(int value);
     void onSupplierPopulateRatingCombos();
     
-    // --- Equipment Management ---
-    void onEquipmentClearFields();
-    void onEquipmentShareToChat();
-    void onEquipmentAdd();
-    void onEquipmentModify();
-    void onEquipmentDelete();
-    void onEquipmentRefreshView();
-    void onEquipmentSearch();
-    void onEquipmentHistoryRefresh();
-    void onEquipmentHistorySearch();
-    void onEquipmentHistoryClear();
-    void onEquipmentCustomContextMenu(const QPoint &pos);
-    void onEquipmentHistoryCustomContextMenu(const QPoint &pos, int tableIdx);
-    void onEquipmentExportPDF();
-    void onEquipmentExportStatsPDF();
-    void onEquipmentBulkUpdateStatus();
-    void onEquipmentDeleteAll();
+    MAINWINDOW_EQUIPMENT_SLOT_DECLS
+
     
     // --- Employee Chat ---
-    void onChatEnsureTable();
-    void onChatSendMessage();
-    void onChatRefresh();
-    void onChatEmployeeListRefresh();
-    void onChatEmployeeSelected(QListWidgetItem *item);
-    void onChatAttachImage();
-    void onChatDeleteMessage(int index);
-    void onChatSettingsClicked();
-    void onChatEmojiClicked();
-    void onChatGifClicked();
-    void onChatSearchToggle();
-    void onWeatherAssistantClicked();
-    void setupChatForgeVisuals();
-    void enforceChatTabTopOffset();
     void onMapNetworkFinished(QNetworkReply *reply);
     
-    // Voice Slotes
-    void onChatStartRecord();
-    void onChatStopRecord();
-    void onChatVoiceToggled();
+
 
     // --- Face Recognition & Avatar ---
     void onUploadAvatar();
@@ -489,8 +456,6 @@ private:
     LoginWindow *loginWindow;
     HomeWindow *homeWindow;
     WeatherAssistant *weatherAssistant;
-    NexusWidget *m_nexusWidget = nullptr;
-    CostsWidget *m_costsWidget = nullptr;
     VoiceCommandEngine *m_voiceEngine = nullptr;
     QPushButton        *m_micBtn      = nullptr;
     
@@ -499,23 +464,8 @@ private:
     
     // Current logged-in employee ID
     int currentEmployeeId;
-    int currentChatPartnerId;
     bool m_homeWelcomeShown = false;
-    QByteArray pendingChatImage;
-    bool m_isChatModernTheme = false;
     QString m_lastDroppedImagePath;
-    
-    // Voice Recording
-    QMediaCaptureSession *m_captureSession = nullptr;
-    QMediaRecorder *m_recorder = nullptr;
-    QAudioInput *m_audioInput = nullptr;
-    bool m_isRecording = false;
-    
-    // Smart Chat
-    QCompleter *m_chatCompleter = nullptr;
-    QStringListModel *m_completerModel = nullptr;
-    EquipmentHoverCard *m_hoverCard = nullptr;
-    QWidget *m_chatAmbientLayer = nullptr;
     
     // Employee Management Face Recognition
     QCamera *m_empCamera = nullptr;
@@ -525,15 +475,6 @@ private:
     int m_faceScanStage = 0; // 0: Center, 1: Left, 2: Right
     QString m_faceScanStatus;
     
-    void shakeWidget(QWidget *w);
-    
-    // GIF / Emoji
-    QNetworkAccessManager *giphyNetworkManager = nullptr;
-    
-    // Chat Timer
-    QTimer *chatRefreshTimer;
-    QTimer *equipmentSyncTimer = nullptr;
-    
     // Audio components
     QMediaPlayer *loginAudioPlayer;
     QAudioOutput *loginAudioOutput;
@@ -541,9 +482,8 @@ private:
     QAudioOutput *homeAudioOutput;
     QMediaPlayer *tutorialLoopAudioPlayer;
     QAudioOutput *tutorialLoopAudioOutput;
-    QMediaPlayer *chatAudioPlayer;
-    QAudioOutput *chatAudioOutput;
     qreal currentVolume;
+    
     bool m_homeAudioPausedBySettings = false;
     qint64 m_homeAudioSettingsResumePos = 0;
     bool m_homeAudioPausedByTutorial = false;
@@ -552,11 +492,9 @@ private:
     bool m_resumeLoginAfterOstp = false;
     bool m_resumeHomeAfterOstp = false;
     bool m_resumeTutorialAfterOstp = false;
-    bool m_resumeChatAfterOstp = false;
     qint64 m_loginResumePosAfterOstp = 0;
     qint64 m_homeResumePosAfterOstp = 0;
     qint64 m_tutorialResumePosAfterOstp = 0;
-    qint64 m_chatResumePosAfterOstp = 0;
     
     // Fade animation helpers
     void fadeOutAndPlay(QMediaPlayer *fadeOutPlayer, QAudioOutput *fadeOutOutput,
@@ -569,18 +507,14 @@ private:
     void resumeHomeAudioAfterTutorial();
     void suspendAudioForOstp();
     void restoreAudioAfterOstp();
-    void showUnreadMessagesSplash();
     
-    // Equipment Form Progress & Animation
-    QProgressBar *m_equipProgress = nullptr;
-    QLabel *m_eqTypeInd = nullptr, *m_eqDateInd = nullptr, *m_eqPriceInd = nullptr, *m_eqDescInd = nullptr;
-    void updateEquipProgress();
+    MAINWINDOW_EQUIPMENT_PRIVATE_DECLS
+
     
     QProgressBar *m_supplierProgress = nullptr;
     QLabel *m_suppNameInd = nullptr, *m_suppEmailInd = nullptr, *m_suppTelInd = nullptr, *m_suppTypeInd = nullptr;
     void updateSupplierProgress();
 
-    void playEquipSuccessAnimation(const QString &equipName);
     void playSupplierSuccessAnimation(const QString &supplierName);
     void playSupplierModifyAnimation(const QString &supplierName);
     void playSupplierDeleteAnimation(const QString &supplierName);
@@ -694,10 +628,6 @@ private:
     QPixmap m_supplierMapCurrentPixmap;
     bool m_supplierMapHasPixmap = false;
     
-    // AI Summarization network manager
-    QNetworkAccessManager *chatSummaryNetManager = nullptr;
-    QNetworkAccessManager *aiNetworkManager = nullptr;
-    QString aiApiKey;
     bool m_aiScanInProgress = false;
     bool m_aiAdvisorStartupDone = false;  // Prevents re-scanning on every nav visit
     QSet<QString> m_aiNotifiedMaterials;  // In-session dedup: materials already analyzed

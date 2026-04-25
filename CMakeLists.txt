@@ -50,6 +50,8 @@ set(PROJECT_SOURCES
     costswidget_engine.cpp
     costswidget_tco.cpp
     costswidget_subtabs.cpp
+    equipment.cpp
+    equipment.h
     login.ui
     home.ui
     order_management.ui
