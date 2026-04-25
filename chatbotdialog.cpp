@@ -18,6 +18,8 @@
 #include <QResizeEvent>
 #include <QMouseEvent>
 #include <QEvent>
+#include <QPainter>
+#include <QSvgRenderer>
 
 namespace {
 QString generateWord(int minSyllables = 2, int maxSyllables = 4)
@@ -198,6 +200,42 @@ QString pickRandomFrom(const QStringList &values, const QString &fallback)
     if (values.isEmpty()) return fallback;
     return values.at(QRandomGenerator::global()->bounded(values.size()));
 }
+
+QPixmap buildGuideSpritePixmap(int width, int height)
+{
+    QPixmap pix(width, height);
+    pix.fill(Qt::transparent);
+
+    QSvgRenderer renderer(QStringLiteral(":/assets/guide_normal.svg"));
+    if (renderer.isValid()) {
+        QPainter p(&pix);
+        renderer.render(&p);
+        return pix;
+    }
+
+    // Fallback placeholder if SVG cannot be rendered at runtime.
+    QPainter p(&pix);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setBrush(QColor("#d4a96a"));
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(0, 0, width, height);
+    return pix;
+}
+
+QPixmap buildGuideSpritePixmapFromPath(const QString &path, int width, int height)
+{
+    QPixmap pix(width, height);
+    pix.fill(Qt::transparent);
+
+    QSvgRenderer renderer(path);
+    if (renderer.isValid()) {
+        QPainter p(&pix);
+        renderer.render(&p);
+        return pix;
+    }
+
+    return buildGuideSpritePixmap(width, height);
+}
 }
 
 ChatBotDialog::ChatBotDialog(QWidget *parent, bool isWeatherBot)
@@ -313,8 +351,61 @@ void ChatBotDialog::setupUI()
     chatLayout = new QVBoxLayout(chatContainer);
     chatLayout->setContentsMargins(12, 12, 12, 12);
     chatLayout->setSpacing(8);
+
+    guideSpriteSpacer = new QWidget(chatContainer);
+    guideSpriteSpacer->setObjectName("chatGuideSpriteSpacer");
+    guideSpriteSpacer->setFixedHeight(0);
+    guideSpriteSpacer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    chatLayout->addWidget(guideSpriteSpacer);
+
     chatLayout->addStretch();
     scrollArea->setWidget(chatContainer);
+
+    guideSpriteLabel = new QLabel(scrollArea->viewport());
+    guideSpriteLabel->setObjectName("chatGuideSprite");
+    guideSpriteLabel->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    guideSpriteLabel->setStyleSheet("background: transparent; border: none;");
+    guideSpriteNormalPix = buildGuideSpritePixmapFromPath(QStringLiteral(":/assets/guide_normal.svg"), 96, 128);
+    guideSpriteThinkingPix = buildGuideSpritePixmapFromPath(QStringLiteral(":/assets/guide_confused.svg"), 96, 128);
+    guideSpriteRespondingPix = buildGuideSpritePixmapFromPath(QStringLiteral(":/assets/guide_excited.svg"), 96, 128);
+    guideSpriteLabel->setPixmap(guideSpriteNormalPix);
+    guideSpriteLabel->setFixedSize(guideSpriteNormalPix.size());
+    guideSpriteLabel->hide();
+
+    guideSpriteTimer = new QTimer(this);
+    connect(guideSpriteTimer, &QTimer::timeout, this, [this]() {
+        if (!m_guideSpriteVisible || !guideSpriteLabel) {
+            return;
+        }
+
+        switch (guideSpriteState) {
+        case GuideSpriteState::Idle:
+            guideSpriteLabel->setPixmap(guideSpriteNormalPix);
+            guideSpriteYOffset = (guideSpriteAnimStep % 2 == 0) ? 0 : 1;
+            guideSpriteAnimStep++;
+            break;
+        case GuideSpriteState::Thinking:
+            guideSpriteLabel->setPixmap((guideSpriteAnimStep % 2 == 0) ? guideSpriteThinkingPix : guideSpriteNormalPix);
+            guideSpriteYOffset = (guideSpriteAnimStep % 2 == 0) ? 0 : 1;
+            guideSpriteAnimStep++;
+            break;
+        case GuideSpriteState::Responding:
+            guideSpriteLabel->setPixmap((guideSpriteAnimStep % 2 == 0) ? guideSpriteRespondingPix : guideSpriteNormalPix);
+            guideSpriteYOffset = 0;
+            guideSpriteAnimStep++;
+            if (guideSpriteAnimStep >= 6) {
+                setGuideStateIdle();
+                return;
+            }
+            break;
+        case GuideSpriteState::Hidden:
+        default:
+            break;
+        }
+
+        updateGuideSpritePosition();
+        guideSpriteLabel->raise();
+    });
 
     // Typing Indicator
     typingIndicator = new QLabel("Assistant is typing...", mainFrame);
@@ -483,6 +574,83 @@ bool ChatBotDialog::eventFilter(QObject *watched, QEvent *event)
     return QDialog::eventFilter(watched, event);
 }
 
+void ChatBotDialog::setGuideSpriteVisible(bool visible)
+{
+    m_guideSpriteVisible = visible;
+    if (!guideSpriteLabel) {
+        return;
+    }
+
+    if (guideSpriteSpacer) {
+        guideSpriteSpacer->setFixedHeight(visible ? 136 : 0);
+        if (chatLayout) {
+            chatLayout->invalidate();
+        }
+    }
+
+    updateGuideSpritePosition();
+    guideSpriteLabel->setVisible(visible);
+    if (visible) {
+        setGuideStateIdle();
+        guideSpriteLabel->raise();
+    } else {
+        guideSpriteState = GuideSpriteState::Hidden;
+        guideSpriteTimer->stop();
+        guideSpriteLabel->setPixmap(guideSpriteNormalPix);
+    }
+}
+
+void ChatBotDialog::setGuideStateIdle()
+{
+    if (!m_guideSpriteVisible || !guideSpriteLabel) return;
+    guideSpriteState = GuideSpriteState::Idle;
+    guideSpriteAnimStep = 0;
+    guideSpriteYOffset = 0;
+    guideSpriteLabel->setPixmap(guideSpriteNormalPix);
+    updateGuideSpritePosition();
+    guideSpriteLabel->raise();
+    guideSpriteTimer->start(900);
+}
+
+void ChatBotDialog::setGuideStateThinking()
+{
+    if (!m_guideSpriteVisible || !guideSpriteLabel) return;
+    guideSpriteState = GuideSpriteState::Thinking;
+    guideSpriteAnimStep = 0;
+    guideSpriteYOffset = 0;
+    guideSpriteLabel->setPixmap(guideSpriteThinkingPix);
+    updateGuideSpritePosition();
+    guideSpriteLabel->raise();
+    guideSpriteTimer->start(280);
+}
+
+void ChatBotDialog::setGuideStateResponding()
+{
+    if (!m_guideSpriteVisible || !guideSpriteLabel) return;
+    guideSpriteState = GuideSpriteState::Responding;
+    guideSpriteAnimStep = 0;
+    guideSpriteYOffset = 0;
+    guideSpriteLabel->setPixmap(guideSpriteRespondingPix);
+    updateGuideSpritePosition();
+    guideSpriteLabel->raise();
+    guideSpriteTimer->start(180);
+}
+
+void ChatBotDialog::updateGuideSpritePosition()
+{
+    if (!scrollArea || !guideSpriteLabel) {
+        return;
+    }
+
+    const int margin = 10;
+    QRect vpRect = scrollArea->viewport()->rect();
+    int x = vpRect.right() - guideSpriteLabel->width() - margin;
+    int y = margin + guideSpriteYOffset;
+    x = qMax(margin, x);
+    y = qMax(margin, y);
+    guideSpriteLabel->move(x, y);
+}
+
 void ChatBotDialog::resizeEvent(QResizeEvent *event)
 {
     QDialog::resizeEvent(event);
@@ -491,6 +659,11 @@ void ChatBotDialog::resizeEvent(QResizeEvent *event)
         sizeGrip->move(width() - sizeGrip->width() - margin,
                        height() - sizeGrip->height() - margin);
         sizeGrip->raise();
+    }
+
+    updateGuideSpritePosition();
+    if (m_guideSpriteVisible && guideSpriteLabel) {
+        guideSpriteLabel->raise();
     }
 }
 
@@ -620,6 +793,7 @@ void ChatBotDialog::sendMessage()
     typingIndicator->setVisible(true);
     inputField->setEnabled(false);
     sendButton->setEnabled(false);
+    setGuideStateThinking();
 
     QString localResponse;
     if (handleLocalCommand(text, &localResponse)) {
@@ -627,6 +801,7 @@ void ChatBotDialog::sendMessage()
         inputField->setEnabled(true);
         sendButton->setEnabled(true);
         appendMessage(m_isWeatherBot ? "MeteoBot" : "Assistant", localResponse, false);
+        setGuideStateResponding();
         return;
     }
 
@@ -643,6 +818,7 @@ void ChatBotDialog::sendExternalMessage(const QString &text)
     typingIndicator->setVisible(true);
     inputField->setEnabled(false);
     sendButton->setEnabled(false);
+    setGuideStateThinking();
 
     QString localResponse;
     if (handleLocalCommand(text, &localResponse)) {
@@ -650,6 +826,7 @@ void ChatBotDialog::sendExternalMessage(const QString &text)
         inputField->setEnabled(true);
         sendButton->setEnabled(true);
         appendMessage(m_isWeatherBot ? "MeteoBot" : "Assistant", localResponse, false);
+        setGuideStateResponding();
         return;
     }
 
@@ -1857,6 +2034,7 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
         QString prompt = reply->property("prompt").toString();
         if (reply->error() != QNetworkReply::NoError) {
             appendMessage("Assistant", "Image request failed: " + reply->errorString(), false);
+            setGuideStateResponding();
             reply->deleteLater();
             return;
         }
@@ -1868,6 +2046,7 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
                 appendImageMessage("Assistant", pix, prompt, false);
             else
                 appendMessage("Assistant", "Image decode failed.", false);
+            setGuideStateResponding();
             reply->deleteLater();
             return;
         }
@@ -1944,6 +2123,8 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
             }
         }
 
+        setGuideStateResponding();
+
         reply->deleteLater();
         return;
     }
@@ -1960,6 +2141,7 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
         } else {
             appendMessage("Assistant", "Image download failed.", false);
         }
+        setGuideStateResponding();
         reply->deleteLater();
         return;
     }
@@ -2100,6 +2282,7 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
     if (!m_isWeatherBot)
         responseText = processResponse(responseText);
     appendMessage(m_isWeatherBot ? "MeteoBot" : "Assistant", responseText, false);
+    setGuideStateResponding();
     reply->deleteLater();
 }
 

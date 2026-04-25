@@ -160,7 +160,9 @@ void HomeWindow::handleProfileMenu()
 
 void HomeWindow::handleChatBot()
 {
-    // Standard and animation modes now use the same chatbot dialog behavior.
+    // Standard and animation modes use the exact same chatbot dialog behavior.
+    chatBotDialog->setGuideSpriteVisible(!m_isStandardMode);
+
     QWidget *topLevel = this->window();
     if (topLevel) {
         QPoint bottomRight = topLevel->mapToGlobal(topLevel->rect().bottomRight());
@@ -776,46 +778,9 @@ void HomeWindow::handleHelp()
             darkOut->start(QAbstractAnimation::DeleteWhenStopped);
             QObject::connect(darkOut, &QPropertyAnimation::finished, dark, &QWidget::deleteLater);
 
-            // Hide btn_chat and btn_help — guide replaces them
-            ui->btn_chat->setVisible(false);
+            // Keep the animation-only mood but route chat to the standard chatbot dialog.
+            ui->btn_chat->setVisible(true);
             ui->btn_help->hide();  // permanently removed after animation
-
-            m_currentGuide = new LoreGuideWidget(m_animationAudioPlayer, this);
-            LoreGuideWidget *guide = m_currentGuide;
-            guide->setAnimationUnlocked(true);
-            // Position: anchored to top-right
-            QPoint anchor = this->mapToGlobal(QPoint(this->width() - guide->width() - 10, 10));
-            guide->move(anchor);
-
-            QGraphicsOpacityEffect *gEff = new QGraphicsOpacityEffect(guide);
-            guide->setGraphicsEffect(gEff);
-            gEff->setOpacity(0.0);
-            guide->show();
-            guide->raise();
-
-            auto *gFadeIn = new QPropertyAnimation(gEff, "opacity", guide);
-            gFadeIn->setDuration(1000);
-            gFadeIn->setStartValue(0.0);
-            gFadeIn->setEndValue(1.0);
-            gFadeIn->start(QAbstractAnimation::DeleteWhenStopped);
-
-            // When guide is closed: song keeps playing (stops only when leaving home page)
-            connect(guide, &LoreGuideWidget::closeRequested, this,
-                    [this, guide, gEff]() {
-                auto *gOut = new QPropertyAnimation(gEff, "opacity", guide);
-                gOut->setDuration(600);
-                gOut->setStartValue(1.0);
-                gOut->setEndValue(0.0);
-                gOut->start(QAbstractAnimation::DeleteWhenStopped);
-                QObject::connect(gOut, &QPropertyAnimation::finished, this,
-                                 [this, guide]() {
-                    m_currentGuide = nullptr;
-                    guide->deleteLater();
-                    // m_animationAudioPlayer keeps playing — stops when user leaves home page
-                    ui->btn_chat->setVisible(true);
-                    // btn_help stays hidden
-                });
-            });
         });
 
         seq->start(QAbstractAnimation::DeleteWhenStopped);

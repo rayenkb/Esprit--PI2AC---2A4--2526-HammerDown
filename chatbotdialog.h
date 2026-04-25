@@ -29,6 +29,7 @@ public:
 
     void setWeatherMode(bool enable) { m_isWeatherBot = enable; }
     bool isWeatherMode() const { return m_isWeatherBot; }
+    void setGuideSpriteVisible(bool visible);
     // Called externally to inject a message and get AI response
     void sendExternalMessage(const QString &text);
 
@@ -41,6 +42,17 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
+    enum class GuideSpriteState {
+        Hidden,
+        Idle,
+        Thinking,
+        Responding
+    };
+
+    void updateGuideSpritePosition();
+    void setGuideStateIdle();
+    void setGuideStateThinking();
+    void setGuideStateResponding();
     void appendMessage(const QString &sender, const QString &text, bool isUser);
     void appendImageMessage(const QString &sender, const QPixmap &pixmap, const QString &caption, bool isUser);
     void setupUI();
@@ -68,11 +80,21 @@ private:
     QVBoxLayout *chatLayout;
     QScrollArea *scrollArea;
     QWidget *chatContainer;
+    QWidget *guideSpriteSpacer;
     QLineEdit *inputField;
     QPushButton *sendButton;
     QLabel *typingIndicator;
     QFrame *titleBar;
     QSizeGrip *sizeGrip;
+    QLabel *guideSpriteLabel;
+    QPixmap guideSpriteNormalPix;
+    QPixmap guideSpriteThinkingPix;
+    QPixmap guideSpriteRespondingPix;
+    QTimer *guideSpriteTimer;
+    GuideSpriteState guideSpriteState = GuideSpriteState::Hidden;
+    int guideSpriteAnimStep = 0;
+    int guideSpriteYOffset = 0;
+    bool m_guideSpriteVisible = false;
     bool m_dragging = false;
     QPoint m_dragStartPos;
     QPoint m_windowStartPos;

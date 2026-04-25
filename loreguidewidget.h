@@ -54,7 +54,7 @@ private:
     QString getColumnDefaultValue(const QString &tableName, const QString &columnName);
     QStringList getDistinctColumnValues(const QString &tableName, const QString &columnName);
     QStringList getAllowedColumnValues(const QString &tableName, const QString &columnName);
-    void callApi(const QString &userMessage);
+    void callApi(const QString &userMessage, bool isSystemRetry = false);
     void retryWithNextModel();
     void callImageApi(const QString &prompt);
     bool isImageRequest(const QString &text) const;
@@ -82,6 +82,7 @@ private:
     QStringList      m_modelList;
     int              m_retryCount;
     int              m_rateLimitRetries;
+    int              m_sqlRetryCount;
     QString          m_pendingUserMessage;
 
     QMediaPlayer    *m_bgMusic;  // the botawk player to keep alive
