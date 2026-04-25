@@ -785,7 +785,7 @@ QPushButton:hover { background-color: #D97706; border: 2px solid #FFF; box-shado
       <string>Predict employee performance and identify high-potential talent</string>
      </property>
     </widget>
-    <widget class="QPushButton" name="btn_test_arduino">
+    <widget class="QPushButton" name="btn_test_arduino1">
      <property name="geometry">
       <rect>
        <x>400</x>
@@ -799,7 +799,7 @@ QPushButton:hover { background-color: #D97706; border: 2px solid #FFF; box-shado
 QPushButton:hover { background-color: #3E7A37; border: 2px solid #FFF; }</string>
      </property>
      <property name="text">
-      <string>📟 Test Arduino</string>
+      <string>📟 Test Arduino1</string>
      </property>
     </widget>
     <widget class="QPushButton" name="btn_test_arduino_scenario_1">

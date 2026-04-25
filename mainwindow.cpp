@@ -1236,7 +1236,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui_employee->btn_stats_ai_gen, &QPushButton::clicked, this, &MainWindow::onStatsAiClicked);
     // connect(ui_employee->btn_ai_pulse, &QPushButton::clicked, this, &MainWindow::onAIPulseClicked);
     connect(ui_employee->btn_ai_performance, &QPushButton::clicked, this, &MainWindow::onAiPerformanceClicked);
-    connect(ui_employee->btn_test_arduino, &QPushButton::clicked, this, &MainWindow::onTestArduino);
+    connect(ui_employee->btn_test_arduino1, &QPushButton::clicked, this, &MainWindow::onTestArduino);
     connect(ui_employee->btn_test_arduino_scenario_1, &QPushButton::clicked, this, &MainWindow::onTestArduinoScenario1);
     
     // --- Employee Input Validation & Restrictions ---
@@ -9730,7 +9730,38 @@ void MainWindow::onAiPerformanceClicked()
 
 void MainWindow::onTestArduino()
 {
-    QMessageBox::information(this, "Arduino Testing", "Generic Arduino test requested. Please use Scenario buttons for specific tests.");
+    if (arduino == nullptr) {
+        arduino = new QSerialPort(this);
+        connect(arduino, &QSerialPort::readyRead, this, &MainWindow::onArduinoReadyRead);
+    }
+
+    if (!arduino->isOpen()) {
+        const auto serialPortInfos = QSerialPortInfo::availablePorts();
+        QString targetPort = "";
+        for (const QSerialPortInfo &info : serialPortInfos) {
+            if (info.description().contains("Arduino", Qt::CaseInsensitive) ||
+                info.manufacturer().contains("Arduino", Qt::CaseInsensitive)) {
+                targetPort = info.portName();
+                break;
+            }
+        }
+        if (targetPort.isEmpty() && !serialPortInfos.isEmpty()) targetPort = serialPortInfos.first().portName();
+        
+        if (targetPort.isEmpty()) {
+            QMessageBox::warning(this, "Connection Error", "No Arduino detected.");
+            return;
+        }
+
+        arduino->setPortName(targetPort);
+        arduino->setBaudRate(QSerialPort::Baud9600);
+        if (arduino->open(QIODevice::ReadWrite)) {
+            QMessageBox::information(this, "Success", "Command Center active. Use hardware buttons!");
+        } else {
+            QMessageBox::critical(this, "Error", "Failed to open port.");
+        }
+    } else {
+        QMessageBox::information(this, "Status", "Already listening for hardware buttons.");
+    }
 }
 
 void MainWindow::onTestArduinoScenario1()
