@@ -497,13 +497,81 @@ QLineEdit:focus {
       <string notr="true"/>
      </property>
     </widget>
+    <widget class="QLabel" name="label_sort">
+     <property name="geometry">
+      <rect>
+       <x>100</x>
+       <y>110</y>
+       <width>50</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">color: #D4AF37; font-family: 'Outfit'; font-size: 14px; font-weight: bold; background: transparent;</string>
+     </property>
+     <property name="text">
+      <string>Sort:</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignmentFlag::AlignVCenter|Qt::AlignmentFlag::AlignRight</set>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cb_sort_field">
+     <property name="geometry">
+      <rect>
+       <x>160</x>
+       <y>110</y>
+       <width>180</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QComboBox { background-color: #FFFFFF; border: 2px solid #8B6F47; border-radius: 8px; padding: 3px 10px; font-size: 13px; color: #333; } QComboBox:hover { border: 2px solid #A0825A; } QComboBox::drop-down { border: none; width: 22px; } QComboBox QAbstractItemView { background: #FFF; border: 1px solid #8B6F47; selection-background-color: #8B6F47; selection-color: white; color: #333; }</string>
+     </property>
+     <item>
+      <property name="text">
+       <string>Default (ID)</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>First Name</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Last Name</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Gender</string>
+      </property>
+     </item>
+    </widget>
+    <widget class="QPushButton" name="btn_sort_order">
+     <property name="geometry">
+      <rect>
+       <x>350</x>
+       <y>110</y>
+       <width>140</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background-color: #8B6F47; border-radius: 10px; color: white; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #FFF; border: 2px solid #8B6F47; color: #8B6F47; }</string>
+     </property>
+     <property name="text">
+      <string>Ascending ▲</string>
+     </property>
+    </widget>
     <widget class="QTableView" name="tableView">
      <property name="geometry">
       <rect>
        <x>20</x>
-       <y>130</y>
+       <y>150</y>
        <width>1321</width>
-       <height>500</height>
+       <height>480</height>
       </rect>
      </property>
      <property name="styleSheet">

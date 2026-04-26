@@ -1286,6 +1286,17 @@ MainWindow::MainWindow(QWidget *parent)
     // Also search on Enter in the search box
     connect(ui_client->le_recherche, &QLineEdit::returnPressed, this, &MainWindow::onClientSearch);
     connect(ui_client->btn_pdf,    &QPushButton::clicked, this, &MainWindow::onClientExportPDF);
+
+    // Sort controls: field combobox + direction toggle button
+    connect(ui_client->cb_sort_field,
+            QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int){ onClientSearch(); });
+    connect(ui_client->btn_sort_order, &QPushButton::clicked, this, [this]() {
+        const bool wasAsc = ui_client->btn_sort_order->text().contains(QStringLiteral("Ascending"));
+        ui_client->btn_sort_order->setText(wasAsc ? QStringLiteral("Descending \u25BC")
+                                                  : QStringLiteral("Ascending \u25B2"));
+        onClientSearch();
+    });
     // Mail tab buttons
     connect(ui_client->btn_send,   &QPushButton::clicked, this, &MainWindow::onClientSendMail);
     connect(ui_client->btn_browse, &QPushButton::clicked, this, &MainWindow::onClientBrowseMail);
@@ -1296,10 +1307,12 @@ MainWindow::MainWindow(QWidget *parent)
     ui_client->l_user->hide();  ui_client->le_user->hide();
     ui_client->l_pass->hide();  ui_client->le_pass->hide();
 
-    // Auto-refresh client view when switching to view tab
+    // Auto-refresh client view/stats when switching tabs
     connect(ui_client->tabWidget, &QTabWidget::currentChanged, this, [this](int idx){
         if (ui_client->tabWidget->widget(idx) == ui_client->tab_view)
             onClientRefreshView();
+        else if (ui_client->tabWidget->widget(idx) == ui_client->tab_stats)
+            setupClientStats();
     });
 
     // 5. Supplier Management (Index 4)
@@ -2242,17 +2255,29 @@ void MainWindow::setupClientStats()
     if (maleCount == 0 && femaleCount == 0) {
         series->append("No Data", 1);
     } else {
+        const int totalGender = maleCount + femaleCount;
+        const double malePct   = totalGender > 0 ? (100.0 * maleCount   / totalGender) : 0.0;
+        const double femalePct = totalGender > 0 ? (100.0 * femaleCount / totalGender) : 0.0;
+
         series->append(trKey("Male"), maleCount);
         series->append(trKey("Female"), femaleCount);
-        
+
         QPieSlice *sliceMale = series->slices().at(0);
         sliceMale->setBrush(goldColor);
+        sliceMale->setLabel(QString("%1  %2 (%3%)")
+                            .arg(trKey("Male"))
+                            .arg(maleCount)
+                            .arg(QString::number(malePct, 'f', 1)));
         sliceMale->setLabelVisible(maleCount > 0);
         sliceMale->setLabelColor(Qt::white);
         sliceMale->setLabelFont(chartFont);
 
         QPieSlice *sliceFemale = series->slices().at(1);
         sliceFemale->setBrush(silverColor);
+        sliceFemale->setLabel(QString("%1  %2 (%3%)")
+                              .arg(trKey("Female"))
+                              .arg(femaleCount)
+                              .arg(QString::number(femalePct, 'f', 1)));
         sliceFemale->setLabelVisible(femaleCount > 0);
         sliceFemale->setLabelColor(Qt::white);
         sliceFemale->setLabelFont(chartFont);
@@ -2339,12 +2364,14 @@ void MainWindow::setupClientStats()
 
     QChartView *chartViewBar = new QChartView(chartBar);
     chartViewBar->setRenderHint(QPainter::Antialiasing);
+    chartViewBar->setMinimumWidth(220);
     chartViewBar->setStyleSheet("background: transparent; border: 2px solid #8B6F47; border-radius: 10px;");
     
-    // Add dynamically mapped visuals to layout
-    ui_client->widget_chart->layout()->addWidget(summaryBox);
-    ui_client->widget_chart->layout()->addWidget(chartViewPie);
-    ui_client->widget_chart->layout()->addWidget(chartViewBar);
+    // Add dynamically mapped visuals to layout with proportional stretch
+    QHBoxLayout *hbox = qobject_cast<QHBoxLayout*>(ui_client->widget_chart->layout());
+    hbox->addWidget(summaryBox,    1);
+    hbox->addWidget(chartViewPie,  3);
+    hbox->addWidget(chartViewBar,  3);
 }
 
 MainWindow::~MainWindow()
@@ -7321,12 +7348,29 @@ void MainWindow::onPageChanged(int index)
 
 void MainWindow::onClientRefreshView()
 {
+    // Build ORDER BY clause from sort controls (if present)
+    QString orderBy = " ORDER BY CLIENT_ID ASC";
+    if (ui_client->cb_sort_field && ui_client->btn_sort_order) {
+        const bool asc = ui_client->btn_sort_order->text().contains(QStringLiteral("Ascending"));
+        const QString dir = asc ? " ASC" : " DESC";
+        switch (ui_client->cb_sort_field->currentIndex()) {
+            case 1: // First Name
+                orderBy = " ORDER BY UPPER(FIRST_NAME)" + dir + ", UPPER(LAST_NAME) ASC"; break;
+            case 2: // Last Name
+                orderBy = " ORDER BY UPPER(LAST_NAME)" + dir + ", UPPER(FIRST_NAME) ASC"; break;
+            case 3: // Gender
+                orderBy = " ORDER BY GENDER" + dir + ", UPPER(LAST_NAME) ASC"; break;
+            case 0:
+            default: // Default (ID)
+                orderBy = " ORDER BY CLIENT_ID" + dir; break;
+        }
+    }
     QSqlQueryModel *model = new QSqlQueryModel(this);
     model->setQuery(
         "SELECT CLIENT_ID AS \"ID\", "
         "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
         " ADDRESS AS \"Address\", PHONE_NUMBER AS \"Phone\", EMAIL AS \"Email\", GENDER AS \"Gender\""
-        " FROM CLIENTS ORDER BY CLIENT_ID"
+        " FROM CLIENTS" + orderBy
     );
     if (model->lastError().isValid()) {
         QMessageBox::critical(this, "Database Error", "Failed to load clients:\n" + model->lastError().text());
@@ -7556,6 +7600,24 @@ void MainWindow::onClientDelete()
 
 void MainWindow::onClientSearch()
 {
+    // Build ORDER BY clause from sort controls (if present)
+    QString orderBy = " ORDER BY CLIENT_ID ASC";
+    if (ui_client->cb_sort_field && ui_client->btn_sort_order) {
+        const bool asc = ui_client->btn_sort_order->text().contains(QStringLiteral("Ascending"));
+        const QString dir = asc ? " ASC" : " DESC";
+        switch (ui_client->cb_sort_field->currentIndex()) {
+            case 1: // First Name
+                orderBy = " ORDER BY UPPER(FIRST_NAME)" + dir + ", UPPER(LAST_NAME) ASC"; break;
+            case 2: // Last Name
+                orderBy = " ORDER BY UPPER(LAST_NAME)" + dir + ", UPPER(FIRST_NAME) ASC"; break;
+            case 3: // Gender
+                orderBy = " ORDER BY GENDER" + dir + ", UPPER(LAST_NAME) ASC"; break;
+            case 0:
+            default: // Default (ID)
+                orderBy = " ORDER BY CLIENT_ID" + dir; break;
+        }
+    }
+
     QString search = ui_client->le_recherche->text().trimmed();
     QSqlQueryModel *model = new QSqlQueryModel(this);
     if (search.isEmpty()) {
@@ -7563,7 +7625,7 @@ void MainWindow::onClientSearch()
             "SELECT CLIENT_ID AS \"ID\", "
             "LAST_NAME AS \"Last Name\", FIRST_NAME AS \"First Name\","
             " ADDRESS AS \"Address\", PHONE_NUMBER AS \"Phone\", EMAIL AS \"Email\", GENDER AS \"Gender\""
-            " FROM CLIENTS ORDER BY CLIENT_ID"
+            " FROM CLIENTS" + orderBy
         );
     } else {
         QSqlQuery q;
@@ -7573,7 +7635,7 @@ void MainWindow::onClientSearch()
             " ADDRESS AS \"Address\", PHONE_NUMBER AS \"Phone\", EMAIL AS \"Email\", GENDER AS \"Gender\""
             " FROM CLIENTS WHERE UPPER(LAST_NAME) LIKE :s OR UPPER(FIRST_NAME) LIKE :s"
             " OR UPPER(EMAIL) LIKE :s OR CAST(CLIENT_ID AS VARCHAR2(20)) LIKE :s"
-            " ORDER BY CLIENT_ID"
+            + orderBy
         );
         q.bindValue(":s", "%" + search.toUpper() + "%");
         q.exec();
