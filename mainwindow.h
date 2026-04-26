@@ -62,6 +62,8 @@
 #include <QCompleter>
 #include <QStringListModel>
 #include "equipment.h"
+#include "supplier.h"
+#include "order.h"
 #include <QLabel>
 #include <QProgressBar>
 #include <QVBoxLayout>
@@ -271,7 +273,8 @@ public:
     void setupClientStats();
     void setupClientManagement();
     void setupClientDataMatrix();
-    void setupSupplierStats();
+    MAINWINDOW_SUPPLIER_PUBLIC_DECLS
+    MAINWINDOW_ORDER_PUBLIC_DECLS
     void setupEmployeeStats();
     void setupClientCalendar();
     void showTutorialOverlay(const QString &text);
@@ -280,8 +283,6 @@ public:
     void onEmployeeEnsureHistoryTable();
     MAINWINDOW_EQUIPMENT_PUBLIC_DECLS
     void logActivity(const QString &action, const QString &module = "General", const QJsonObject &extra = QJsonObject());
-    void setupSupplierModes();
-    void setupOrderModes();
     void setupGlobalStyles();
     QPixmap getCircularPixmap(const QPixmap &src);
     void setupTabNavigation(QWidget* parentWidget, QTabWidget* tabWidget, const QStringList& tabNames, int startX, int yPos, const QList<int>& targetIndices = {}, int spacing = 115, int afterFirstShift = 0);
@@ -309,23 +310,8 @@ private slots:
     void on_btn_home_clicked();
     
     // --- Order Management ---
-    void onOrderClearFields();
-    void onOrderAdd();
-    void onOrderModify();
-    void onOrderDelete();
-    void onOrderDeleteAll();
-    void onOrderLoad();
-    void onOrderRefreshCatalog();
-    void onOrderSearchCatalog();
-    void onOrderExportCatalog();
-    void onOrderImportCatalog();
-    void onOrderPrintCatalog();
-    
-    // --- QR Code ---
-    void onGenerateQR();
-    void onSaveQR();
-    void onPrintQR();
-    
+    MAINWINDOW_ORDER_SLOT_DECLS
+
     // --- Client Management ---
     void onClientClearFields();
     void onClientModClearFields();
@@ -369,45 +355,12 @@ private slots:
     void onArduinoReadyRead();
     
     // --- Supplier Management ---
-    void onSupplierClearFields();
-    void onSupplierAdd();
-    void onSupplierModify();
-    void onSupplierDelete();
-    void onSupplierDeleteAll();
-    void onSupplierExportPDF();
-    void onSupplierPrint();
-    void onSupplierLoad(const QModelIndex &index);
-    void onSupplierSearch();
-    void onSupplierRefreshView();
-    void onSupplierSendSMS();
-    void triggerPhoneAnimation(const QString &smsContent, const QString &phone);
-    void onSupplierUploadImage();
-    
-    // Supplier Map
-    void setupSupplierMapTab();
-    void setupSupplierAiAdvisorTab();
-    void refreshSupplierMap();
-    void onSupplierGeocodeFinished(QNetworkReply *reply);
-    void checkSupplierVicinity(int supplierId = -1);
-    void loadSupplierMapPins();
-    void onSupplierBellClicked();
-    void checkAndPostSupplierNotifications();
-    void checkWorkshopStockAndNotifyAI();
-    QString gatherSupplierContextForAi(const QString &materialType);
+    MAINWINDOW_SUPPLIER_SLOT_DECLS
 
-    
-    // Delivery rating system
-    void onSupplierEnsureReviewsTable();
-    void onSupplierReviewLoad();
-    void onSupplierReviewSubmit();
-    void onSupplierReviewRatingChanged(int value);
-    void onSupplierPopulateRatingCombos();
-    
     MAINWINDOW_EQUIPMENT_SLOT_DECLS
 
     
     // --- Employee Chat ---
-    void onMapNetworkFinished(QNetworkReply *reply);
     
 
 
@@ -422,12 +375,6 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
-
-    void setupOrderCatalogResolutionTabs();
-    void configureOrderCatalogTable(QTableWidget *table);
-    bool populateOrderCatalogTable(QTableWidget *table, const QString &searchText, bool resolvedOnly);
-    void markOrderAsPaid(int orderId);
-    void markOrderAsUnpaid(int orderId);
 
     void retranslateDynamicRadios(QWidget *container);
     void setTabTextTr(QTabWidget *tabWidget, QWidget *tabPage, const QString &key);
@@ -449,9 +396,6 @@ private:
     QWidget *equipmentPage;
     QWidget *orderPage;
     QWidget *supplierPage;
-    QTabWidget *m_orderCatalogStatusTabs = nullptr;
-    QTableWidget *m_orderCatalogUnresolvedTable = nullptr;
-    QTableWidget *m_orderCatalogResolvedTable = nullptr;
 
     LoginWindow *loginWindow;
     HomeWindow *homeWindow;
@@ -510,128 +454,10 @@ private:
     
     MAINWINDOW_EQUIPMENT_PRIVATE_DECLS
 
-    
-    QProgressBar *m_supplierProgress = nullptr;
-    QLabel *m_suppNameInd = nullptr, *m_suppEmailInd = nullptr, *m_suppTelInd = nullptr, *m_suppTypeInd = nullptr;
-    void updateSupplierProgress();
 
-    void playSupplierSuccessAnimation(const QString &supplierName);
-    void playSupplierModifyAnimation(const QString &supplierName);
-    void playSupplierDeleteAnimation(const QString &supplierName);
+    MAINWINDOW_SUPPLIER_PRIVATE_DECLS
 
-    void setupOrderMapTab();
-    void requestMapForBuyerId();
-    void populateMapClients();
-    void requestMapTiles(double lat, double lon);
-    void renderOrderMap();
-
-    QNetworkAccessManager *m_mapNet = nullptr;
-    QLabel *m_mapImageLabel = nullptr;
-    QLabel *m_mapStatusLabel = nullptr;
-    QLabel *m_mapAddressLabel = nullptr;
-    QLabel *m_mapAssignedEmployeeLabel = nullptr;
-    QLabel *m_mapDeliveryInfoLabel = nullptr;
-    QPushButton *m_mapRefreshBtn = nullptr;
-    QTableWidget *m_mapClientTable = nullptr;
-        QPushButton *m_mapZoomInBtn = nullptr;
-        QPushButton *m_mapZoomOutBtn = nullptr;
-    QPushButton *m_mapFullscreenBtn = nullptr;
-    QDialog *m_mapFullscreenDialog = nullptr;
-    QLabel *m_mapFullscreenLabel = nullptr;
-    QGraphicsBlurEffect *m_mapBlurEffect = nullptr;
-    QHash<QString, QPixmap> m_mapTileCache;
-    QSet<QString> m_mapPendingTiles;
-    int m_mapZoom = 14;
-    QSize m_mapImageSize = QSize(640, 360);
-    double m_mapTopLeftX = 0.0;
-    double m_mapTopLeftY = 0.0;
-    int m_mapTileX0 = 0;
-    int m_mapTileY0 = 0;
-    int m_mapTileX1 = 0;
-    int m_mapTileY1 = 0;
-    int m_mapTileErrors = 0;
-    int m_mapExpectedTiles = 0;
-    int m_mapLoadedTiles = 0;
-        double m_mapCenterLat = 36.8065;
-        double m_mapCenterLon = 10.1815;
-        bool m_mapHasClientPin = false;
-        double m_mapClientPinLat = 0.0;
-        double m_mapClientPinLon = 0.0;
-        int m_mapSelectedClientId = 0;
-        QString m_mapSelectedClientName;
-        bool m_mapHasEmployeePin = false;
-        double m_mapEmployeePinLat = 0.0;
-        double m_mapEmployeePinLon = 0.0;
-        QVector<QPointF> m_mapRouteGeoPoints;
-        int m_mapAssignedEmployeeId = 0;
-        QString m_mapAssignedEmployeeName;
-        QString m_mapPendingEmployeeAddress;
-        bool m_mapDragging = false;
-        QPoint m_mapDragStart;
-        double m_mapDragCenterX = 0.0;
-        double m_mapDragCenterY = 0.0;
-        QPoint m_mapDragOffset;
-        QPixmap m_mapCurrentPixmap;
-        bool m_mapHasPixmap = false;
-        
-    // --- Supplier Map ---
-    struct SupplierPin {
-        int id;
-        QString name;
-        QString type;
-        QString status;
-        QString openTime;
-        QString closeTime;
-        double lat;
-        double lon;
-        QRect rect;
-    };
-    QList<SupplierPin> m_supplierPins;
-    int m_supplierGeocodePendingCount = 0;
-
-    QNetworkAccessManager *m_supplierMapNet = nullptr;
-    QLabel *m_supplierMapImageLabel = nullptr;
-    QLabel *m_supplierMapStatusLabel = nullptr;
-    QPushButton *m_supplierMapRefreshBtn = nullptr;
-    QPushButton *m_supplierMapZoomInBtn = nullptr;
-    QPushButton *m_supplierMapZoomOutBtn = nullptr;
-    QTimeEdit *m_teOpeningHour = nullptr;
-    QTimeEdit *m_teClosingHour = nullptr;
-    QPushButton *m_supplierBellBtn = nullptr;
-
-    // AI Advisor Tab
-    QWidget *m_supplierAiTab = nullptr;
-    QLabel *m_aiAdvStatus = nullptr;
-    QTextEdit *m_aiAdvResult = nullptr;
-    QPushButton *m_aiAdvRunBtn = nullptr;
-    QProgressBar *m_aiAdvProgress = nullptr;
-    
-    QHash<QString, QPixmap> m_supplierMapTileCache;
-    QSet<QString> m_supplierMapPendingTiles;
-    int m_supplierMapZoom = 13;
-    QSize m_supplierMapImageSize = QSize(800, 500);
-    double m_supplierMapTopLeftX = 0.0;
-    double m_supplierMapTopLeftY = 0.0;
-    int m_supplierMapTileX0 = 0;
-    int m_supplierMapTileY0 = 0;
-    int m_supplierMapTileX1 = 0;
-    int m_supplierMapTileY1 = 0;
-    int m_supplierMapTileErrors = 0;
-    
-    double m_supplierCenterLat = 36.8065; // Tunis default
-    double m_supplierCenterLon = 10.1815;
-    bool m_supplierMapDragging = false;
-    QPoint m_supplierMapDragStart;
-    double m_supplierMapDragCenterX = 0.0;
-    double m_supplierMapDragCenterY = 0.0;
-    QPoint m_supplierMapDragOffset;
-    QPixmap m_supplierMapCurrentPixmap;
-    bool m_supplierMapHasPixmap = false;
-    
-    bool m_aiScanInProgress = false;
-    bool m_aiAdvisorStartupDone = false;  // Prevents re-scanning on every nav visit
-    QSet<QString> m_aiNotifiedMaterials;  // In-session dedup: materials already analyzed
-
+    MAINWINDOW_ORDER_PRIVATE_DECLS
 
     // Client Management Dynamic UIs
     QTableView *m_clientCyberTable = nullptr;
