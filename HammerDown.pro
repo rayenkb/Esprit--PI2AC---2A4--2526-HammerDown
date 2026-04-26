@@ -61,7 +61,8 @@ SOURCES += \
     costswidget_subtabs.cpp \
     equipment.cpp \
     supplier.cpp \
-    order.cpp
+    order.cpp \
+    employee.cpp
 
 # Header files
 HEADERS += \
@@ -83,7 +84,8 @@ HEADERS += \
     costswidget.h \
     equipment.h \
     supplier.h \
-    order.h
+    order.h \
+    employee.h
 
 # UI files
 FORMS += \

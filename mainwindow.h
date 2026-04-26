@@ -64,6 +64,7 @@
 #include "equipment.h"
 #include "supplier.h"
 #include "order.h"
+#include "employee.h"
 #include <QLabel>
 #include <QProgressBar>
 #include <QVBoxLayout>
@@ -275,12 +276,9 @@ public:
     void setupClientDataMatrix();
     MAINWINDOW_SUPPLIER_PUBLIC_DECLS
     MAINWINDOW_ORDER_PUBLIC_DECLS
-    void setupEmployeeStats();
+    MAINWINDOW_EMPLOYEE_PUBLIC_DECLS
     void setupClientCalendar();
     void showTutorialOverlay(const QString &text);
-    void setupEmployeeModes();
-    void toggleEmployeeFields(bool active);
-    void onEmployeeEnsureHistoryTable();
     MAINWINDOW_EQUIPMENT_PUBLIC_DECLS
     void logActivity(const QString &action, const QString &module = "General", const QJsonObject &extra = QJsonObject());
     void setupGlobalStyles();
@@ -330,25 +328,7 @@ private slots:
     void onVoiceListeningChanged(bool active);
 
     // --- Employee Management ---
-    void onEmployeeClearFields();
-    void onEmployeeAdd();
-    void onEmployeeModify();
-    void onEmployeeDelete();
-    void onEmployeeRefreshView();
-    void onEmployeeRefreshHistory();
-    void updateSalaryInsight();
-    void onSuggestSalary();
-    void onStatsAiClicked();
-    void onAIPulseClicked();
-    void onAiPerformanceClicked();
-    void onEmployeeSearch();
-    void onEmployeeRowSelected(const QModelIndex &index);
-    void onEmployeeSendMail();
-    void onEmployeeExportPDF();
-    void onEmployeeExportHistoryPDF();
-    void onEmployeeHistorySearch();
-    void onEmployeeMailTemplateChanged(int index);
-    void processEmpCameraFrame();
+    MAINWINDOW_EMPLOYEE_SLOT_DECLS
     void callAiModel(const QString &sysPrompt, const QString &userPrompt, std::function<void(QString)> callback);
     void onTestArduino();
     void onTestArduinoScenario1();
@@ -412,12 +392,7 @@ private:
     QString m_lastDroppedImagePath;
     
     // Employee Management Face Recognition
-    QCamera *m_empCamera = nullptr;
-    QMediaCaptureSession *m_empCaptureSession = nullptr;
-    QVideoSink *m_empVideoSink = nullptr;
-    bool m_isEmpFaceScanActive = false;
-    int m_faceScanStage = 0; // 0: Center, 1: Left, 2: Right
-    QString m_faceScanStatus;
+    MAINWINDOW_EMPLOYEE_PRIVATE_DECLS
     
     // Audio components
     QMediaPlayer *loginAudioPlayer;
@@ -473,7 +448,8 @@ private:
     void startKenBurnsEffect();
     
     QSerialPort *arduino = nullptr;
-    
+    QStringList m_maintenanceEquipmentIds;
+
 protected:
     void keyPressEvent(QKeyEvent *event) override;
 
