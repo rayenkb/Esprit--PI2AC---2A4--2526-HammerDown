@@ -64,6 +64,7 @@
 #include "equipment.h"
 #include "supplier.h"
 #include "order.h"
+#include "clientmanagement.h"
 #include <QLabel>
 #include <QProgressBar>
 #include <QVBoxLayout>
@@ -270,13 +271,10 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
-    void setupClientStats();
-    void setupClientManagement();
-    void setupClientDataMatrix();
+    MAINWINDOW_CLIENT_PUBLIC_DECLS
     MAINWINDOW_SUPPLIER_PUBLIC_DECLS
     MAINWINDOW_ORDER_PUBLIC_DECLS
     void setupEmployeeStats();
-    void setupClientCalendar();
     void showTutorialOverlay(const QString &text);
     void setupEmployeeModes();
     void toggleEmployeeFields(bool active);
@@ -313,18 +311,7 @@ private slots:
     MAINWINDOW_ORDER_SLOT_DECLS
 
     // --- Client Management ---
-    void onClientClearFields();
-    void onClientModClearFields();
-    void onClientAdd();
-    void onClientModify();
-    void onClientDelete();
-    void onClientRefreshView();
-    void onClientSearch();
-    void onClientExportPDF();
-    void onClientRowSelected(const QModelIndex &index);
-    void onClientCyberTraceRefresh();
-    void onClientSendMail();
-    void onClientBrowseMail();
+    MAINWINDOW_CLIENT_SLOT_DECLS
     // --- Voice Commands ---
     void onVoiceCommand(const QString &text);
     void onVoiceListeningChanged(bool active);
@@ -460,9 +447,9 @@ private:
     MAINWINDOW_ORDER_PRIVATE_DECLS
 
     // Client Management Dynamic UIs
-    QTableView *m_clientCyberTable = nullptr;
-    QFrame *m_clientMatrixFrame = nullptr;
-    
+    MAINWINDOW_CLIENT_PRIVATE_DECLS
+
+
     // Presentation Mode
     bool m_isPresentationMode = false;
     QTimer *m_presentationTimer = nullptr;
