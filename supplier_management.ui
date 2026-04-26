@@ -810,7 +810,7 @@ QLineEdit:focus {
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -843,7 +843,7 @@ QProgressBar::chunk { background-color: #D4AF37; border-radius: 4px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -913,7 +913,7 @@ Last updated: Today 01:40 AM</string>
       </rect>
      </property>
      <property name="styleSheet">
-      <string notr="true">background-color: white; border-radius: 10px; border: 1px solid #8B6F47;</string>
+      <string notr="true">background-color: rgba(60, 45, 30, 0.7); border-radius: 10px; border: 1px solid #8B6F47;</string>
      </property>
      <widget class="QLabel" name="lbl_chart_types">
       <property name="geometry">
@@ -925,7 +925,7 @@ Last updated: Today 01:40 AM</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">border: none; font-size: 18px; font-weight: bold; color: #555; padding: 5px;</string>
+       <string notr="true">border: none; font-size: 18px; font-weight: bold; color: #D4AF37; padding: 5px; background: transparent;</string>
       </property>
       <property name="text">
        <string>Product Categories (%)</string>
@@ -944,7 +944,7 @@ Last updated: Today 01:40 AM</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">background: rgba(139, 111, 71, 0.05); border: 1px dashed #DDD;</string>
+       <string notr="true">background: transparent; border: none;</string>
       </property>
      </widget>
     </widget>
@@ -958,7 +958,7 @@ Last updated: Today 01:40 AM</string>
       </rect>
      </property>
      <property name="styleSheet">
-      <string notr="true">background-color: white; border-radius: 10px; border: 1px solid #8B6F47;</string>
+      <string notr="true">background-color: rgba(60, 45, 30, 0.7); border-radius: 10px; border: 1px solid #8B6F47;</string>
      </property>
      <widget class="QLabel" name="lbl_chart_reviews">
       <property name="geometry">
@@ -970,7 +970,7 @@ Last updated: Today 01:40 AM</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">border: none; font-size: 18px; font-weight: bold; color: #555; padding: 5px;</string>
+       <string notr="true">border: none; font-size: 18px; font-weight: bold; color: #D4AF37; padding: 5px; background: transparent;</string>
       </property>
       <property name="text">
        <string>Monthly Satisfaction Trend</string>
@@ -989,7 +989,7 @@ Last updated: Today 01:40 AM</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">background: rgba(139, 111, 71, 0.05); border: 1px dashed #DDD;</string>
+       <string notr="true">background: transparent; border: none;</string>
       </property>
      </widget>
     </widget>
@@ -1007,7 +1007,7 @@ Last updated: Today 01:40 AM</string>
     QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 0 5px; background-color: rgb(210, 174, 193); font-weight: bold; color: white; border-radius: 3px; }</string>
      </property>
      <property name="title">
-      <string>Regional Performance Comparison</string>
+      <string>Top Supplier Types by Rating</string>
      </property>
      <widget class="QLabel" name="lbl_reg_1">
       <property name="geometry">
@@ -1035,7 +1035,7 @@ Last updated: Today 01:40 AM</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -1068,7 +1068,7 @@ QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
       </property>
       <property name="value">
@@ -1197,8 +1197,66 @@ Consistency Index: high</string>
         QHeaderView::section { background-color: #8B6F47; color: #F5E6D3; font-weight: bold; border: none; padding: 5px; }
        </string>
      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_export_pdf_view">
+      <property name="geometry">
+       <rect>
+        <x>100</x>
+        <y>645</y>
+        <width>160</width>
+        <height>38</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QPushButton { background-color: #C0392B; border-radius: 8px; color: white; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #E74C3C; }</string>
+      </property>
+      <property name="text">
+       <string>⬇ Export PDF</string>
+      </property>
+      <property name="cursor">
+       <cursorShape>PointingHandCursor</cursorShape>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_print_view">
+      <property name="geometry">
+       <rect>
+        <x>275</x>
+        <y>645</y>
+        <width>160</width>
+        <height>38</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QPushButton { background-color: #2980B9; border-radius: 8px; color: white; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #3498DB; }</string>
+      </property>
+      <property name="text">
+       <string>🖨 Print</string>
+      </property>
+      <property name="cursor">
+       <cursorShape>PointingHandCursor</cursorShape>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="btn_delete_all_view">
+      <property name="geometry">
+       <rect>
+        <x>760</x>
+        <y>645</y>
+        <width>160</width>
+        <height>38</height>
+       </rect>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QPushButton { background-color: #7B2D2D; border-radius: 8px; color: white; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #C0392B; }</string>
+      </property>
+      <property name="text">
+       <string>🗑 Delete All</string>
+      </property>
+      <property name="cursor">
+       <cursorShape>PointingHandCursor</cursorShape>
+      </property>
+     </widget>
     </widget>
-   </widget>
+
    <widget class="QWidget" name="tab_reviews">
     <attribute name="title">
      <string>Supplier Reviews</string>
@@ -1393,7 +1451,7 @@ Consistency Index: high</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -1426,7 +1484,7 @@ QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #2196F3; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -1459,7 +1517,7 @@ QProgressBar::chunk { background-color: #2196F3; border-radius: 4px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #9C27B0; border-radius: 4px; }</string>
       </property>
       <property name="value">
@@ -1739,7 +1797,7 @@ QComboBox QAbstractItemView { background-color: #332211; color: white; selection
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
       </property>
       <property name="value">
@@ -1772,7 +1830,7 @@ QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
       </property>
       <property name="value">
@@ -1805,7 +1863,7 @@ QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
        </rect>
       </property>
       <property name="styleSheet">
-       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }
+       <string notr="true">QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }
 QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }</string>
       </property>
       <property name="value">

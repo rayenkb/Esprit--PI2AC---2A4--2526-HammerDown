@@ -7,6 +7,9 @@
 #include <QVideoWidget>
 #include <QAudioOutput>
 
+class QVariantAnimation;
+class QPropertyAnimation;
+
 class ChatBotDialog;
 
 namespace Ui {
@@ -22,6 +25,8 @@ public:
     ~HomeWindow();
     void retranslateUI();
     void stopHomeAudio();
+    void suspendActiveAudioForOverlay();
+    void resumeSuspendedAudioAfterOverlay();
     bool isAnimationMode() const { return !m_isStandardMode; }
 
     // Setters for state synchronization
@@ -30,7 +35,7 @@ public:
         m_currentVolume = vol;
         if (m_animationAudioOutput) m_animationAudioOutput->setVolume(vol);
     }
-    void setMode(bool isStandard) { m_isStandardMode = isStandard; }
+    void setMode(bool isStandard);
 
 signals:
     void employesClicked();
@@ -41,6 +46,13 @@ signals:
     void languageChanged(const QString &language);
     void volumeChanged(qreal volume);
     void disconnectClicked();
+    void userProfileClicked();
+    void settingsDialogOpened();
+    void settingsDialogClosed();
+    void botawkAnimationStarted();
+    void gerPlaybackFinished();
+    void tutorialOpened();
+    void tutorialClosed();
 
 private slots:
     void handleEmployes();
@@ -52,6 +64,10 @@ private slots:
     void handleDisconnect();
     void handleChatBot();
     void handleHelp();
+    void handleProfileMenu();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     Ui::HomeFrame *ui;
@@ -68,10 +84,19 @@ private:
     QMediaPlayer *m_animationAudioPlayer; // Persistent audio for animation sequence
     QAudioOutput *m_animationAudioOutput; // Matching output for animation audio
     class LoreGuideWidget *m_currentGuide; // Track the guide widget
+    QVariantAnimation *m_settingsTiltAnim = nullptr;
+    QPixmap m_settingsGearPixmap;
+    bool m_settingsHoverActive = false;
+    bool m_animationAudioSuspended = false;
+    qint64 m_animationAudioResumePosition = 0;
     
     void setupHomeButtons();
     void stopAnimationAudio();
     void playReverseAnimation();
+    void updateProfileAnimations();
+
+    QPropertyAnimation *m_statusPulseAnimation = nullptr;
+    QPropertyAnimation *m_profileBreathAnim = nullptr;
 };
 
 #endif // HOMEWINDOW_H

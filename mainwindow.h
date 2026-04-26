@@ -12,8 +12,15 @@
 #include <QBarCategoryAxis>
 #include <QValueAxis>
 #include <QChart>
+#include <QStyledItemDelegate>
+#include <QGraphicsDropShadowEffect>
+#include <QToolTip>
+#include <QMouseEvent>
 #include <QTabWidget>
 #include <QMediaPlayer>
+#include <QPropertyAnimation>
+#include <QGraphicsOpacityEffect>
+#include <QDesktopServices>
 #include <QAudioOutput>
 #include <QCamera>
 #include <QMediaCaptureSession>
@@ -54,6 +61,9 @@
 #include <QAudioBuffer>
 #include <QCompleter>
 #include <QStringListModel>
+#include "equipment.h"
+#include "supplier.h"
+#include "order.h"
 #include <QLabel>
 #include <QProgressBar>
 #include <QVBoxLayout>
@@ -62,6 +72,11 @@
 #include <QHash>
 #include <QSet>
 #include <QTableView>
+#include <QStackedWidget>
+#include <QDateEdit>
+#include <QTextEdit>
+#include <QtSerialPort/QSerialPort>
+#include <QtSerialPort/QSerialPortInfo>
 
 // --- Voice Waveform Widget ---
 class VoiceWaveformWidget : public QWidget {
@@ -202,6 +217,52 @@ private:
     QLabel *m_trendLbl;
 };
 
+// --- Hover Highlighter for Tables ---
+class RowHoverDelegate : public QStyledItemDelegate {
+    Q_OBJECT
+public:
+    RowHoverDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent), m_hoveredRow(-1) {}
+    void setHoveredRow(int row) { m_hoveredRow = row; }
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        QStyleOptionViewItem opt = option;
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+
+        bool isSelected = opt.state & QStyle::State_Selected;
+        bool isHovered = (index.row() == m_hoveredRow);
+
+        if (isSelected || isHovered) {
+            QRect r = opt.rect.adjusted(2, 2, -2, -2);
+            QLinearGradient grad(r.topLeft(), r.bottomRight());
+            
+            if (isSelected && isHovered) {
+                grad.setColorAt(0, QColor(212, 175, 55, 120)); // Super Gold
+                grad.setColorAt(1, QColor(139, 111, 71, 60));
+                painter->setPen(QPen(QColor("#D4AF37"), 2));
+            } else if (isSelected) {
+                grad.setColorAt(0, QColor(139, 111, 71, 100)); // Deep Amber
+                grad.setColorAt(1, QColor(44, 34, 21, 80));
+                painter->setPen(QPen(QColor(212, 175, 55, 100), 1));
+            } else { // Hovered only
+                grad.setColorAt(0, QColor(212, 175, 55, 60));
+                grad.setColorAt(1, QColor(212, 175, 55, 15));
+                painter->setPen(QPen(QColor(212, 175, 55, 80), 0.5));
+            }
+            
+            painter->setBrush(grad);
+            painter->drawRoundedRect(r, 8, 8);
+        }
+        
+        painter->restore();
+        
+        // Remove standard selection drawing
+        opt.state &= ~QStyle::State_Selected;
+        QStyledItemDelegate::paint(painter, opt, index);
+    }
+private:
+    int m_hoveredRow;
+};
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -212,18 +273,16 @@ public:
     void setupClientStats();
     void setupClientManagement();
     void setupClientDataMatrix();
-    void setupEquipmentStats();
-    void setupSupplierStats();
+    MAINWINDOW_SUPPLIER_PUBLIC_DECLS
+    MAINWINDOW_ORDER_PUBLIC_DECLS
     void setupEmployeeStats();
     void setupClientCalendar();
     void showTutorialOverlay(const QString &text);
     void setupEmployeeModes();
     void toggleEmployeeFields(bool active);
     void onEmployeeEnsureHistoryTable();
-    void logActivity(const QString &action, const QString &module = "General");
-    void setupSupplierModes();
-    void setupEquipmentModes();
-    void setupOrderModes();
+    MAINWINDOW_EQUIPMENT_PUBLIC_DECLS
+    void logActivity(const QString &action, const QString &module = "General", const QJsonObject &extra = QJsonObject());
     void setupGlobalStyles();
     QPixmap getCircularPixmap(const QPixmap &src);
     void setupTabNavigation(QWidget* parentWidget, QTabWidget* tabWidget, const QStringList& tabNames, int startX, int yPos, const QList<int>& targetIndices = {}, int spacing = 115, int afterFirstShift = 0);
@@ -236,14 +295,14 @@ private slots:
     void on_gs_employes_clicked();
     void on_gs_client_clicked();
     void on_gs_fournisseur_clicked();
-    void on_gs_equipment_clicked();
+
     void on_gs_order_clicked();
 
     // --- Sidebar Navigation ---
     void on_nav_employees_clicked();
     void on_nav_clients_clicked();
     void on_nav_suppliers_clicked();
-    void on_nav_equipments_clicked();
+
     void on_nav_orders_clicked();
 
     // --- System Navigation ---
@@ -251,23 +310,8 @@ private slots:
     void on_btn_home_clicked();
     
     // --- Order Management ---
-    void onOrderClearFields();
-    void onOrderAdd();
-    void onOrderModify();
-    void onOrderDelete();
-    void onOrderDeleteAll();
-    void onOrderLoad();
-    void onOrderRefreshCatalog();
-    void onOrderSearchCatalog();
-    void onOrderExportCatalog();
-    void onOrderImportCatalog();
-    void onOrderPrintCatalog();
-    
-    // --- QR Code ---
-    void onGenerateQR();
-    void onSaveQR();
-    void onPrintQR();
-    
+    MAINWINDOW_ORDER_SLOT_DECLS
+
     // --- Client Management ---
     void onClientClearFields();
     void onClientModClearFields();
@@ -296,6 +340,7 @@ private slots:
     void onSuggestSalary();
     void onStatsAiClicked();
     void onAIPulseClicked();
+    void onAiPerformanceClicked();
     void onEmployeeSearch();
     void onEmployeeRowSelected(const QModelIndex &index);
     void onEmployeeSendMail();
@@ -304,76 +349,25 @@ private slots:
     void onEmployeeHistorySearch();
     void onEmployeeMailTemplateChanged(int index);
     void processEmpCameraFrame();
+    void callAiModel(const QString &sysPrompt, const QString &userPrompt, std::function<void(QString)> callback);
+    void onTestArduino();
+    void onTestArduinoScenario1();
+    void onArduinoReadyRead();
     
     // --- Supplier Management ---
-    void onSupplierClearFields();
-    void onSupplierAdd();
-    void onSupplierModify();
-    void onSupplierDelete();
-    void onSupplierLoad(const QModelIndex &index);
-    void onSupplierSearch();
-    void onSupplierRefreshView();
-    void onSupplierSendSMS();
-    void onSupplierUploadImage();
-    
-    // Supplier Map
-    void setupSupplierMapTab();
-    void refreshSupplierMap();
-    void onSupplierGeocodeFinished(QNetworkReply *reply);
-    void checkSupplierVicinity(int supplierId = -1);
-    void loadSupplierMapPins();
-    void onSupplierBellClicked();
-    void checkAndPostSupplierNotifications();
-    
-    // Delivery rating system
-    void onSupplierEnsureReviewsTable();
-    void onSupplierReviewLoad();
-    void onSupplierReviewSubmit();
-    void onSupplierReviewRatingChanged(int value);
-    void onSupplierPopulateRatingCombos();
-    
-    // --- Equipment Management ---
-    void onEquipmentClearFields();
-    void onEquipmentShareToChat();
-    void onEquipmentAdd();
-    void onEquipmentModify();
-    void onEquipmentDelete();
-    void onEquipmentRefreshView();
-    void onEquipmentSearch();
-    void onEquipmentHistoryRefresh();
-    void onEquipmentHistorySearch();
-    void onEquipmentHistoryClear();
-    void onEquipmentCustomContextMenu(const QPoint &pos);
-    void onEquipmentHistoryCustomContextMenu(const QPoint &pos, int tableIdx);
-    void onEquipmentExportPDF();
-    void onEquipmentExportStatsPDF();
-    void onEquipmentBulkUpdateStatus();
+    MAINWINDOW_SUPPLIER_SLOT_DECLS
+
+    MAINWINDOW_EQUIPMENT_SLOT_DECLS
+
     
     // --- Employee Chat ---
-    void onChatEnsureTable();
-    void onChatSendMessage();
-    void onChatRefresh();
-    void onChatEmployeeListRefresh();
-    void onChatEmployeeSelected(QListWidgetItem *item);
-    void onChatAttachImage();
-    void onChatDeleteMessage(int index);
-    void onChatSettingsClicked();
-    void onChatEmojiClicked();
-    void onChatGifClicked();
-    void onChatSearchToggle();
-    void onWeatherAssistantClicked();
-    void setupChatForgeVisuals();
-    void enforceChatTabTopOffset();
-    void onMapNetworkFinished(QNetworkReply *reply);
     
-    // Voice Slotes
-    void onChatStartRecord();
-    void onChatStopRecord();
-    void onChatVoiceToggled();
+
 
     // --- Face Recognition & Avatar ---
     void onUploadAvatar();
     void onScanFace();
+    void on_userProfileClicked();
     void updateUserProfileDisplay();
     // --- Language Management ---
     void onLanguageChanged(const QString &language);
@@ -406,8 +400,6 @@ private:
     LoginWindow *loginWindow;
     HomeWindow *homeWindow;
     WeatherAssistant *weatherAssistant;
-    NexusWidget *m_nexusWidget = nullptr;
-    CostsWidget *m_costsWidget = nullptr;
     VoiceCommandEngine *m_voiceEngine = nullptr;
     QPushButton        *m_micBtn      = nullptr;
     
@@ -416,23 +408,8 @@ private:
     
     // Current logged-in employee ID
     int currentEmployeeId;
-    int currentChatPartnerId;
     bool m_homeWelcomeShown = false;
-    QByteArray pendingChatImage;
-    bool m_isChatModernTheme = false;
     QString m_lastDroppedImagePath;
-    
-    // Voice Recording
-    QMediaCaptureSession *m_captureSession = nullptr;
-    QMediaRecorder *m_recorder = nullptr;
-    QAudioInput *m_audioInput = nullptr;
-    bool m_isRecording = false;
-    
-    // Smart Chat
-    QCompleter *m_chatCompleter = nullptr;
-    QStringListModel *m_completerModel = nullptr;
-    EquipmentHoverCard *m_hoverCard = nullptr;
-    QWidget *m_chatAmbientLayer = nullptr;
     
     // Employee Management Face Recognition
     QCamera *m_empCamera = nullptr;
@@ -442,14 +419,6 @@ private:
     int m_faceScanStage = 0; // 0: Center, 1: Left, 2: Right
     QString m_faceScanStatus;
     
-    void shakeWidget(QWidget *w);
-    
-    // GIF / Emoji
-    QNetworkAccessManager *giphyNetworkManager = nullptr;
-    
-    // Chat Timer
-    QTimer *chatRefreshTimer;
-    
     // Audio components
     QMediaPlayer *loginAudioPlayer;
     QAudioOutput *loginAudioOutput;
@@ -457,111 +426,38 @@ private:
     QAudioOutput *homeAudioOutput;
     QMediaPlayer *tutorialLoopAudioPlayer;
     QAudioOutput *tutorialLoopAudioOutput;
-    QMediaPlayer *chatAudioPlayer;
-    QAudioOutput *chatAudioOutput;
     qreal currentVolume;
+    
+    bool m_homeAudioPausedBySettings = false;
+    qint64 m_homeAudioSettingsResumePos = 0;
+    bool m_homeAudioPausedByTutorial = false;
+    qint64 m_homeAudioTutorialResumePos = 0;
+    bool m_audioSuspendedForOstp = false;
+    bool m_resumeLoginAfterOstp = false;
+    bool m_resumeHomeAfterOstp = false;
+    bool m_resumeTutorialAfterOstp = false;
+    qint64 m_loginResumePosAfterOstp = 0;
+    qint64 m_homeResumePosAfterOstp = 0;
+    qint64 m_tutorialResumePosAfterOstp = 0;
     
     // Fade animation helpers
     void fadeOutAndPlay(QMediaPlayer *fadeOutPlayer, QAudioOutput *fadeOutOutput,
                         QMediaPlayer *fadeInPlayer, QAudioOutput *fadeInOutput);
     void fadeOut(QAudioOutput *output, std::function<void()> onComplete);
     void fadeIn(QAudioOutput *output);
-    void showUnreadMessagesSplash();
+    void pauseHomeAudioForSettings();
+    void resumeHomeAudioAfterSettings();
+    void pauseHomeAudioForTutorial();
+    void resumeHomeAudioAfterTutorial();
+    void suspendAudioForOstp();
+    void restoreAudioAfterOstp();
     
-    // Equipment Form Progress & Animation
-    QProgressBar *m_equipProgress = nullptr;
-    QLabel *m_eqTypeInd = nullptr, *m_eqDateInd = nullptr, *m_eqPriceInd = nullptr, *m_eqDescInd = nullptr;
-    void updateEquipProgress();
-    void playEquipSuccessAnimation(const QString &equipName);
-    void playSupplierSuccessAnimation(const QString &supplierName);
-    void playSupplierModifyAnimation(const QString &supplierName);
-    void playSupplierDeleteAnimation(const QString &supplierName);
+    MAINWINDOW_EQUIPMENT_PRIVATE_DECLS
 
-    void setupOrderMapTab();
-    void requestMapForBuyerId();
-    void populateMapClients();
-    void requestMapTiles(double lat, double lon);
 
-    QNetworkAccessManager *m_mapNet = nullptr;
-    QLabel *m_mapImageLabel = nullptr;
-    QLabel *m_mapStatusLabel = nullptr;
-    QLabel *m_mapAddressLabel = nullptr;
-    QPushButton *m_mapRefreshBtn = nullptr;
-    QTableWidget *m_mapClientTable = nullptr;
-        QPushButton *m_mapZoomInBtn = nullptr;
-        QPushButton *m_mapZoomOutBtn = nullptr;
-    QPushButton *m_mapFullscreenBtn = nullptr;
-    QDialog *m_mapFullscreenDialog = nullptr;
-    QLabel *m_mapFullscreenLabel = nullptr;
-    QGraphicsBlurEffect *m_mapBlurEffect = nullptr;
-    QHash<QString, QPixmap> m_mapTileCache;
-    QSet<QString> m_mapPendingTiles;
-    int m_mapZoom = 14;
-    QSize m_mapImageSize = QSize(640, 360);
-    double m_mapTopLeftX = 0.0;
-    double m_mapTopLeftY = 0.0;
-    int m_mapTileX0 = 0;
-    int m_mapTileY0 = 0;
-    int m_mapTileX1 = 0;
-    int m_mapTileY1 = 0;
-    int m_mapTileErrors = 0;
-        double m_mapCenterLat = 36.8065;
-        double m_mapCenterLon = 10.1815;
-        bool m_mapDragging = false;
-        QPoint m_mapDragStart;
-        double m_mapDragCenterX = 0.0;
-        double m_mapDragCenterY = 0.0;
-        QPoint m_mapDragOffset;
-        QPixmap m_mapCurrentPixmap;
-        bool m_mapHasPixmap = false;
-        
-    // --- Supplier Map ---
-    struct SupplierPin {
-        int id;
-        QString name;
-        QString type;
-        QString status;
-        double lat;
-        double lon;
-        QRect rect;
-    };
-    QList<SupplierPin> m_supplierPins;
-    int m_supplierGeocodePendingCount = 0;
+    MAINWINDOW_SUPPLIER_PRIVATE_DECLS
 
-    QNetworkAccessManager *m_supplierMapNet = nullptr;
-    QLabel *m_supplierMapImageLabel = nullptr;
-    QLabel *m_supplierMapStatusLabel = nullptr;
-    QPushButton *m_supplierMapRefreshBtn = nullptr;
-    QPushButton *m_supplierMapZoomInBtn = nullptr;
-    QPushButton *m_supplierMapZoomOutBtn = nullptr;
-    QTimeEdit *m_teOpeningHour = nullptr;
-    QTimeEdit *m_teClosingHour = nullptr;
-    QPushButton *m_supplierBellBtn = nullptr;
-    
-    QHash<QString, QPixmap> m_supplierMapTileCache;
-    QSet<QString> m_supplierMapPendingTiles;
-    int m_supplierMapZoom = 13;
-    QSize m_supplierMapImageSize = QSize(800, 500);
-    double m_supplierMapTopLeftX = 0.0;
-    double m_supplierMapTopLeftY = 0.0;
-    int m_supplierMapTileX0 = 0;
-    int m_supplierMapTileY0 = 0;
-    int m_supplierMapTileX1 = 0;
-    int m_supplierMapTileY1 = 0;
-    int m_supplierMapTileErrors = 0;
-    
-    double m_supplierCenterLat = 36.8065; // Tunis default
-    double m_supplierCenterLon = 10.1815;
-    bool m_supplierMapDragging = false;
-    QPoint m_supplierMapDragStart;
-    double m_supplierMapDragCenterX = 0.0;
-    double m_supplierMapDragCenterY = 0.0;
-    QPoint m_supplierMapDragOffset;
-    QPixmap m_supplierMapCurrentPixmap;
-    bool m_supplierMapHasPixmap = false;
-    
-    // AI Summarization network manager
-    QNetworkAccessManager *chatSummaryNetManager = nullptr;
+    MAINWINDOW_ORDER_PRIVATE_DECLS
 
     // Client Management Dynamic UIs
     QTableView *m_clientCyberTable = nullptr;
@@ -575,6 +471,8 @@ private:
     void togglePresentationMode();
     void advancePresentation();
     void startKenBurnsEffect();
+    
+    QSerialPort *arduino = nullptr;
     
 protected:
     void keyPressEvent(QKeyEvent *event) override;

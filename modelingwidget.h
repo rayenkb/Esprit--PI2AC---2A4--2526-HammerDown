@@ -19,6 +19,7 @@
 #include <QColor>
 #include <QList>
 #include <QPushButton>
+#include <QToolButton>
 #include <QComboBox>
 #include <QSlider>
 #include <QLabel>
@@ -45,12 +46,12 @@ struct SceneObject {
     QVector3D position{0, 0, 0};
     QVector3D rotation{0, 0, 0};
     QVector3D scale{1, 1, 1};
-    QVector3D pivot{0, 0, 0};
     QColor color{200, 160, 100};
     QString name;
     bool visible = true;
     bool selected = false;
     int parentIndex = -1;
+    int groupId = -1;
 };
 
 // ─── OpenGL viewport ───
@@ -63,7 +64,7 @@ public:
     enum class ViewPreset { Top, Bottom, Left, Right, Front, Back, Perspective };
     enum class ShadingMode { Solid, Wireframe, SolidWire, Unlit };
     enum class GizmoAxis { None, AxisX, AxisY, AxisZ };
-    enum class GizmoMode { None, Move, Rotate, Scale, Pivot };
+    enum class GizmoMode { None, Move, Rotate, Scale };
 
     void setObjects(QList<SceneObject> *objs) { m_objects = objs; }
     void setSelectedIndex(int idx) { m_selectedIdx = idx; update(); }
@@ -74,9 +75,15 @@ public:
     void setPresetView(ViewPreset preset);
     void frameSelected();
     void frameAll();
+    void setWalkMode(bool enabled);
+    bool isWalkMode() const { return m_walkMode; }
+    void setWalkStart(const QVector3D &position, float yawDeg, float pitchDeg, bool enableWalk = true);
+    void setPlacementAnchor(const QVector3D &position) { m_spawnAnchor = position; m_hasSpawnAnchor = true; }
+    bool hasPlacementAnchor() const { return m_hasSpawnAnchor; }
+    QVector3D placementAnchorGround() const { return m_spawnAnchor - QVector3D(0.0f, 1.72f, 0.0f); }
 
     // Tool mode
-    enum Tool { Select, Move, Rotate, Scale, Pivot };
+    enum Tool { Select, Move, Rotate, Scale };
     void setTool(Tool t) { m_tool = t; }
     void setShowGrid(bool v) { m_showGrid = v; update(); }
     void setShowWireframe(bool v) { m_shadingMode = v ? ShadingMode::Wireframe : ShadingMode::Solid; update(); }
@@ -93,6 +100,7 @@ signals:
     void objectPicked(int index, Qt::KeyboardModifiers mods);
     void transformStarted();
     void transformFinished();
+    void walkModeChanged(bool enabled);
 
 protected:
     void initializeGL() override;
@@ -102,6 +110,8 @@ protected:
     void mouseMoveEvent(QMouseEvent *e) override;
     void mouseReleaseEvent(QMouseEvent *e) override;
     void wheelEvent(QWheelEvent *e) override;
+    void keyPressEvent(QKeyEvent *e) override;
+    void keyReleaseEvent(QKeyEvent *e) override;
 
 private:
     QMatrix4x4 computeProjectionMatrix() const;
@@ -113,6 +123,7 @@ private:
     void computeObjectBounds(int index, QVector3D &outMin, QVector3D &outMax) const;
     QVector3D computeWorldPivot(int index) const;
     bool pickObject(const QPoint &pos, int &outIndex);
+    bool screenToGroundPoint(const QPoint &pos, QVector3D &outPoint) const;
     GizmoAxis pickGizmoAxis(const QPoint &pos, GizmoMode mode) const;
     QVector3D screenDeltaToWorldAxis(const QPoint &delta, GizmoAxis axis) const;
     void applyGizmoDrag(const QPoint &pos);
@@ -130,6 +141,7 @@ private:
                               const QVector3D &targetCamTarget,
                               float targetProjectionBlend);
     void updateCameraAnimation();
+    void updateWalkNavigation();
 
     void drawGrid();
     void drawObject(int index, const SceneObject &obj, bool highlight);
@@ -173,6 +185,7 @@ private:
     QPoint m_lastMouse;
     bool m_rotating = false;
     bool m_panning = false;
+    bool m_dollying = false;
     bool m_dragging = false;
     Tool m_tool = Select;
     GizmoMode m_gizmoMode = GizmoMode::None;
@@ -182,11 +195,22 @@ private:
     QList<QVector3D> m_startPositions;
     QList<QVector3D> m_startRotations;
     QList<QVector3D> m_startScales;
-    QList<QVector3D> m_startPivots;
 
     QTimer m_inertiaTimer;
     QVector2D m_orbitVelocity{0.0f, 0.0f};
     float m_orbitDamping = 0.90f;
+
+    bool m_walkMode = false;
+    bool m_mouseLook = false;
+    bool m_rightMouseLook = false;
+    bool m_ctrlLookLock = false;
+    bool m_cursorWarpInProgress = false;
+    QSet<int> m_pressedKeys;
+    QTimer m_walkTimer;
+    QVector3D m_freeCamPos{0.0f, 2.0f, 8.0f};
+    float m_walkSpeed = 8.2f;
+    QVector3D m_spawnAnchor{0.0f, 1.72f, 0.0f};
+    bool m_hasSpawnAnchor = false;
 
     bool m_snapEnabled = false;
     float m_snapMove = 0.5f;
@@ -239,6 +263,10 @@ private slots:
     void onObjectSearchChanged(const QString &text);
     void onUndo();
     void onRedo();
+    void selectWholeObjectFromCurrent();
+    void hideSelectedObjects();
+    void unhideAllObjects();
+    void isolateSelectedObjects();
 
 private:
     struct SceneSnapshot {
@@ -251,6 +279,7 @@ private:
     void applySnapshot(const SceneSnapshot &snapshot);
     void pushUndoSnapshot();
     void clearRedoStack();
+    QList<int> selectedObjectIndices() const;
     int objectIndexFromRow(int row) const;
     int rowFromObjectIndex(int objIndex) const;
     int computeDepth(int index) const;
@@ -258,10 +287,13 @@ private:
     void buildPresetTable();
     void buildPresetCabinet();
     void buildPresetWardrobe();
+    void buildPresetHouseShell();
+    void buildPresetSimulationRoom();
 
     GLViewport *m_viewport;
     QList<SceneObject> m_objects;
     int m_nextId = 1;
+    int m_nextGroupId = 1;
 
     // Side panel widgets
     QListWidget *m_objectList;
@@ -278,7 +310,6 @@ private:
 
     // Toolbar
     QPushButton *m_btnSelect, *m_btnMove, *m_btnRotate, *m_btnScale;
-    QPushButton *m_btnPivot = nullptr;
     QCheckBox *m_gridCheck, *m_wireCheck = nullptr;
     QCheckBox *m_boundsCheck = nullptr;
     QComboBox *m_shadingCombo = nullptr;
@@ -286,6 +317,9 @@ private:
     QComboBox *m_snapMoveCombo = nullptr;
     QComboBox *m_snapRotateCombo = nullptr;
     QComboBox *m_snapScaleCombo = nullptr;
+    QPushButton *m_btnHideSelected = nullptr;
+    QPushButton *m_btnIsolateSelected = nullptr;
+    QPushButton *m_btnUnhideAll = nullptr;
 
     // Previous property values (used to compute position delta for multi-select)
     QVector3D m_prevPropPos, m_prevPropRot, m_prevPropScale;

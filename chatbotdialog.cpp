@@ -10,6 +10,7 @@
 #include <QRandomGenerator>
 #include <QVector>
 #include <QSet>
+#include <QHash>
 #include <QtGlobal>
 #include <QRegularExpression>
 #include <QPixmap>
@@ -17,6 +18,225 @@
 #include <QResizeEvent>
 #include <QMouseEvent>
 #include <QEvent>
+#include <QPainter>
+#include <QSvgRenderer>
+
+namespace {
+QString generateWord(int minSyllables = 2, int maxSyllables = 4)
+{
+    static const QString consonants = "bcdfghjklmnpqrstvwxyz";
+    static const QString vowels = "aeiou";
+
+    int syllables = QRandomGenerator::global()->bounded(minSyllables, maxSyllables + 1);
+    QString out;
+    for (int i = 0; i < syllables; ++i) {
+        out += consonants.at(QRandomGenerator::global()->bounded(consonants.size()));
+        out += vowels.at(QRandomGenerator::global()->bounded(vowels.size()));
+        if (QRandomGenerator::global()->bounded(100) < 35) {
+            out += consonants.at(QRandomGenerator::global()->bounded(consonants.size()));
+        }
+    }
+    if (!out.isEmpty()) out[0] = out[0].toUpper();
+    return out;
+}
+
+QString generatePhoneLike()
+{
+    return QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
+}
+
+QString generateEmailLike(const QString &leftA, const QString &leftB, int seed, const QString &domain)
+{
+    QString a = leftA.toLower();
+    QString b = leftB.toLower();
+    a.remove(' ');
+    b.remove(' ');
+    return QString("%1.%2%3@%4").arg(a, b, QString::number(seed), domain);
+}
+
+QString generateTunisiaAddress()
+{
+    static const QStringList streets = {
+        "Avenue Habib Bourguiba", "Avenue Mohamed V", "Rue de Marseille", "Rue d'Alger",
+        "Rue de Palestine", "Avenue de la Liberte", "Avenue de Carthage", "Rue Ibn Khaldoun",
+        "Avenue Hedi Chaker", "Rue du Lac", "Avenue Taieb Mhiri", "Rue de l'Independance"
+    };
+    static const QStringList tunisiaCities = {
+        "Tunis", "Ariana", "Ben Arous", "Manouba", "Nabeul", "Sousse", "Monastir",
+        "Mahdia", "Sfax", "Kairouan", "Bizerte", "Beja", "Jendouba", "Le Kef",
+        "Siliana", "Kasserine", "Sidi Bouzid", "Gabes", "Medenine", "Tozeur", "Kebili",
+        "Gafsa", "Zaghouan", "Tataouine"
+    };
+    return QString("%1, %2, Tunisia")
+        .arg(QString("%1 %2")
+                 .arg(QRandomGenerator::global()->bounded(1, 260))
+                 .arg(streets.at(QRandomGenerator::global()->bounded(streets.size()))))
+        .arg(tunisiaCities.at(QRandomGenerator::global()->bounded(tunisiaCities.size())));
+}
+
+QString generateTunisianFirstName()
+{
+    static const QStringList firstNames = {
+        "Mohamed", "Ahmed", "Yassine", "Amine", "Sami", "Walid", "Karim", "Fares", "Aymen", "Nader",
+        "Ines", "Sarra", "Amira", "Meriem", "Rania", "Nour", "Asma", "Lina", "Yasmine", "Wafa"
+    };
+    return firstNames.at(QRandomGenerator::global()->bounded(firstNames.size()));
+}
+
+QString generateTunisianLastName()
+{
+    static const QStringList lastNames = {
+        "Ben Ali", "Trabelsi", "Mansour", "Gharbi", "Jaziri", "Ayari", "Mejri", "Kefi", "Chaari", "Bouazizi",
+        "Ben Salem", "Boussetta", "Sfaxi", "Mabrouk", "Haddad", "Cherif", "Khalfallah", "Dhaouadi", "Zribi", "Dridi"
+    };
+    return lastNames.at(QRandomGenerator::global()->bounded(lastNames.size()));
+}
+
+int getColumnMaxLength(const QString &tableName, const QString &columnName)
+{
+    static QHash<QString, int> cache;
+    const QString key = tableName.toUpper() + "." + columnName.toUpper();
+    if (cache.contains(key)) {
+        return cache.value(key);
+    }
+
+    QSqlQuery q;
+    q.prepare("SELECT NVL(CHAR_COL_DECL_LENGTH, DATA_LENGTH) "
+              "FROM USER_TAB_COLUMNS "
+              "WHERE TABLE_NAME = :tableName AND COLUMN_NAME = :columnName");
+    q.bindValue(":tableName", tableName.toUpper());
+    q.bindValue(":columnName", columnName.toUpper());
+
+    int maxLen = 0;
+    if (q.exec() && q.next()) {
+        maxLen = q.value(0).toInt();
+    }
+    cache.insert(key, maxLen);
+    return maxLen;
+}
+
+QString fitToColumn(const QString &tableName, const QString &columnName, const QString &value)
+{
+    const int maxLen = getColumnMaxLength(tableName, columnName);
+    if (maxLen <= 0 || value.size() <= maxLen) {
+        return value;
+    }
+    return value.left(maxLen);
+}
+
+QStringList fetchDistinctTextColumn(const QString &tableName, const QString &columnName)
+{
+    static const QRegularExpression identRx("^[A-Z0-9_]+$", QRegularExpression::CaseInsensitiveOption);
+    if (!identRx.match(tableName).hasMatch() || !identRx.match(columnName).hasMatch()) {
+        return {};
+    }
+
+    QSqlQuery q;
+    QString sql = QString("SELECT DISTINCT %1 FROM %2 WHERE %1 IS NOT NULL FETCH FIRST 200 ROWS ONLY")
+                      .arg(columnName, tableName);
+    QStringList out;
+    if (q.exec(sql)) {
+        while (q.next()) {
+            const QString v = q.value(0).toString().trimmed();
+            if (!v.isEmpty()) out << v;
+        }
+    }
+    return out;
+}
+
+QSet<QString> fetchUsedUpperValues(const QString &tableName, const QString &columnName)
+{
+    static const QRegularExpression identRx("^[A-Z0-9_]+$", QRegularExpression::CaseInsensitiveOption);
+    QSet<QString> used;
+    if (!identRx.match(tableName).hasMatch() || !identRx.match(columnName).hasMatch()) {
+        return used;
+    }
+
+    QSqlQuery q;
+    const QString sql = QString("SELECT %1 FROM %2 WHERE %1 IS NOT NULL")
+                            .arg(columnName, tableName);
+    if (q.exec(sql)) {
+        while (q.next()) {
+            const QString v = q.value(0).toString().trimmed();
+            if (!v.isEmpty()) {
+                used.insert(v.toUpper());
+            }
+        }
+    }
+    return used;
+}
+
+QString uniqueValueWithFallback(const QString &tableName,
+                                const QString &columnName,
+                                QSet<QString> &usedUpper,
+                                const std::function<QString()> &generator,
+                                const QString &fallbackSeed)
+{
+    for (int i = 0; i < 12; ++i) {
+        const QString candidate = fitToColumn(tableName, columnName, generator());
+        const QString key = candidate.trimmed().toUpper();
+        if (!candidate.trimmed().isEmpty() && !usedUpper.contains(key)) {
+            usedUpper.insert(key);
+            return candidate;
+        }
+    }
+
+    QString fallback = fitToColumn(tableName, columnName, fallbackSeed);
+    if (fallback.trimmed().isEmpty()) {
+        fallback = fitToColumn(tableName, columnName, QString("X%1").arg(QRandomGenerator::global()->bounded(10000, 99999)));
+    }
+    QString key = fallback.trimmed().toUpper();
+    int suffix = 1;
+    while (usedUpper.contains(key)) {
+        fallback = fitToColumn(tableName, columnName, QString("%1%2").arg(fallback.left(qMax(1, fallback.size() - 3))).arg(suffix++));
+        key = fallback.trimmed().toUpper();
+    }
+    usedUpper.insert(key);
+    return fallback;
+}
+
+QString pickRandomFrom(const QStringList &values, const QString &fallback)
+{
+    if (values.isEmpty()) return fallback;
+    return values.at(QRandomGenerator::global()->bounded(values.size()));
+}
+
+QPixmap buildGuideSpritePixmap(int width, int height)
+{
+    QPixmap pix(width, height);
+    pix.fill(Qt::transparent);
+
+    QSvgRenderer renderer(QStringLiteral(":/assets/guide_normal.svg"));
+    if (renderer.isValid()) {
+        QPainter p(&pix);
+        renderer.render(&p);
+        return pix;
+    }
+
+    // Fallback placeholder if SVG cannot be rendered at runtime.
+    QPainter p(&pix);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setBrush(QColor("#d4a96a"));
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(0, 0, width, height);
+    return pix;
+}
+
+QPixmap buildGuideSpritePixmapFromPath(const QString &path, int width, int height)
+{
+    QPixmap pix(width, height);
+    pix.fill(Qt::transparent);
+
+    QSvgRenderer renderer(path);
+    if (renderer.isValid()) {
+        QPainter p(&pix);
+        renderer.render(&p);
+        return pix;
+    }
+
+    return buildGuideSpritePixmap(width, height);
+}
+}
 
 ChatBotDialog::ChatBotDialog(QWidget *parent, bool isWeatherBot)
     : QDialog(parent),
@@ -31,12 +251,13 @@ ChatBotDialog::ChatBotDialog(QWidget *parent, bool isWeatherBot)
     imageModel = "";
     retryCount = 0;
     rateLimitRetries = 0;
+    sqlRetryCount = 0;
 
     // Fallback model list — prefer OpenRouter auto-routing first.
     modelList << "openrouter/auto"
               << "meta-llama/llama-3.1-8b-instruct:free"
               << "mistralai/mistral-7b-instruct:free"
-              << "google/gemma-2-9b-it:free";
+              << "openrouter/free";
 
     // Seed conversation with system prompt
     QJsonObject systemMsg;
@@ -130,8 +351,61 @@ void ChatBotDialog::setupUI()
     chatLayout = new QVBoxLayout(chatContainer);
     chatLayout->setContentsMargins(12, 12, 12, 12);
     chatLayout->setSpacing(8);
+
+    guideSpriteSpacer = new QWidget(chatContainer);
+    guideSpriteSpacer->setObjectName("chatGuideSpriteSpacer");
+    guideSpriteSpacer->setFixedHeight(0);
+    guideSpriteSpacer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    chatLayout->addWidget(guideSpriteSpacer);
+
     chatLayout->addStretch();
     scrollArea->setWidget(chatContainer);
+
+    guideSpriteLabel = new QLabel(scrollArea->viewport());
+    guideSpriteLabel->setObjectName("chatGuideSprite");
+    guideSpriteLabel->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    guideSpriteLabel->setStyleSheet("background: transparent; border: none;");
+    guideSpriteNormalPix = buildGuideSpritePixmapFromPath(QStringLiteral(":/assets/guide_normal.svg"), 96, 128);
+    guideSpriteThinkingPix = buildGuideSpritePixmapFromPath(QStringLiteral(":/assets/guide_confused.svg"), 96, 128);
+    guideSpriteRespondingPix = buildGuideSpritePixmapFromPath(QStringLiteral(":/assets/guide_excited.svg"), 96, 128);
+    guideSpriteLabel->setPixmap(guideSpriteNormalPix);
+    guideSpriteLabel->setFixedSize(guideSpriteNormalPix.size());
+    guideSpriteLabel->hide();
+
+    guideSpriteTimer = new QTimer(this);
+    connect(guideSpriteTimer, &QTimer::timeout, this, [this]() {
+        if (!m_guideSpriteVisible || !guideSpriteLabel) {
+            return;
+        }
+
+        switch (guideSpriteState) {
+        case GuideSpriteState::Idle:
+            guideSpriteLabel->setPixmap(guideSpriteNormalPix);
+            guideSpriteYOffset = (guideSpriteAnimStep % 2 == 0) ? 0 : 1;
+            guideSpriteAnimStep++;
+            break;
+        case GuideSpriteState::Thinking:
+            guideSpriteLabel->setPixmap((guideSpriteAnimStep % 2 == 0) ? guideSpriteThinkingPix : guideSpriteNormalPix);
+            guideSpriteYOffset = (guideSpriteAnimStep % 2 == 0) ? 0 : 1;
+            guideSpriteAnimStep++;
+            break;
+        case GuideSpriteState::Responding:
+            guideSpriteLabel->setPixmap((guideSpriteAnimStep % 2 == 0) ? guideSpriteRespondingPix : guideSpriteNormalPix);
+            guideSpriteYOffset = 0;
+            guideSpriteAnimStep++;
+            if (guideSpriteAnimStep >= 6) {
+                setGuideStateIdle();
+                return;
+            }
+            break;
+        case GuideSpriteState::Hidden:
+        default:
+            break;
+        }
+
+        updateGuideSpritePosition();
+        guideSpriteLabel->raise();
+    });
 
     // Typing Indicator
     typingIndicator = new QLabel("Assistant is typing...", mainFrame);
@@ -300,6 +574,83 @@ bool ChatBotDialog::eventFilter(QObject *watched, QEvent *event)
     return QDialog::eventFilter(watched, event);
 }
 
+void ChatBotDialog::setGuideSpriteVisible(bool visible)
+{
+    m_guideSpriteVisible = visible;
+    if (!guideSpriteLabel) {
+        return;
+    }
+
+    if (guideSpriteSpacer) {
+        guideSpriteSpacer->setFixedHeight(visible ? 136 : 0);
+        if (chatLayout) {
+            chatLayout->invalidate();
+        }
+    }
+
+    updateGuideSpritePosition();
+    guideSpriteLabel->setVisible(visible);
+    if (visible) {
+        setGuideStateIdle();
+        guideSpriteLabel->raise();
+    } else {
+        guideSpriteState = GuideSpriteState::Hidden;
+        guideSpriteTimer->stop();
+        guideSpriteLabel->setPixmap(guideSpriteNormalPix);
+    }
+}
+
+void ChatBotDialog::setGuideStateIdle()
+{
+    if (!m_guideSpriteVisible || !guideSpriteLabel) return;
+    guideSpriteState = GuideSpriteState::Idle;
+    guideSpriteAnimStep = 0;
+    guideSpriteYOffset = 0;
+    guideSpriteLabel->setPixmap(guideSpriteNormalPix);
+    updateGuideSpritePosition();
+    guideSpriteLabel->raise();
+    guideSpriteTimer->start(900);
+}
+
+void ChatBotDialog::setGuideStateThinking()
+{
+    if (!m_guideSpriteVisible || !guideSpriteLabel) return;
+    guideSpriteState = GuideSpriteState::Thinking;
+    guideSpriteAnimStep = 0;
+    guideSpriteYOffset = 0;
+    guideSpriteLabel->setPixmap(guideSpriteThinkingPix);
+    updateGuideSpritePosition();
+    guideSpriteLabel->raise();
+    guideSpriteTimer->start(280);
+}
+
+void ChatBotDialog::setGuideStateResponding()
+{
+    if (!m_guideSpriteVisible || !guideSpriteLabel) return;
+    guideSpriteState = GuideSpriteState::Responding;
+    guideSpriteAnimStep = 0;
+    guideSpriteYOffset = 0;
+    guideSpriteLabel->setPixmap(guideSpriteRespondingPix);
+    updateGuideSpritePosition();
+    guideSpriteLabel->raise();
+    guideSpriteTimer->start(180);
+}
+
+void ChatBotDialog::updateGuideSpritePosition()
+{
+    if (!scrollArea || !guideSpriteLabel) {
+        return;
+    }
+
+    const int margin = 10;
+    QRect vpRect = scrollArea->viewport()->rect();
+    int x = vpRect.right() - guideSpriteLabel->width() - margin;
+    int y = margin + guideSpriteYOffset;
+    x = qMax(margin, x);
+    y = qMax(margin, y);
+    guideSpriteLabel->move(x, y);
+}
+
 void ChatBotDialog::resizeEvent(QResizeEvent *event)
 {
     QDialog::resizeEvent(event);
@@ -308,6 +659,11 @@ void ChatBotDialog::resizeEvent(QResizeEvent *event)
         sizeGrip->move(width() - sizeGrip->width() - margin,
                        height() - sizeGrip->height() - margin);
         sizeGrip->raise();
+    }
+
+    updateGuideSpritePosition();
+    if (m_guideSpriteVisible && guideSpriteLabel) {
+        guideSpriteLabel->raise();
     }
 }
 
@@ -437,6 +793,7 @@ void ChatBotDialog::sendMessage()
     typingIndicator->setVisible(true);
     inputField->setEnabled(false);
     sendButton->setEnabled(false);
+    setGuideStateThinking();
 
     QString localResponse;
     if (handleLocalCommand(text, &localResponse)) {
@@ -444,6 +801,7 @@ void ChatBotDialog::sendMessage()
         inputField->setEnabled(true);
         sendButton->setEnabled(true);
         appendMessage(m_isWeatherBot ? "MeteoBot" : "Assistant", localResponse, false);
+        setGuideStateResponding();
         return;
     }
 
@@ -460,6 +818,7 @@ void ChatBotDialog::sendExternalMessage(const QString &text)
     typingIndicator->setVisible(true);
     inputField->setEnabled(false);
     sendButton->setEnabled(false);
+    setGuideStateThinking();
 
     QString localResponse;
     if (handleLocalCommand(text, &localResponse)) {
@@ -467,6 +826,7 @@ void ChatBotDialog::sendExternalMessage(const QString &text)
         inputField->setEnabled(true);
         sendButton->setEnabled(true);
         appendMessage(m_isWeatherBot ? "MeteoBot" : "Assistant", localResponse, false);
+        setGuideStateResponding();
         return;
     }
 
@@ -525,6 +885,37 @@ bool ChatBotDialog::handleLocalCommand(const QString &text, QString *responseOut
 
         int count = addRandomMatch.captured(1).toInt();
         QString entity = addRandomMatch.captured(2);
+
+        if (entity.startsWith("order")) {
+            *responseOut = handleAddRandomOrders(count);
+        } else if (entity.startsWith("employee")) {
+            *responseOut = handleAddRandomEmployees(count);
+        } else if (entity.startsWith("client")) {
+            *responseOut = handleAddRandomClients(count);
+        } else if (entity.startsWith("supplier")) {
+            *responseOut = handleAddRandomSuppliers(count);
+        } else {
+            *responseOut = handleAddRandomEquipment(count);
+        }
+        return true;
+    }
+
+    // Flexible phrasing support, e.g.:
+    // "add random things to clients management"
+    // "add random suppliers"
+    // "add 8 random records in employee management"
+    QRegularExpression addRandomFlexibleRx(
+        "^add\\s+(?:(\\d+)\\s+)?random\\s+(?:things|records|entries)?\\s*(?:to|in)?\\s*"
+        "(orders?|employees?|clients?|suppliers?|equipment|equipments|equipement|equipements)\\s*(?:management)?\\s*$");
+    QRegularExpressionMatch addRandomFlexibleMatch = addRandomFlexibleRx.match(lower);
+    if (addRandomFlexibleMatch.hasMatch()) {
+        if (!QSqlDatabase::database().isOpen()) {
+            *responseOut = "Database connection is not available. Please check your DB settings.";
+            return true;
+        }
+
+        int count = addRandomFlexibleMatch.captured(1).isEmpty() ? 5 : addRandomFlexibleMatch.captured(1).toInt();
+        QString entity = addRandomFlexibleMatch.captured(2);
 
         if (entity.startsWith("order")) {
             *responseOut = handleAddRandomOrders(count);
@@ -610,6 +1001,55 @@ bool ChatBotDialog::handleLocalCommand(const QString &text, QString *responseOut
         return true;
     }
 
+    QRegularExpression deleteRandomRx("^delete\\s+(\\d+)\\s+random\\s+(orders?|employees?|clients?|suppliers?|equipment|equipments|equipement|equipements)\\s*(now)?$");
+    QRegularExpressionMatch deleteRandomMatch = deleteRandomRx.match(lower);
+    if (deleteRandomMatch.hasMatch()) {
+        if (!QSqlDatabase::database().isOpen()) {
+            *responseOut = "Database connection is not available. Please check your DB settings.";
+            return true;
+        }
+
+        int count = deleteRandomMatch.captured(1).toInt();
+        if (count <= 0) {
+            *responseOut = "Please provide a positive number of rows to delete.";
+            return true;
+        }
+        if (count > 50) count = 50;
+
+        QString entity = deleteRandomMatch.captured(2);
+        QString tableName;
+        QString idColumn;
+
+        if (entity.startsWith("order")) {
+            tableName = "ORDERS";
+            idColumn = "ORDER_ID";
+        } else if (entity.startsWith("employee")) {
+            tableName = "EMPLOYEES";
+            idColumn = "EMPLOYEE_ID";
+        } else if (entity.startsWith("client")) {
+            tableName = "CLIENTS";
+            idColumn = "CLIENT_ID";
+        } else if (entity.startsWith("supplier")) {
+            tableName = "SUPPLIERS";
+            idColumn = "SUPPLIER_ID";
+        } else {
+            tableName = "EQUIPMENT";
+            idColumn = "EQUIPMENT_ID";
+        }
+
+        QString sql = QString(
+            "DELETE FROM %1 "
+            "WHERE %2 IN ("
+            "SELECT %2 FROM ("
+            "SELECT %2 FROM %1 ORDER BY DBMS_RANDOM.VALUE"
+            ") WHERE ROWNUM <= %3"
+            ")")
+            .arg(tableName, idColumn, QString::number(count));
+
+        *responseOut = executeSqlCommand(sql);
+        return true;
+    }
+
     return false;
 }
 
@@ -632,7 +1072,10 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
         return "Cannot add orders: CLIENTS or EMPLOYEES table is empty.";
     }
 
-    const QStringList orderTypes = {"Chair", "Table", "Cabinet", "Wardrobe", "Other"};
+    QStringList orderTypes = getAllowedColumnValues("ORDERS", "ORDER_TYPE");
+    if (orderTypes.isEmpty()) {
+        orderTypes = getDistinctColumnValues("ORDERS", "ORDER_TYPE");
+    }
     const QStringList orderStatuses = getAllowedColumnValues("ORDERS", "ORDER_STATUS");
     const QStringList paymentStatuses = getAllowedColumnValues("ORDERS", "PAYMENT_STATUS");
     if (orderStatuses.isEmpty() || paymentStatuses.isEmpty()) {
@@ -654,9 +1097,14 @@ QString ChatBotDialog::handleAddRandomOrders(int count)
     for (int i = 0; i < count; ++i) {
         int clientId = clientIds.at(QRandomGenerator::global()->bounded(clientIds.size()));
         int employeeId = employeeIds.at(QRandomGenerator::global()->bounded(employeeIds.size()));
-        QString type = orderTypes.at(QRandomGenerator::global()->bounded(orderTypes.size()));
+        QString type = orderTypes.isEmpty()
+                   ? QString("Item-%1").arg(generateWord(2, 3))
+                   : orderTypes.at(QRandomGenerator::global()->bounded(orderTypes.size()));
         QString status = orderStatuses.at(QRandomGenerator::global()->bounded(orderStatuses.size()));
         QString payment = paymentStatuses.at(QRandomGenerator::global()->bounded(paymentStatuses.size()));
+        type = fitToColumn("ORDERS", "ORDER_TYPE", type);
+        status = fitToColumn("ORDERS", "ORDER_STATUS", status);
+        payment = fitToColumn("ORDERS", "PAYMENT_STATUS", payment);
         int quantity = QRandomGenerator::global()->bounded(1, 51);
         double price = 50.0 + (QRandomGenerator::global()->generateDouble() * 1950.0);
 
@@ -853,33 +1301,44 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
     if (count <= 0) return "Please provide a positive number of employees to add.";
     if (count > 50) count = 50;
 
-    const QStringList firstNames = {"Adam", "Lina", "Sami", "Nour", "Youssef", "Maya", "Rami", "Salma"};
-    const QStringList lastNames = {"Ben Ali", "Trabelsi", "Mansour", "Haddad", "Gharbi", "Jaziri", "Ayari", "Kefi"};
-    const QStringList jobs = {"Carpenter", "Designer", "Technician", "Manager", "Installer"};
-    const QStringList departments = {"Production", "Design", "Operations", "Sales", "Maintenance"};
     const QStringList statuses = getAllowedColumnValues("EMPLOYEES", "EMPLOYEE_STATUS");
     if (statuses.isEmpty()) {
         return "Cannot add employees: no valid EMPLOYEE_STATUS values found in DB constraints/defaults/existing data.";
     }
 
+    QStringList firstNamePool = fetchDistinctTextColumn("EMPLOYEES", "FIRST_NAME") +
+                                fetchDistinctTextColumn("CLIENTS", "FIRST_NAME");
+    QStringList lastNamePool = fetchDistinctTextColumn("EMPLOYEES", "LAST_NAME") +
+                               fetchDistinctTextColumn("CLIENTS", "LAST_NAME");
+    QSet<QString> usedEmployeeEmails = fetchUsedUpperValues("EMPLOYEES", "EMAIL");
+    QSet<QString> usedEmployeePhones = fetchUsedUpperValues("EMPLOYEES", "PHONE_NUMBER");
+
     int nextId = getNextId("EMPLOYEES", "EMPLOYEE_ID");
 
     QSqlQuery insertQuery;
-    insertQuery.prepare("INSERT INTO EMPLOYEES (EMPLOYEE_ID, FIRST_NAME, LAST_NAME, JOB_TITLE, EMAIL, PHONE_NUMBER, SALARY, DEPARTMENT, AGE, EMPLOYEE_STATUS) "
-                        "VALUES (:id, :first, :last, :job, :email, :phone, :salary, :dept, :age, :status)");
+    insertQuery.prepare("INSERT INTO EMPLOYEES (EMPLOYEE_ID, FIRST_NAME, LAST_NAME, JOB_TITLE, EMAIL, PHONE_NUMBER, ADDRESS, SALARY, DEPARTMENT, AGE, EMPLOYEE_STATUS) "
+                        "VALUES (:id, :first, :last, :job, :email, :phone, :address, :salary, :dept, :age, :status)");
 
     int success = 0;
     QStringList errors;
     for (int i = 0; i < count; ++i) {
-        QString first = firstNames.at(QRandomGenerator::global()->bounded(firstNames.size()));
-        QString last = lastNames.at(QRandomGenerator::global()->bounded(lastNames.size()));
-        QString job = jobs.at(QRandomGenerator::global()->bounded(jobs.size()));
-        QString dept = departments.at(QRandomGenerator::global()->bounded(departments.size()));
+        QString first = fitToColumn("EMPLOYEES", "FIRST_NAME", pickRandomFrom(firstNamePool, generateTunisianFirstName()));
+        QString last = fitToColumn("EMPLOYEES", "LAST_NAME", pickRandomFrom(lastNamePool, generateTunisianLastName()));
+        QString job = fitToColumn("EMPLOYEES", "JOB_TITLE", QString("Role-%1").arg(generateWord(2, 3)));
+        QString dept = fitToColumn("EMPLOYEES", "DEPARTMENT", QString("Unit-%1").arg(generateWord(2, 3)));
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        status = fitToColumn("EMPLOYEES", "EMPLOYEE_STATUS", status);
         int age = QRandomGenerator::global()->bounded(20, 56);
         double salary = 1200.0 + (QRandomGenerator::global()->generateDouble() * 3800.0);
-        QString email = QString("%1.%2%3@hammerdown.tn").arg(first.toLower().remove(' '), last.toLower().remove(' '), QString::number(nextId));
-        QString phone = QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
+        QString email = uniqueValueWithFallback(
+            "EMPLOYEES", "EMAIL", usedEmployeeEmails,
+            [&]() { return generateEmailLike(first, last, nextId + QRandomGenerator::global()->bounded(1, 9999), "hammerdown.tn"); },
+            QString("employee%1@hammerdown.tn").arg(nextId));
+        QString phone = uniqueValueWithFallback(
+            "EMPLOYEES", "PHONE_NUMBER", usedEmployeePhones,
+            [&]() { return generatePhoneLike(); },
+            QString::number(80000000 + (nextId % 10000000)));
+        QString address = fitToColumn("EMPLOYEES", "ADDRESS", generateTunisiaAddress());
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -889,6 +1348,7 @@ QString ChatBotDialog::handleAddRandomEmployees(int count)
             insertQuery.bindValue(":job", job);
             insertQuery.bindValue(":email", email);
             insertQuery.bindValue(":phone", phone);
+            insertQuery.bindValue(":address", address);
             insertQuery.bindValue(":salary", salary);
             insertQuery.bindValue(":dept", dept);
             insertQuery.bindValue(":age", age);
@@ -925,14 +1385,29 @@ QString ChatBotDialog::handleAddRandomClients(int count)
     if (count <= 0) return "Please provide a positive number of clients to add.";
     if (count > 50) count = 50;
 
-    const QStringList firstNames = {"Hedi", "Amira", "Karim", "Sarra", "Walid", "Ines", "Fares", "Rania"};
-    const QStringList lastNames = {"Mabrouk", "Cherif", "Ben Salem", "Khalfallah", "Mejri", "Boussetta", "Chaari", "Sfaxi"};
-    const QStringList genders = {"Male", "Female"};
+    QStringList genders = getAllowedColumnValues("CLIENTS", "GENDER");
+    if (genders.isEmpty()) {
+        genders = getDistinctColumnValues("CLIENTS", "GENDER");
+    }
+    if (genders.isEmpty()) {
+        genders << "Male" << "Female";
+    }
     const QStringList statuses = getAllowedColumnValues("CLIENTS", "STATUS");
     if (statuses.isEmpty()) {
         return "Cannot add clients: no valid STATUS values found in DB constraints/defaults/existing data.";
     }
-    const QStringList streets = {"Avenue Habib Bourguiba", "Rue de Marseille", "Avenue de la Liberte", "Rue d'Alger"};
+
+    QStringList firstNamePool = fetchDistinctTextColumn("CLIENTS", "FIRST_NAME") +
+                                fetchDistinctTextColumn("EMPLOYEES", "FIRST_NAME");
+    QStringList lastNamePool = fetchDistinctTextColumn("CLIENTS", "LAST_NAME") +
+                               fetchDistinctTextColumn("EMPLOYEES", "LAST_NAME");
+    QSet<QString> usedClientEmails = fetchUsedUpperValues("CLIENTS", "EMAIL");
+    QSet<QString> usedClientPhones = fetchUsedUpperValues("CLIENTS", "PHONE_NUMBER");
+    QSet<QString> usedAddressKeys;
+    QSqlQuery usedAddressQuery("SELECT ADDRESS FROM CLIENTS WHERE ADDRESS IS NOT NULL");
+    while (usedAddressQuery.next()) {
+        usedAddressKeys.insert(usedAddressQuery.value(0).toString().trimmed().toUpper());
+    }
 
     int nextId = getNextId("CLIENTS", "CLIENT_ID");
 
@@ -943,15 +1418,36 @@ QString ChatBotDialog::handleAddRandomClients(int count)
     int success = 0;
     QStringList errors;
     for (int i = 0; i < count; ++i) {
-        QString first = firstNames.at(QRandomGenerator::global()->bounded(firstNames.size()));
-        QString last = lastNames.at(QRandomGenerator::global()->bounded(lastNames.size()));
+        QString first = fitToColumn("CLIENTS", "FIRST_NAME", pickRandomFrom(firstNamePool, generateTunisianFirstName()));
+        QString last = fitToColumn("CLIENTS", "LAST_NAME", pickRandomFrom(lastNamePool, generateTunisianLastName()));
         QString gender = genders.at(QRandomGenerator::global()->bounded(genders.size()));
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
-        QString address = QString("%1, Tunis").arg(streets.at(QRandomGenerator::global()->bounded(streets.size())));
+        gender = fitToColumn("CLIENTS", "GENDER", gender);
+        status = fitToColumn("CLIENTS", "STATUS", status);
+        QString address;
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            QString candidate = generateTunisiaAddress();
+            QString key = candidate.toUpper();
+            if (!usedAddressKeys.contains(key)) {
+                usedAddressKeys.insert(key);
+                address = candidate;
+                break;
+            }
+        }
+        if (address.isEmpty()) {
+            address = generateTunisiaAddress();
+        }
+                address = fitToColumn("CLIENTS", "ADDRESS", address);
         int age = QRandomGenerator::global()->bounded(21, 66);
         double balance = QRandomGenerator::global()->generateDouble() * 10000.0;
-        QString email = QString("%1.%2%3@client.tn").arg(first.toLower().remove(' '), last.toLower().remove(' '), QString::number(nextId));
-        QString phone = QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
+        QString email = uniqueValueWithFallback(
+            "CLIENTS", "EMAIL", usedClientEmails,
+            [&]() { return generateEmailLike(first, last, nextId + QRandomGenerator::global()->bounded(1, 9999), "client.tn"); },
+            QString("client%1@client.tn").arg(nextId));
+        QString phone = uniqueValueWithFallback(
+            "CLIENTS", "PHONE_NUMBER", usedClientPhones,
+            [&]() { return generatePhoneLike(); },
+            QString::number(90000000 + (nextId % 10000000)));
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -997,11 +1493,23 @@ QString ChatBotDialog::handleAddRandomSuppliers(int count)
     if (count <= 0) return "Please provide a positive number of suppliers to add.";
     if (count > 50) count = 50;
 
-    const QStringList prefixes = {"Atlas", "Nord", "Cedar", "Prime", "Delta", "Sahara", "Olive", "Nova"};
-    const QStringList suffixes = {"Wood", "Supply", "Materials", "Trade", "Systems", "Partners"};
     const QStringList statuses = getAllowedColumnValues("SUPPLIERS", "ACCOUNT_STATUS");
     if (statuses.isEmpty()) {
         return "Cannot add suppliers: no valid ACCOUNT_STATUS values found in DB constraints/defaults/existing data.";
+    }
+
+    QStringList nameSeedPool = fetchDistinctTextColumn("SUPPLIERS", "SUPPLIER_NAME") +
+                               fetchDistinctTextColumn("CLIENTS", "LAST_NAME") +
+                               fetchDistinctTextColumn("EMPLOYEES", "LAST_NAME");
+
+    QSet<QString> usedNameKeys;
+    QSet<QString> usedAddressKeys;
+    QSet<QString> usedSupplierEmails = fetchUsedUpperValues("SUPPLIERS", "EMAIL");
+    QSet<QString> usedSupplierPhones = fetchUsedUpperValues("SUPPLIERS", "PHONE_NUMBER");
+    QSqlQuery usedSupplierQuery("SELECT SUPPLIER_NAME, ADDRESS FROM SUPPLIERS");
+    while (usedSupplierQuery.next()) {
+        usedNameKeys.insert(usedSupplierQuery.value(0).toString().trimmed().toUpper());
+        usedAddressKeys.insert(usedSupplierQuery.value(1).toString().trimmed().toUpper());
     }
 
     int nextId = getNextId("SUPPLIERS", "SUPPLIER_ID");
@@ -1013,17 +1521,52 @@ QString ChatBotDialog::handleAddRandomSuppliers(int count)
     int success = 0;
     QStringList errors;
     for (int i = 0; i < count; ++i) {
-        QString name = QString("%1 %2").arg(prefixes.at(QRandomGenerator::global()->bounded(prefixes.size())),
-                                             suffixes.at(QRandomGenerator::global()->bounded(suffixes.size())));
+        QString name;
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            QString seed = pickRandomFrom(nameSeedPool, generateWord(2, 3));
+            seed = seed.split(' ').value(0);
+            QString candidate = QString("%1 %2").arg(seed, generateWord(2, 3));
+            QString key = candidate.toUpper();
+            if (!usedNameKeys.contains(key)) {
+                usedNameKeys.insert(key);
+                name = fitToColumn("SUPPLIERS", "SUPPLIER_NAME", candidate);
+                break;
+            }
+        }
+        if (name.isEmpty()) {
+            name = fitToColumn("SUPPLIERS", "SUPPLIER_NAME",
+                               QString("%1 %2").arg(generateWord(2, 3), QString::number(nextId)));
+        }
+
         QString normalizedName = name.toLower();
         normalizedName.replace(' ', '.');
-        QString email = QString("contact%1@%2.tn").arg(nextId).arg(normalizedName);
-        QString phone = QString::number(QRandomGenerator::global()->bounded(10000000, 100000000));
-        QString address = QString("Zone Industrielle %1, Tunis").arg(QRandomGenerator::global()->bounded(1, 25));
-        QString postal = QString::number(QRandomGenerator::global()->bounded(1000, 9999));
+        QString email = uniqueValueWithFallback(
+            "SUPPLIERS", "EMAIL", usedSupplierEmails,
+            [&]() { return QString("contact%1@%2.tn").arg(nextId + QRandomGenerator::global()->bounded(1, 9999)).arg(normalizedName); },
+            QString("contact%1@supplier.tn").arg(nextId));
+        QString phone = uniqueValueWithFallback(
+            "SUPPLIERS", "PHONE_NUMBER", usedSupplierPhones,
+            [&]() { return generatePhoneLike(); },
+            QString::number(70000000 + (nextId % 10000000)));
+        QString address;
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            QString candidate = generateTunisiaAddress();
+            QString key = candidate.toUpper();
+            if (!usedAddressKeys.contains(key)) {
+                usedAddressKeys.insert(key);
+                address = candidate;
+                break;
+            }
+        }
+        if (address.isEmpty()) {
+            address = generateTunisiaAddress();
+        }
+        address = fitToColumn("SUPPLIERS", "ADDRESS", address);
+        QString postal = fitToColumn("SUPPLIERS", "POSTAL_CODE", QString::number(QRandomGenerator::global()->bounded(1000, 9999)));
         double delivery = 2.5 + (QRandomGenerator::global()->generateDouble() * 2.5);
         double quality = 2.5 + (QRandomGenerator::global()->generateDouble() * 2.5);
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        status = fitToColumn("SUPPLIERS", "ACCOUNT_STATUS", status);
 
         bool inserted = false;
         for (int attempt = 0; attempt < 3 && !inserted; ++attempt) {
@@ -1077,12 +1620,11 @@ QString ChatBotDialog::handleAddRandomEquipment(int count)
         return "Cannot add equipment: EMPLOYEES table is empty (RESPONSABLE is required).";
     }
 
-    const QStringList types = {"Drill", "Saw", "Sander", "Compressor", "Workstation", "Safety Kit"};
+    QStringList types = getDistinctColumnValues("EQUIPMENT", "EQUIPMENT_TYPE");
     const QStringList statuses = getAllowedColumnValues("EQUIPMENT", "STATUS");
     if (statuses.isEmpty()) {
         return "Cannot add equipment: no valid STATUS values found in DB constraints/defaults/existing data.";
     }
-    const QStringList locations = {"Warehouse A", "Warehouse B", "Workshop 1", "Workshop 2", "Site Storage"};
 
     int nextId = getNextId("EQUIPMENT", "EQUIPMENT_ID");
 
@@ -1093,13 +1635,19 @@ QString ChatBotDialog::handleAddRandomEquipment(int count)
     int success = 0;
     QStringList errors;
     for (int i = 0; i < count; ++i) {
-        QString type = types.at(QRandomGenerator::global()->bounded(types.size()));
+        QString type = types.isEmpty()
+                           ? QString("Tool-%1").arg(generateWord(2, 3))
+                           : types.at(QRandomGenerator::global()->bounded(types.size()));
         QString status = statuses.at(QRandomGenerator::global()->bounded(statuses.size()));
+        type = fitToColumn("EQUIPMENT", "EQUIPMENT_TYPE", type);
+        status = fitToColumn("EQUIPMENT", "STATUS", status);
         int qty = QRandomGenerator::global()->bounded(1, 31);
         double unitPrice = 80.0 + (QRandomGenerator::global()->generateDouble() * 2920.0);
         double cout = unitPrice * qty;
-        QString description = QString("%1 for carpentry operations").arg(type);
-        QString location = locations.at(QRandomGenerator::global()->bounded(locations.size()));
+        QString description = fitToColumn("EQUIPMENT", "DESCRIPTION", QString("%1 for %2 operations").arg(type, generateWord(2, 3).toLower()));
+        QString location = fitToColumn("EQUIPMENT", "LOCATION", QString("Dock %1 - Zone %2")
+                               .arg(QRandomGenerator::global()->bounded(1, 30))
+                       .arg(generateWord(2, 3)));
         int responsable = employeeIds.at(QRandomGenerator::global()->bounded(employeeIds.size()));
 
         bool inserted = false;
@@ -1209,32 +1757,142 @@ Your mission is to provide expert advice on how weather conditions (Temperature,
 )";
     }
 
-    QString base = R"(You are "HammerDown AI Assistant" — a professional enterprise intelligence agent.
-You provide precise, data-driven insights. You have FULL access to the database.
+    QString base = R"(You are "HammerDown AI Assistant" for a Tunisian carpentry company. You have FULL database access.
 
-DATABASE SCHEMA:
-- EMPLOYEES(EMPLOYEE_ID NUMBER PK, FIRST_NAME, LAST_NAME, JOB_TITLE, EMAIL, PHONE_NUMBER, SALARY NUMBER(12,2), DEPARTMENT, AGE NUMBER, EMPLOYEE_STATUS)
-- CLIENTS(CLIENT_ID NUMBER PK, FIRST_NAME, LAST_NAME, EMAIL, PHONE_NUMBER, ADDRESS, GENDER, AGE NUMBER, ACCOUNT_BALANCE NUMBER(15,2), STATUS)
-- ORDERS(ORDER_ID NUMBER PK, CLIENT_ID FK, EMPLOYEE_ID FK, ORDER_TYPE, ORDER_STATUS, TOTAL_QUANTITY NUMBER, TOTAL_PRICE NUMBER(15,2), PAYMENT_STATUS)
-- EQUIPMENT(EQUIPMENT_ID NUMBER PK, EQUIPMENT_TYPE, QUANTITY NUMBER, UNIT_PRICE NUMBER(12,2), STATUS, DESCRIPTION, LOCATION, NOTES, NEXT_MAINTENANCE DATE, COUT_ACQUISITION NUMBER(12,2), RESPONSABLE)
-- SUPPLIERS(SUPPLIER_ID NUMBER PK, SUPPLIER_NAME, EMAIL, PHONE_NUMBER, ADDRESS, POSTAL_CODE, DELIVERY_RATING NUMBER(3,2), QUALITY_RATING NUMBER(3,2), ACCOUNT_STATUS)
+CRITICAL RULES FOR SQL OUTPUT:
+- When you need to run SQL, put EXACTLY ONE valid Oracle SQL statement inside [EXECUTE_SQL]...[/EXECUTE_SQL] tags.
+- Inside [EXECUTE_SQL] tags: ONLY pure SQL. NO text, NO comments, NO explanations, NO markdown, NO alternatives, NO "OR", NO dashes.
+- NEVER put multiple statements or options inside one [EXECUTE_SQL] block.
+- If you want to explain something, write it OUTSIDE the tags, BEFORE or AFTER them.
+- The SQL MUST be a single complete valid Oracle SQL statement that can execute directly.
+- Do NOT use semicolons inside the tags.
+- Do NOT use FETCH FIRST syntax. Use ROWNUM for limiting rows.
 
-You can INSERT, UPDATE, DELETE, or SELECT data. When the user asks you to add, modify, remove, or read records, output the SQL inside [EXECUTE_SQL]...[/EXECUTE_SQL] tags. Rules:
-- Use Oracle SQL syntax.
-- SQL inside each [EXECUTE_SQL] tag must be exactly one plain statement (no multi-statement batches, no extra prose, no comments).
-- Do NOT chain statements with semicolons. A single optional trailing semicolon is fine.
-- Multiline formatting is allowed; line breaks do not make it multiple statements.
-- Prefer one [EXECUTE_SQL] block that fully solves the user request.
-- Only operate on these tables: EMPLOYEES, CLIENTS, ORDERS, EQUIPMENT, SUPPLIERS.
-- For INSERT: respect DB constraints (NOT NULL, CHECK, FK, UNIQUE), include all required columns, and never set required columns to NULL.
-- For ORDERS.ORDER_TYPE: use only these exact values: Chair, Table, Cabinet, Wardrobe, Other.
-- For SUPPLIERS.PHONE_NUMBER: store exactly 8 digits (e.g. '12345678'), without country code prefix like +216.
-- For INSERT: use the next available ID or let the sequence/trigger handle it.
-- Always keep SQL valid and directly executable.
-- For requests like deleting/updating N random rows, do it in one statement with a subquery, e.g. [EXECUTE_SQL]DELETE FROM ORDERS WHERE ORDER_ID IN (SELECT ORDER_ID FROM (SELECT ORDER_ID FROM ORDERS ORDER BY DBMS_RANDOM.VALUE) WHERE ROWNUM <= 5)[/EXECUTE_SQL]
-- Example: [EXECUTE_SQL]INSERT INTO EMPLOYEES (FIRST_NAME, LAST_NAME, JOB_TITLE) VALUES ('John', 'Smith', 'Blacksmith')[/EXECUTE_SQL] Employee added.
- - For reading data, use SELECT queries inside [EXECUTE_SQL]...[/EXECUTE_SQL] tags, and keep results small (limit rows).
- - NEVER use DROP, TRUNCATE, ALTER, CREATE, GRANT, REVOKE, RENAME, BEGIN/DECLARE blocks, or any DDL/PLSQL commands. Only SELECT/INSERT/UPDATE/DELETE are allowed.)";
+DATABASE TABLES (Oracle) — columns marked [NN] are NOT NULL, [DEF=x] have defaults:
+
+EMPLOYEES(EMPLOYEE_ID PK, FIRST_NAME [NN], LAST_NAME [NN], JOB_TITLE, EMAIL, PHONE_NUMBER, SALARY, PASSWORD, DEPARTMENT, AGE, HIRE_DATE [DEF=SYSDATE], EMPLOYEE_STATUS [DEF='Active'], ADDRESS [NN])
+CLIENTS(CLIENT_ID PK, FIRST_NAME [NN], LAST_NAME [NN], EMAIL [UNIQUE], PHONE_NUMBER, ADDRESS, GENDER, AGE, ACCOUNT_BALANCE [DEF=0], REGISTRATION_DATE [DEF=SYSDATE], STATUS [DEF='Active'], ASSIGNED_EMPLOYEE_ID FK)
+ORDERS(ORDER_ID PK, CLIENT_ID [NN] FK→CLIENTS, EMPLOYEE_ID [NN] FK→EMPLOYEES, ORDER_DATE [DEF=SYSDATE], ORDER_TYPE, ORDER_STATUS [DEF='Pending'], TOTAL_QUANTITY [DEF=0], TOTAL_PRICE [DEF=0], PAYMENT_STATUS [DEF='Unpaid'])
+EQUIPMENT(EQUIPMENT_ID PK, EQUIPMENT_TYPE [NN], QUANTITY [DEF=0], UNIT_PRICE, STATUS [DEF='Available'], DESCRIPTION, EMPLOYEE_ID FK→EMPLOYEES, PURCHASE_DATE, LOCATION, NOTES, NEXT_MAINTENANCE, COUT_ACQUISITION, RESPONSABLE)
+SUPPLIERS(SUPPLIER_ID PK, SUPPLIER_NAME [NN], EMAIL [UNIQUE], PHONE_NUMBER, ADDRESS, POSTAL_CODE, DELIVERY_RATING, QUALITY_RATING, ACCOUNT_STATUS [DEF='Active'])
+
+EXACT ALLOWED VALUES (CHECK constraints — use EXACTLY these, case-sensitive):
+- EMPLOYEE_STATUS: ONLY 'Active', 'Inactive', 'On Leave' (NOT 'Terminated')
+- CLIENTS.STATUS: ONLY 'Active', 'Inactive', 'Suspended'
+- CLIENTS.GENDER: ONLY 'Male', 'Female', 'Other'
+- ORDER_TYPE: ONLY 'Chair', 'Wardrobe', 'Cabinet', 'Table', 'Other'
+- ORDER_STATUS: ONLY 'Pending', 'Processing', 'Completed', 'Cancelled'
+- PAYMENT_STATUS: ONLY 'Unpaid', 'Partial', 'Paid'
+- EQUIPMENT.STATUS: ONLY 'Available', 'In Use', 'Under Maintenance', 'Retired'
+- SUPPLIERS.ACCOUNT_STATUS: ONLY 'Active', 'Inactive', 'Suspended'
+
+TUNISIAN DATA RULES:
+- FIRST_NAME must be from: Mohamed, Ahmed, Yassine, Amine, Sami, Walid, Karim, Fares, Aymen, Nader, Ines, Sarra, Amira, Meriem, Rania, Nour, Asma, Lina, Yasmine, Wafa, Ali, Hedi, Slim, Lotfi, Habib, Fatma, Salma, Dorra, Mariem, Olfa
+- LAST_NAME must be from: Ben Ali, Trabelsi, Mansour, Gharbi, Jaziri, Ayari, Mejri, Kefi, Chaari, Bouazizi, Ben Salem, Boussetta, Sfaxi, Mabrouk, Haddad, Cherif, Khalfallah, Dhaouadi, Zribi, Dridi, Ben Amor, Souissi, Hamdi, Bouzid, Jebali
+- PHONE_NUMBER: exactly 8 digits, no country code. Example: '20123456'
+- ADDRESS: Tunisian format. Example: '10 Avenue Habib Bourguiba, Tunis, Tunisia'
+- EMAIL: use .tn domain
+- For new IDs use: (SELECT NVL(MAX(ID_COL),0)+1 FROM TABLE)
+
+CORRECT INSERT EXAMPLES:
+- New employee: [EXECUTE_SQL]INSERT INTO EMPLOYEES (EMPLOYEE_ID, FIRST_NAME, LAST_NAME, JOB_TITLE, EMAIL, PHONE_NUMBER, SALARY, DEPARTMENT, AGE, EMPLOYEE_STATUS, ADDRESS) VALUES ((SELECT NVL(MAX(EMPLOYEE_ID),0)+1 FROM EMPLOYEES), 'Mohamed', 'Trabelsi', 'Carpenter', 'mohamed.trabelsi@hammerdown.tn', '20123456', 2500, 'Production', 30, 'Active', '10 Avenue Habib Bourguiba, Tunis, Tunisia')[/EXECUTE_SQL]
+- New client: [EXECUTE_SQL]INSERT INTO CLIENTS (CLIENT_ID, FIRST_NAME, LAST_NAME, EMAIL, PHONE_NUMBER, ADDRESS, GENDER, AGE, ACCOUNT_BALANCE, STATUS) VALUES ((SELECT NVL(MAX(CLIENT_ID),0)+1 FROM CLIENTS), 'Ines', 'Mejri', 'ines.mejri@client.tn', '55123456', '5 Rue de Marseille, Sfax, Tunisia', 'Female', 28, 0, 'Active')[/EXECUTE_SQL]
+- New order: [EXECUTE_SQL]INSERT INTO ORDERS (ORDER_ID, CLIENT_ID, EMPLOYEE_ID, ORDER_TYPE, ORDER_STATUS, TOTAL_QUANTITY, TOTAL_PRICE, PAYMENT_STATUS) VALUES ((SELECT NVL(MAX(ORDER_ID),0)+1 FROM ORDERS), 1, 1, 'Chair', 'Pending', 5, 500, 'Unpaid')[/EXECUTE_SQL]
+- New equipment: [EXECUTE_SQL]INSERT INTO EQUIPMENT (EQUIPMENT_ID, EQUIPMENT_TYPE, QUANTITY, UNIT_PRICE, STATUS, DESCRIPTION, LOCATION, RESPONSABLE, COUT_ACQUISITION) VALUES ((SELECT NVL(MAX(EQUIPMENT_ID),0)+1 FROM EQUIPMENT), 'Table Saw', 2, 1500, 'Available', 'Industrial table saw', 'Workshop A', 'Mohamed Trabelsi', 3000)[/EXECUTE_SQL]
+- New supplier: [EXECUTE_SQL]INSERT INTO SUPPLIERS (SUPPLIER_ID, SUPPLIER_NAME, EMAIL, PHONE_NUMBER, ADDRESS, POSTAL_CODE, ACCOUNT_STATUS) VALUES ((SELECT NVL(MAX(SUPPLIER_ID),0)+1 FROM SUPPLIERS), 'Bois Tunisie SARL', 'contact@boistunisie.tn', '71234567', '20 Avenue de Carthage, Tunis, Tunisia', '1000', 'Active')[/EXECUTE_SQL]
+
+CORRECT SELECT EXAMPLES:
+- Show employees: [EXECUTE_SQL]SELECT * FROM (SELECT * FROM EMPLOYEES ORDER BY EMPLOYEE_ID) WHERE ROWNUM <= 20[/EXECUTE_SQL]
+- Show orders: [EXECUTE_SQL]SELECT * FROM (SELECT * FROM ORDERS ORDER BY ORDER_ID) WHERE ROWNUM <= 20[/EXECUTE_SQL]
+
+CORRECT UPDATE/DELETE EXAMPLES:
+- Update order status: [EXECUTE_SQL]UPDATE ORDERS SET ORDER_STATUS = 'Completed' WHERE ORDER_ID = 10[/EXECUTE_SQL]
+- Delete employee: [EXECUTE_SQL]DELETE FROM EMPLOYEES WHERE EMPLOYEE_ID = 5[/EXECUTE_SQL]
+
+FORBIDDEN: DROP, TRUNCATE, ALTER, CREATE, GRANT, REVOKE, RENAME, BEGIN, DECLARE. Only SELECT/INSERT/UPDATE/DELETE.)";
+
+    // Inject live database context so the AI knows what data exists
+    if (QSqlDatabase::database().isOpen()) {
+        QString liveContext = "\n\nLIVE DATABASE STATE (use these real values):";
+
+        // Employee IDs + names (for FK references)
+        QSqlQuery empQ;
+        if (empQ.exec("SELECT EMPLOYEE_ID, FIRST_NAME, LAST_NAME FROM (SELECT EMPLOYEE_ID, FIRST_NAME, LAST_NAME FROM EMPLOYEES ORDER BY EMPLOYEE_ID) WHERE ROWNUM <= 25")) {
+            QStringList empList;
+            while (empQ.next()) {
+                empList << QString("%1(%2 %3)").arg(empQ.value(0).toString(), empQ.value(1).toString(), empQ.value(2).toString());
+            }
+            if (!empList.isEmpty()) {
+                liveContext += "\nAvailable EMPLOYEE_IDs: " + empList.join(", ");
+            } else {
+                liveContext += "\nEMPLOYEES table is EMPTY.";
+            }
+        }
+
+        // Client IDs + names (for FK references)
+        QSqlQuery cliQ;
+        if (cliQ.exec("SELECT CLIENT_ID, FIRST_NAME, LAST_NAME FROM (SELECT CLIENT_ID, FIRST_NAME, LAST_NAME FROM CLIENTS ORDER BY CLIENT_ID) WHERE ROWNUM <= 25")) {
+            QStringList cliList;
+            while (cliQ.next()) {
+                cliList << QString("%1(%2 %3)").arg(cliQ.value(0).toString(), cliQ.value(1).toString(), cliQ.value(2).toString());
+            }
+            if (!cliList.isEmpty()) {
+                liveContext += "\nAvailable CLIENT_IDs: " + cliList.join(", ");
+            } else {
+                liveContext += "\nCLIENTS table is EMPTY.";
+            }
+        }
+
+        // Supplier IDs + names
+        QSqlQuery supQ;
+        if (supQ.exec("SELECT SUPPLIER_ID, SUPPLIER_NAME FROM (SELECT SUPPLIER_ID, SUPPLIER_NAME FROM SUPPLIERS ORDER BY SUPPLIER_ID) WHERE ROWNUM <= 25")) {
+            QStringList supList;
+            while (supQ.next()) {
+                supList << QString("%1(%2)").arg(supQ.value(0).toString(), supQ.value(1).toString());
+            }
+            if (!supList.isEmpty()) {
+                liveContext += "\nAvailable SUPPLIER_IDs: " + supList.join(", ");
+            } else {
+                liveContext += "\nSUPPLIERS table is EMPTY.";
+            }
+        }
+
+        // Equipment IDs
+        QSqlQuery eqQ;
+        if (eqQ.exec("SELECT EQUIPMENT_ID, EQUIPMENT_TYPE FROM (SELECT EQUIPMENT_ID, EQUIPMENT_TYPE FROM EQUIPMENT ORDER BY EQUIPMENT_ID) WHERE ROWNUM <= 25")) {
+            QStringList eqList;
+            while (eqQ.next()) {
+                eqList << QString("%1(%2)").arg(eqQ.value(0).toString(), eqQ.value(1).toString());
+            }
+            if (!eqList.isEmpty()) {
+                liveContext += "\nAvailable EQUIPMENT_IDs: " + eqList.join(", ");
+            } else {
+                liveContext += "\nEQUIPMENT table is EMPTY.";
+            }
+        }
+
+        // Row counts and next available IDs
+        QStringList tables = {"EMPLOYEES", "CLIENTS", "ORDERS", "EQUIPMENT", "SUPPLIERS"};
+        QStringList idCols = {"EMPLOYEE_ID", "CLIENT_ID", "ORDER_ID", "EQUIPMENT_ID", "SUPPLIER_ID"};
+        for (int i = 0; i < tables.size(); ++i) {
+            QSqlQuery countQ;
+            QString sql = QString("SELECT COUNT(*), NVL(MAX(%1),0)+1 FROM %2").arg(idCols[i], tables[i]);
+            if (countQ.exec(sql) && countQ.next()) {
+                liveContext += QString("\n%1: %2 rows, next ID = %3").arg(tables[i]).arg(countQ.value(0).toInt()).arg(countQ.value(1).toInt());
+            }
+        }
+
+        // Allowed ORDER_TYPE values from existing data
+        QSqlQuery otQ;
+        if (otQ.exec("SELECT DISTINCT ORDER_TYPE FROM ORDERS WHERE ORDER_TYPE IS NOT NULL")) {
+            QStringList types;
+            while (otQ.next()) types << otQ.value(0).toString();
+            if (!types.isEmpty())
+                liveContext += "\nExisting ORDER_TYPEs in use: " + types.join(", ");
+        }
+
+        base += liveContext;
+    }
 
     return base;
 }
@@ -1267,7 +1925,7 @@ void ChatBotDialog::trimConversationHistory(int maxNonSystemMessages)
     conversationHistory = trimmed;
 }
 
-void ChatBotDialog::callApi(const QString &userMessage)
+void ChatBotDialog::callApi(const QString &userMessage, bool isSystemRetry)
 {
     if (!userMessage.isEmpty()) {
         QJsonObject userMsg;
@@ -1277,6 +1935,9 @@ void ChatBotDialog::callApi(const QString &userMessage)
         pendingUserMessage = userMessage;
         retryCount = 0;
         rateLimitRetries = 0;
+        if (!isSystemRetry) {
+            sqlRetryCount = 0;
+        }
     } else if ((!pendingUserMessage.isEmpty() && conversationHistory.isEmpty()) || 
                (!conversationHistory.isEmpty() && conversationHistory.last().toObject()["role"].toString() != "user")) {
         // If we're retrying and the user message was popped off, re-add it
@@ -1284,6 +1945,20 @@ void ChatBotDialog::callApi(const QString &userMessage)
         userMsg["role"] = "user";
         userMsg["content"] = pendingUserMessage;
         conversationHistory.append(userMsg);
+    }
+
+    // Refresh the system prompt with live DB context before each API call.
+    // This ensures the AI always sees current table data (available IDs, counts, etc.).
+    if (!m_isWeatherBot) {
+        QString freshPrompt = buildSystemPrompt();
+        for (int i = 0; i < conversationHistory.size(); ++i) {
+            QJsonObject msg = conversationHistory[i].toObject();
+            if (msg["role"].toString() == "system") {
+                msg["content"] = freshPrompt;
+                conversationHistory[i] = msg;
+                break;
+            }
+        }
     }
 
     // Keep the payload small to speed up responses.
@@ -1359,6 +2034,7 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
         QString prompt = reply->property("prompt").toString();
         if (reply->error() != QNetworkReply::NoError) {
             appendMessage("Assistant", "Image request failed: " + reply->errorString(), false);
+            setGuideStateResponding();
             reply->deleteLater();
             return;
         }
@@ -1370,6 +2046,7 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
                 appendImageMessage("Assistant", pix, prompt, false);
             else
                 appendMessage("Assistant", "Image decode failed.", false);
+            setGuideStateResponding();
             reply->deleteLater();
             return;
         }
@@ -1446,6 +2123,8 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
             }
         }
 
+        setGuideStateResponding();
+
         reply->deleteLater();
         return;
     }
@@ -1462,6 +2141,7 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
         } else {
             appendMessage("Assistant", "Image download failed.", false);
         }
+        setGuideStateResponding();
         reply->deleteLater();
         return;
     }
@@ -1602,6 +2282,7 @@ void ChatBotDialog::onApiReplyFinished(QNetworkReply *reply)
     if (!m_isWeatherBot)
         responseText = processResponse(responseText);
     appendMessage(m_isWeatherBot ? "MeteoBot" : "Assistant", responseText, false);
+    setGuideStateResponding();
     reply->deleteLater();
 }
 
@@ -1614,11 +2295,55 @@ QString ChatBotDialog::processResponse(const QString &response)
         R"(\[\s*EXECUTE_SQL\s*\](.*?)\[\s*/\s*EXECUTE_SQL\s*\])",
         QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
 
+    QStringList successfulSqls;
     QRegularExpressionMatchIterator it = taggedRx.globalMatch(result);
     while (it.hasNext()) {
         QRegularExpressionMatch match = it.next();
         QString sql = match.captured(1).trimmed();
-        QString execResult = executeSqlCommand(sql);
+
+        // Sanitize: if AI put multiple alternatives or junk inside the tags, keep only the first valid SQL statement.
+        // Remove lines starting with "---", "OR", "-- ", or that are clearly not SQL.
+        QStringList sqlLines = sql.split('\n');
+        QStringList cleanLines;
+        bool foundSqlStart = false;
+        for (const QString &line : sqlLines) {
+            QString stripped = line.trimmed();
+            // Skip separator lines and "OR" alternatives
+            if (stripped.startsWith("---") || stripped.startsWith("===") ||
+                stripped.compare("OR", Qt::CaseInsensitive) == 0 ||
+                stripped.startsWith("-- OR") || stripped.startsWith("--OR")) {
+                if (foundSqlStart) break;  // Stop at separator after SQL started = AI gave alternatives
+                continue;
+            }
+            // Skip empty lines before SQL
+            if (stripped.isEmpty() && !foundSqlStart) continue;
+
+            // Check if this line starts actual SQL
+            QString upper = stripped.toUpper();
+            if (!foundSqlStart && (upper.startsWith("SELECT") || upper.startsWith("INSERT") ||
+                                    upper.startsWith("UPDATE") || upper.startsWith("DELETE"))) {
+                foundSqlStart = true;
+            }
+            if (foundSqlStart) {
+                cleanLines << line;
+            }
+        }
+        QString cleanSql = cleanLines.isEmpty() ? sql : cleanLines.join('\n').trimmed();
+
+        QString execResult = executeSqlCommand(cleanSql);
+        if ((execResult.startsWith("[Blocked:") || execResult.startsWith("[Error:")) && sqlRetryCount < 3) {
+            sqlRetryCount++;
+            QString msg = "Your previous SQL command failed with the following error:\n" +
+                          execResult + 
+                          "\nPlease review the database constraints, correct the SQL, and provide a new [EXECUTE_SQL] block without markdown.";
+            if (!successfulSqls.isEmpty()) {
+                msg += "\n\nNOTE: The following queries in your previous response were ALREADY SUCCESSFUL. Do NOT generate them again. Only provide the remaining queries and the corrected query:\n" + successfulSqls.join("\n");
+            }
+            QTimer::singleShot(100, this, [this, msg]() { callApi(msg, true); });
+            result.replace(match.captured(0), "⚙️ Correcting query based on constraints (Retry " + QString::number(sqlRetryCount) + "/3)...");
+            return result; // Stop processing further tags; wait for retry
+        }
+        successfulSqls.append(cleanSql);
         result.replace(match.captured(0), execResult);
     }
 
@@ -1629,6 +2354,18 @@ QString ChatBotDialog::processResponse(const QString &response)
     if (openOnlyMatch.hasMatch() && !result.contains(QRegularExpression(R"(\[\s*/\s*EXECUTE_SQL\s*\])", QRegularExpression::CaseInsensitiveOption))) {
         QString sql = openOnlyMatch.captured(1).trimmed();
         QString execResult = executeSqlCommand(sql);
+        if ((execResult.startsWith("[Blocked:") || execResult.startsWith("[Error:")) && sqlRetryCount < 3) {
+            sqlRetryCount++;
+            QString msg = "Your previous SQL command failed with the following error:\n" +
+                          execResult + 
+                          "\nPlease review the database constraints, correct the SQL, and provide a new [EXECUTE_SQL] block without markdown.";
+            if (!successfulSqls.isEmpty()) {
+                msg += "\n\nNOTE: The following queries in your previous response were ALREADY SUCCESSFUL. Do NOT generate them again. Only provide the remaining queries and the corrected query:\n" + successfulSqls.join("\n");
+            }
+            QTimer::singleShot(100, this, [this, msg]() { callApi(msg, true); });
+            result.replace(openOnlyMatch.captured(0), "⚙️ Correcting query based on constraints (Retry " + QString::number(sqlRetryCount) + "/3)...");
+            return result;
+        }
         result.replace(openOnlyMatch.captured(0), execResult);
     }
 
@@ -1649,6 +2386,19 @@ QString ChatBotDialog::executeSqlCommand(const QString &sql)
 
     if (trimmedSql.isEmpty()) {
         return "[Blocked: empty SQL command]";
+    }
+
+    // If AI includes explanatory prose in the SQL block, keep only the SQL
+    // statement starting at the first supported SQL keyword.
+    QRegularExpression firstSqlKeywordRx(
+        R"(\b(SELECT|INSERT|UPDATE|DELETE|DECLARE|BEGIN)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch keywordMatch = firstSqlKeywordRx.match(trimmedSql);
+    if (keywordMatch.hasMatch() && keywordMatch.capturedStart() > 0) {
+        QString prefix = trimmedSql.left(keywordMatch.capturedStart()).trimmed();
+        if (!prefix.isEmpty()) {
+            trimmedSql = trimmedSql.mid(keywordMatch.capturedStart()).trimmed();
+        }
     }
 
     // Normalize curly apostrophes to plain SQL apostrophes.
@@ -1861,6 +2611,94 @@ QString ChatBotDialog::executeSqlCommand(const QString &sql)
         }
     }
 
+    // --- Helper lambda to extract a quoted string value from a SQL expression ---
+    auto extractQuotedValue = [](const QString &expr) -> QString {
+        QString v = expr.trimmed();
+        if (v.startsWith('\'') && v.endsWith('\'') && v.size() >= 2) {
+            v = v.mid(1, v.size() - 2);
+            v.replace("''", "'");
+        }
+        return v;
+    };
+
+    // --- Helper lambda to split a top-level CSV (respecting quotes and parens) ---
+    auto splitTopLevelCsv = [](const QString &input) {
+        QStringList out;
+        QString current;
+        current.reserve(input.size());
+        bool inLiteral = false;
+        int parenDepth = 0;
+
+        for (int i = 0; i < input.size(); ++i) {
+            const QChar ch = input.at(i);
+
+            if (ch == '\'') {
+                current.append(ch);
+                if (inLiteral && i + 1 < input.size() && input.at(i + 1) == '\'') {
+                    current.append('\'');
+                    ++i;
+                    continue;
+                }
+                inLiteral = !inLiteral;
+                continue;
+            }
+
+            if (!inLiteral) {
+                if (ch == '(') {
+                    ++parenDepth;
+                } else if (ch == ')') {
+                    if (parenDepth > 0) --parenDepth;
+                } else if (ch == ',' && parenDepth == 0) {
+                    out << current.trimmed();
+                    current.clear();
+                    continue;
+                }
+            }
+
+            current.append(ch);
+        }
+
+        if (!current.trimmed().isEmpty()) {
+            out << current.trimmed();
+        }
+        return out;
+    };
+
+    // --- Tunisian validation constants (must match DB CHECK constraints exactly) ---
+    const QStringList allowedFirstNames = {
+        "Mohamed", "Ahmed", "Yassine", "Amine", "Sami", "Walid", "Karim", "Fares", "Aymen", "Nader",
+        "Ines", "Sarra", "Amira", "Meriem", "Rania", "Nour", "Asma", "Lina", "Yasmine", "Wafa",
+        "Ali", "Hedi", "Slim", "Lotfi", "Habib", "Fatma", "Salma", "Dorra", "Mariem", "Olfa"
+    };
+    const QStringList allowedLastNames = {
+        "Ben Ali", "Trabelsi", "Mansour", "Gharbi", "Jaziri", "Ayari", "Mejri", "Kefi", "Chaari", "Bouazizi",
+        "Ben Salem", "Boussetta", "Sfaxi", "Mabrouk", "Haddad", "Cherif", "Khalfallah", "Dhaouadi", "Zribi", "Dridi",
+        "Ben Amor", "Souissi", "Hamdi", "Bouzid", "Jebali"
+    };
+    const QStringList allowedOrderTypes = {"Chair", "Table", "Cabinet", "Wardrobe", "Other"};
+    const QStringList allowedOrderStatuses = {"Pending", "Processing", "Completed", "Cancelled"};
+    const QStringList allowedPaymentStatuses = {"Unpaid", "Partial", "Paid"};
+    const QStringList allowedEmployeeStatuses = {"Active", "Inactive", "On Leave"};
+    const QStringList allowedClientStatuses = {"Active", "Inactive", "Suspended"};
+    const QStringList allowedGenders = {"Male", "Female", "Other"};
+    const QStringList allowedEquipmentStatuses = {"Available", "In Use", "Under Maintenance", "Retired"};
+    const QStringList allowedSupplierStatuses = {"Active", "Inactive", "Suspended"};
+    const QRegularExpression phone8Rx("^\\d{8}$");
+
+    // --- Helper lambda: check if a value is in a list (case-insensitive) ---
+    auto isInList = [](const QString &value, const QStringList &list) -> bool {
+        for (const QString &item : list) {
+            if (value.compare(item, Qt::CaseInsensitive) == 0)
+                return true;
+        }
+        return false;
+    };
+
+    // --- Helper lambda: validate a phone number (8 digits) ---
+    auto validatePhone = [&phone8Rx](const QString &phone) -> bool {
+        return phone8Rx.match(phone).hasMatch();
+    };
+
     // Constraint-aware guard for AI-generated INSERT statements.
     if (isInsert && !isPlSqlBlock) {
         QRegularExpression insertValuesRx(
@@ -1874,48 +2712,6 @@ QString ChatBotDialog::executeSqlCommand(const QString &sql)
         QString insertTableName = insertMatch.captured(1).toUpper();
         QString columnsChunk = insertMatch.captured(2).trimmed();
         QString valuesChunk = insertMatch.captured(3).trimmed();
-
-        auto splitTopLevelCsv = [](const QString &input) {
-            QStringList out;
-            QString current;
-            current.reserve(input.size());
-            bool inLiteral = false;
-            int parenDepth = 0;
-
-            for (int i = 0; i < input.size(); ++i) {
-                const QChar ch = input.at(i);
-
-                if (ch == '\'') {
-                    current.append(ch);
-                    if (inLiteral && i + 1 < input.size() && input.at(i + 1) == '\'') {
-                        current.append('\'');
-                        ++i;
-                        continue;
-                    }
-                    inLiteral = !inLiteral;
-                    continue;
-                }
-
-                if (!inLiteral) {
-                    if (ch == '(') {
-                        ++parenDepth;
-                    } else if (ch == ')') {
-                        if (parenDepth > 0) --parenDepth;
-                    } else if (ch == ',' && parenDepth == 0) {
-                        out << current.trimmed();
-                        current.clear();
-                        continue;
-                    }
-                }
-
-                current.append(ch);
-            }
-
-            if (!current.trimmed().isEmpty()) {
-                out << current.trimmed();
-            }
-            return out;
-        };
 
         QStringList insertColumns = splitTopLevelCsv(columnsChunk);
         QStringList insertValues = splitTopLevelCsv(valuesChunk);
@@ -1963,42 +2759,210 @@ QString ChatBotDialog::executeSqlCommand(const QString &sql)
             }
         }
 
-        if (insertTableName == "ORDERS") {
-            const int typeIdx = insertColumns.indexOf("ORDER_TYPE");
-            if (typeIdx >= 0) {
-                QString typeExpr = insertValues.at(typeIdx).trimmed();
-                QString typeValue = typeExpr;
-                if (typeExpr.startsWith('\'') && typeExpr.endsWith('\'') && typeExpr.size() >= 2) {
-                    typeValue = typeExpr.mid(1, typeExpr.size() - 2);
-                    typeValue.replace("''", "'");
-                }
+        // Validate Tunisian first name
+        const int fnIdx = insertColumns.indexOf("FIRST_NAME");
+        if (fnIdx >= 0) {
+            QString fnValue = extractQuotedValue(insertValues.at(fnIdx));
+            if (!fnValue.isEmpty() && !isInList(fnValue, allowedFirstNames)) {
+                return "[Blocked: FIRST_NAME must be a Tunisian name. Allowed: Mohamed, Ahmed, Yassine, Amine, Sami, Walid, Karim, Fares, Ines, Sarra, Amira, Meriem, Rania, Nour, Asma, Yasmine, etc.]";
+            }
+        }
 
-                const QStringList allowedOrderTypes = {"Chair", "Table", "Cabinet", "Wardrobe", "Other"};
-                bool okType = false;
-                for (const QString &allowed : allowedOrderTypes) {
-                    if (typeValue.compare(allowed, Qt::CaseInsensitive) == 0) {
-                        okType = true;
-                        break;
-                    }
+        // Validate Tunisian last name
+        const int lnIdx = insertColumns.indexOf("LAST_NAME");
+        if (lnIdx >= 0) {
+            QString lnValue = extractQuotedValue(insertValues.at(lnIdx));
+            if (!lnValue.isEmpty() && !isInList(lnValue, allowedLastNames)) {
+                return "[Blocked: LAST_NAME must be a Tunisian family name. Allowed: Ben Ali, Trabelsi, Mansour, Gharbi, Jaziri, Ayari, Mejri, Kefi, Haddad, Cherif, Dridi, etc.]";
+            }
+        }
+
+        // Validate phone number (8 digits) on all tables
+        const int phoneIdx = insertColumns.indexOf("PHONE_NUMBER");
+        if (phoneIdx >= 0) {
+            QString phoneValue = extractQuotedValue(insertValues.at(phoneIdx));
+            if (!phoneValue.isEmpty() && !validatePhone(phoneValue)) {
+                return "[Blocked: PHONE_NUMBER must be exactly 8 digits (Tunisian format, no +216). Example: 20123456]";
+            }
+        }
+
+        // Validate GENDER (CLIENTS table)
+        if (insertTableName == "CLIENTS") {
+            const int genderIdx = insertColumns.indexOf("GENDER");
+            if (genderIdx >= 0) {
+                QString genderValue = extractQuotedValue(insertValues.at(genderIdx));
+                if (!genderValue.isEmpty() && !isInList(genderValue, allowedGenders)) {
+                    return "[Blocked: CLIENTS.GENDER must be one of Male, Female, Other]";
                 }
-                if (!okType) {
-                    return "[Blocked: ORDERS.ORDER_TYPE must be one of Chair, Table, Cabinet, Wardrobe, Other]";
+            }
+            const int cStatusIdx = insertColumns.indexOf("STATUS");
+            if (cStatusIdx >= 0) {
+                QString cStatusValue = extractQuotedValue(insertValues.at(cStatusIdx));
+                if (!cStatusValue.isEmpty() && !isInList(cStatusValue, allowedClientStatuses)) {
+                    return "[Blocked: CLIENTS.STATUS must be one of Active, Inactive, Suspended]";
                 }
             }
         }
 
-        if (insertTableName == "SUPPLIERS") {
-            const int phoneIdx = insertColumns.indexOf("PHONE_NUMBER");
-            if (phoneIdx >= 0) {
-                QString phoneExpr = insertValues.at(phoneIdx).trimmed();
-                QString phoneValue = phoneExpr;
-                if (phoneExpr.startsWith('\'') && phoneExpr.endsWith('\'') && phoneExpr.size() >= 2) {
-                    phoneValue = phoneExpr.mid(1, phoneExpr.size() - 2);
-                    phoneValue.replace("''", "'");
+        // Validate EMPLOYEE_STATUS (EMPLOYEES table)
+        if (insertTableName == "EMPLOYEES") {
+            const int empStatusIdx = insertColumns.indexOf("EMPLOYEE_STATUS");
+            if (empStatusIdx >= 0) {
+                QString empStatusValue = extractQuotedValue(insertValues.at(empStatusIdx));
+                if (!empStatusValue.isEmpty() && !isInList(empStatusValue, allowedEmployeeStatuses)) {
+                    return "[Blocked: EMPLOYEE_STATUS must be one of Active, Inactive, On Leave (NOT Terminated)]";
                 }
-                QRegularExpression phone8Rx("^\\d{8}$");
-                if (!phone8Rx.match(phoneValue).hasMatch()) {
-                    return "[Blocked: SUPPLIERS.PHONE_NUMBER must be exactly 8 digits without +216 (example: 12345678)]";
+            }
+        }
+
+        // Validate ORDER_TYPE, ORDER_STATUS, PAYMENT_STATUS (ORDERS table)
+        if (insertTableName == "ORDERS") {
+            const int typeIdx = insertColumns.indexOf("ORDER_TYPE");
+            if (typeIdx >= 0) {
+                QString typeValue = extractQuotedValue(insertValues.at(typeIdx));
+                if (!typeValue.isEmpty() && !isInList(typeValue, allowedOrderTypes)) {
+                    return "[Blocked: ORDERS.ORDER_TYPE must be one of Chair, Table, Cabinet, Wardrobe, Other]";
+                }
+            }
+            const int statusIdx = insertColumns.indexOf("ORDER_STATUS");
+            if (statusIdx >= 0) {
+                QString statusValue = extractQuotedValue(insertValues.at(statusIdx));
+                if (!isInList(statusValue, allowedOrderStatuses)) {
+                    return "[Blocked: ORDERS.ORDER_STATUS must be one of Pending, Processing, Completed, Cancelled]";
+                }
+            }
+            const int payIdx = insertColumns.indexOf("PAYMENT_STATUS");
+            if (payIdx >= 0) {
+                QString payValue = extractQuotedValue(insertValues.at(payIdx));
+                if (!isInList(payValue, allowedPaymentStatuses)) {
+                    return "[Blocked: ORDERS.PAYMENT_STATUS must be one of Unpaid, Partial, Paid]";
+                }
+            }
+        }
+
+        // Validate EQUIPMENT.STATUS
+        if (insertTableName == "EQUIPMENT") {
+            const int eqStatusIdx = insertColumns.indexOf("STATUS");
+            if (eqStatusIdx >= 0) {
+                QString eqStatusValue = extractQuotedValue(insertValues.at(eqStatusIdx));
+                if (!eqStatusValue.isEmpty() && !isInList(eqStatusValue, allowedEquipmentStatuses)) {
+                    return "[Blocked: EQUIPMENT.STATUS must be one of Available, In Use, Under Maintenance, Retired]";
+                }
+            }
+        }
+
+        // Validate SUPPLIERS.ACCOUNT_STATUS
+        if (insertTableName == "SUPPLIERS") {
+            const int supStatusIdx = insertColumns.indexOf("ACCOUNT_STATUS");
+            if (supStatusIdx >= 0) {
+                QString supStatusValue = extractQuotedValue(insertValues.at(supStatusIdx));
+                if (!supStatusValue.isEmpty() && !isInList(supStatusValue, allowedSupplierStatuses)) {
+                    return "[Blocked: SUPPLIERS.ACCOUNT_STATUS must be one of Active, Inactive, Suspended]";
+                }
+            }
+        }
+    }
+
+    // Constraint-aware guard for AI-generated UPDATE statements.
+    if (isUpdate && !isPlSqlBlock) {
+        // Parse SET clause assignments: UPDATE <table> SET col1 = val1, col2 = val2 WHERE ...
+        QRegularExpression updateRx(
+            R"(^\s*UPDATE\s+([A-Z0-9_]+)\s+SET\s+(.+?)(?:\s+WHERE\s+.+)?$)",
+            QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+        QRegularExpressionMatch updateMatch = updateRx.match(trimmedSql);
+        if (updateMatch.hasMatch()) {
+            QString updateTableName = updateMatch.captured(1).toUpper();
+            QString setClause = updateMatch.captured(2).trimmed();
+
+            // Parse individual SET assignments
+            QStringList assignments = splitTopLevelCsv(setClause);
+            for (const QString &assignment : assignments) {
+                int eqPos = assignment.indexOf('=');
+                if (eqPos < 0) continue;
+                QString colName = assignment.left(eqPos).trimmed().toUpper();
+                colName.remove('"');
+                QString valExpr = assignment.mid(eqPos + 1).trimmed();
+                QString valStr = extractQuotedValue(valExpr);
+
+                // Skip non-literal values (subqueries, functions, etc.)
+                if (valExpr.trimmed().toUpper() == "NULL" || valExpr.contains('('))
+                    continue;
+
+                // Validate FIRST_NAME
+                if (colName == "FIRST_NAME" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedFirstNames)) {
+                        return "[Blocked: FIRST_NAME must be a Tunisian name. Allowed: Mohamed, Ahmed, Yassine, Amine, Sami, Walid, Karim, Ines, Sarra, Amira, Meriem, Nour, Asma, Yasmine, etc.]";
+                    }
+                }
+
+                // Validate LAST_NAME
+                if (colName == "LAST_NAME" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedLastNames)) {
+                        return "[Blocked: LAST_NAME must be a Tunisian family name. Allowed: Ben Ali, Trabelsi, Mansour, Gharbi, Jaziri, Mejri, Kefi, Haddad, Cherif, Dridi, etc.]";
+                    }
+                }
+
+                // Validate PHONE_NUMBER (8 digits)
+                if (colName == "PHONE_NUMBER" && !valStr.isEmpty()) {
+                    if (!validatePhone(valStr)) {
+                        return "[Blocked: PHONE_NUMBER must be exactly 8 digits (Tunisian format, no +216). Example: 20123456]";
+                    }
+                }
+
+                // Validate GENDER
+                if (colName == "GENDER" && updateTableName == "CLIENTS" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedGenders)) {
+                        return "[Blocked: CLIENTS.GENDER must be one of Male, Female, Other]";
+                    }
+                }
+
+                // Validate CLIENT.STATUS
+                if (colName == "STATUS" && updateTableName == "CLIENTS" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedClientStatuses)) {
+                        return "[Blocked: CLIENTS.STATUS must be one of Active, Inactive, Suspended]";
+                    }
+                }
+
+                // Validate EMPLOYEE_STATUS
+                if (colName == "EMPLOYEE_STATUS" && updateTableName == "EMPLOYEES" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedEmployeeStatuses)) {
+                        return "[Blocked: EMPLOYEE_STATUS must be one of Active, Inactive, On Leave (NOT Terminated)]";
+                    }
+                }
+
+                // Validate ORDER_TYPE
+                if (colName == "ORDER_TYPE" && updateTableName == "ORDERS" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedOrderTypes)) {
+                        return "[Blocked: ORDERS.ORDER_TYPE must be one of Chair, Table, Cabinet, Wardrobe, Other]";
+                    }
+                }
+
+                // Validate ORDER_STATUS
+                if (colName == "ORDER_STATUS" && updateTableName == "ORDERS" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedOrderStatuses)) {
+                        return "[Blocked: ORDERS.ORDER_STATUS must be one of Pending, Processing, Completed, Cancelled]";
+                    }
+                }
+
+                // Validate PAYMENT_STATUS
+                if (colName == "PAYMENT_STATUS" && updateTableName == "ORDERS" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedPaymentStatuses)) {
+                        return "[Blocked: ORDERS.PAYMENT_STATUS must be one of Unpaid, Partial, Paid]";
+                    }
+                }
+
+                // Validate EQUIPMENT.STATUS
+                if (colName == "STATUS" && updateTableName == "EQUIPMENT" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedEquipmentStatuses)) {
+                        return "[Blocked: EQUIPMENT.STATUS must be one of Available, In Use, Under Maintenance, Retired]";
+                    }
+                }
+
+                // Validate SUPPLIERS.ACCOUNT_STATUS
+                if (colName == "ACCOUNT_STATUS" && updateTableName == "SUPPLIERS" && !valStr.isEmpty()) {
+                    if (!isInList(valStr, allowedSupplierStatuses)) {
+                        return "[Blocked: SUPPLIERS.ACCOUNT_STATUS must be one of Active, Inactive, Suspended]";
+                    }
                 }
             }
         }

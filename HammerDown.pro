@@ -1,7 +1,6 @@
-
 #-------------------------------------------------
 #
-# Project created for RealDeal Application
+# Project created for HammerDown Application
 # Qt Project File (.pro)
 #
 #-------------------------------------------------
@@ -60,7 +59,9 @@ SOURCES += \
     costswidget_engine.cpp \
     costswidget_tco.cpp \
     costswidget_subtabs.cpp \
-    equipment.cpp
+    equipment.cpp \
+    supplier.cpp \
+    order.cpp
 
 # Header files
 HEADERS += \
@@ -80,7 +81,9 @@ HEADERS += \
     nexuswidget.h \
     welcomenotificationbar.h \
     costswidget.h \
-    equipment.h
+    equipment.h \
+    supplier.h \
+    order.h
 
 # UI files
 FORMS += \

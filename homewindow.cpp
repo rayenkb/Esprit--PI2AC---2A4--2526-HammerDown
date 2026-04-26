@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFrame>
 #include <QGraphicsBlurEffect>
+#include <QGraphicsDropShadowEffect>
 #include <QLabel>
 #include <QMediaPlayer>
 #include <QSlider>
@@ -22,6 +23,10 @@
 #include <QParallelAnimationGroup>
 #include <QPauseAnimation>
 #include <QStackedWidget>
+#include <QVariantAnimation>
+#include <QTransform>
+#include <QEvent>
+#include <QtMath>
 
 HomeWindow::HomeWindow(QWidget *parent) :
     QFrame(parent),
@@ -50,14 +55,50 @@ HomeWindow::HomeWindow(QWidget *parent) :
     connect(ui->btn_disconnect,  &QPushButton::clicked, this, &HomeWindow::handleDisconnect);
     connect(ui->btn_chat,        &QPushButton::clicked, this, &HomeWindow::handleChatBot);
     connect(ui->btn_help,         &QPushButton::clicked, this, &HomeWindow::handleHelp);
+    connect(ui->btn_profile_arrow, &QPushButton::clicked, this, &HomeWindow::handleProfileMenu);
     
     // Apply professional styling
+    ui->profile_frame->installEventFilter(this);
+    
+    auto *shadow = new QGraphicsDropShadowEffect(this);
+    shadow->setBlurRadius(20);
+    shadow->setOffset(0, 4);
+    ui->profile_frame->setGraphicsEffect(shadow);
+
+    updateProfileAnimations();
+
     setupHomeButtons();
 }
 
 HomeWindow::~HomeWindow()
 {
     delete ui;
+}
+
+bool HomeWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (ui && watched == ui->btn_settings) {
+        if (event->type() == QEvent::Enter) {
+            m_settingsHoverActive = true;
+            if (m_settingsTiltAnim) {
+                m_settingsTiltAnim->start();
+            }
+        } else if (event->type() == QEvent::Leave) {
+            m_settingsHoverActive = false;
+            if (m_settingsTiltAnim) {
+                m_settingsTiltAnim->stop();
+            }
+            if (!m_settingsGearPixmap.isNull()) {
+                ui->btn_settings->setIcon(QIcon(m_settingsGearPixmap));
+            }
+        }
+    } else if (ui && watched == ui->profile_frame) {
+        if (event->type() == QEvent::MouseButtonRelease) {
+            handleProfileMenu();
+            return true;
+        }
+    }
+    return QFrame::eventFilter(watched, event);
 }
 
 void HomeWindow::retranslateUI()
@@ -72,9 +113,56 @@ void HomeWindow::handleFournisseur() { emit fournisseurClicked(); }
 void HomeWindow::handleEquipment()   { emit equipmentClicked();   }
 void HomeWindow::handleDisconnect()  { emit disconnectClicked();   }
 
+void HomeWindow::handleProfileMenu()
+{
+    QMenu menu(this);
+    menu.setStyleSheet(R"(
+        QMenu {
+            background-color: #1A1208;
+            border: 2px solid #8B6F47;
+            border-radius: 12px;
+            color: #F5E6D3;
+            padding: 8px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        QMenu::item {
+            padding: 10px 30px;
+            margin: 2px;
+            border-radius: 6px;
+        }
+        QMenu::item:selected {
+            background-color: #8B6F47;
+            color: white;
+        }
+        QMenu::separator {
+            height: 1px;
+            background: #4A3B26;
+            margin: 6px 10px;
+        }
+    )");
+
+    QAction *profileAct = new QAction(tr("👤 View Profile"), &menu);
+    QAction *signOutAct = new QAction(tr("🚪 Sign Out"), &menu);
+    
+    menu.addAction(profileAct);
+    menu.addSeparator();
+    menu.addAction(signOutAct);
+
+    connect(profileAct, &QAction::triggered, this, &HomeWindow::userProfileClicked);
+    connect(signOutAct, &QAction::triggered, this, &HomeWindow::handleDisconnect);
+
+    // Calculate position: align with the right side of the profile frame
+    QPoint pos = ui->profile_frame->mapToGlobal(QPoint(ui->profile_frame->width() - 180, ui->profile_frame->height() + 5));
+    menu.setFixedWidth(180);
+    menu.exec(pos);
+}
+
 void HomeWindow::handleChatBot()
 {
-    // Standard and animation modes now use the same chatbot dialog behavior.
+    // Standard and animation modes use the exact same chatbot dialog behavior.
+    chatBotDialog->setGuideSpriteVisible(!m_isStandardMode);
+
     QWidget *topLevel = this->window();
     if (topLevel) {
         QPoint bottomRight = topLevel->mapToGlobal(topLevel->rect().bottomRight());
@@ -102,6 +190,8 @@ void HomeWindow::handleChatBot()
 
 void HomeWindow::handleSettingsClicked()
 {
+    emit settingsDialogOpened();
+
     auto *blurEffect = new QGraphicsBlurEffect(this);
     blurEffect->setBlurRadius(8.0);
     this->setGraphicsEffect(blurEffect);
@@ -240,6 +330,7 @@ void HomeWindow::handleSettingsClicked()
         standardButton->setChecked(true);
         animationButton->setChecked(false);
         m_isStandardMode = true;
+        updateProfileAnimations();
         // Ensure btn_chat is visible when switching back to Standard mode
         ui->btn_chat->setVisible(true);
         dialog.accept();
@@ -251,6 +342,7 @@ void HomeWindow::handleSettingsClicked()
         animationButton->setChecked(true);
         standardButton->setChecked(false);
         m_isStandardMode = false;
+        updateProfileAnimations();
         // Allow animation to be triggered again when switching back to Animation mode
         m_animationTriggered = false;
         ui->btn_help->setEnabled(true);
@@ -314,6 +406,7 @@ void HomeWindow::handleSettingsClicked()
     dialog.exec();
 
     this->setGraphicsEffect(nullptr);
+    emit settingsDialogClosed();
 }
 
 void HomeWindow::playReverseAnimation()
@@ -339,8 +432,9 @@ void HomeWindow::playReverseAnimation()
     player->setAudioOutput(audioOut);
     player->setSource(QUrl("qrc:/assets/ger.mp3"));
     player->play();
-    connect(player, &QMediaPlayer::mediaStatusChanged, player, [player, audioOut](QMediaPlayer::MediaStatus status) {
+    connect(player, &QMediaPlayer::mediaStatusChanged, this, [this, player, audioOut](QMediaPlayer::MediaStatus status) {
         if (status == QMediaPlayer::EndOfMedia) {
+            emit gerPlaybackFinished();
             player->deleteLater();
             audioOut->deleteLater();
         }
@@ -495,6 +589,7 @@ void HomeWindow::handleHelp()
             return;
         }
         m_animationTriggered = true;
+        emit botawkAnimationStarted();
 
         // Play botawk audio — use persistent members so volume updates apply
         if (m_animationAudioPlayer) { m_animationAudioPlayer->stop(); m_animationAudioPlayer->deleteLater(); }
@@ -683,46 +778,9 @@ void HomeWindow::handleHelp()
             darkOut->start(QAbstractAnimation::DeleteWhenStopped);
             QObject::connect(darkOut, &QPropertyAnimation::finished, dark, &QWidget::deleteLater);
 
-            // Hide btn_chat and btn_help — guide replaces them
-            ui->btn_chat->setVisible(false);
+            // Keep the animation-only mood but route chat to the standard chatbot dialog.
+            ui->btn_chat->setVisible(true);
             ui->btn_help->hide();  // permanently removed after animation
-
-            m_currentGuide = new LoreGuideWidget(m_animationAudioPlayer, this);
-            LoreGuideWidget *guide = m_currentGuide;
-            guide->setAnimationUnlocked(true);
-            // Position: anchored to top-right
-            QPoint anchor = this->mapToGlobal(QPoint(this->width() - guide->width() - 10, 10));
-            guide->move(anchor);
-
-            QGraphicsOpacityEffect *gEff = new QGraphicsOpacityEffect(guide);
-            guide->setGraphicsEffect(gEff);
-            gEff->setOpacity(0.0);
-            guide->show();
-            guide->raise();
-
-            auto *gFadeIn = new QPropertyAnimation(gEff, "opacity", guide);
-            gFadeIn->setDuration(1000);
-            gFadeIn->setStartValue(0.0);
-            gFadeIn->setEndValue(1.0);
-            gFadeIn->start(QAbstractAnimation::DeleteWhenStopped);
-
-            // When guide is closed: song keeps playing (stops only when leaving home page)
-            connect(guide, &LoreGuideWidget::closeRequested, this,
-                    [this, guide, gEff]() {
-                auto *gOut = new QPropertyAnimation(gEff, "opacity", guide);
-                gOut->setDuration(600);
-                gOut->setStartValue(1.0);
-                gOut->setEndValue(0.0);
-                gOut->start(QAbstractAnimation::DeleteWhenStopped);
-                QObject::connect(gOut, &QPropertyAnimation::finished, this,
-                                 [this, guide]() {
-                    m_currentGuide = nullptr;
-                    guide->deleteLater();
-                    // m_animationAudioPlayer keeps playing — stops when user leaves home page
-                    ui->btn_chat->setVisible(true);
-                    // btn_help stays hidden
-                });
-            });
         });
 
         seq->start(QAbstractAnimation::DeleteWhenStopped);
@@ -741,6 +799,10 @@ void HomeWindow::handleHelp()
     overlay->setAttribute(Qt::WA_DeleteOnClose);
     overlay->setGeometry(origin.x(), origin.y(), w, h);
     overlay->setStyleSheet("QDialog { background-color: black; }");
+    emit tutorialOpened();
+    connect(overlay, &QObject::destroyed, this, [this]() {
+        emit tutorialClosed();
+    });
 
     // QVideoWidget is the most reliable renderer on Windows (uses WMF/D3D correctly)
     QVideoWidget *videoWidget = new QVideoWidget(overlay);
@@ -838,13 +900,138 @@ void HomeWindow::stopHomeAudio()
         m_animationAudioPlayer->stop();
 }
 
+void HomeWindow::suspendActiveAudioForOverlay()
+{
+    m_animationAudioSuspended = false;
+    m_animationAudioResumePosition = 0;
+
+    if (!m_animationAudioPlayer) return;
+    if (m_animationAudioPlayer->playbackState() != QMediaPlayer::PlayingState) return;
+
+    m_animationAudioResumePosition = m_animationAudioPlayer->position();
+    m_animationAudioSuspended = true;
+    m_animationAudioPlayer->stop();
+}
+
+void HomeWindow::resumeSuspendedAudioAfterOverlay()
+{
+    if (!m_animationAudioSuspended || !m_animationAudioPlayer) {
+        m_animationAudioSuspended = false;
+        return;
+    }
+
+    m_animationAudioPlayer->setPosition(m_animationAudioResumePosition);
+    m_animationAudioPlayer->play();
+    m_animationAudioSuspended = false;
+}
+
 void HomeWindow::stopAnimationAudio()
 {
     stopHomeAudio();
 }
 
+void HomeWindow::setMode(bool isStandard)
+{
+    m_isStandardMode = isStandard;
+    updateProfileAnimations();
+}
+
+void HomeWindow::updateProfileAnimations()
+{
+    if (!ui || !ui->status_dot) return;
+
+    // Clean up existing animations
+    if (m_statusPulseAnimation) {
+        m_statusPulseAnimation->stop();
+        m_statusPulseAnimation->deleteLater();
+        m_statusPulseAnimation = nullptr;
+    }
+    if (m_profileBreathAnim) {
+        m_profileBreathAnim->stop();
+        m_profileBreathAnim->deleteLater();
+        m_profileBreathAnim = nullptr;
+    }
+
+    if (m_isStandardMode) {
+        // Standard mode: Resets
+        if (ui->status_dot->graphicsEffect()) {
+            QGraphicsOpacityEffect *eff = qobject_cast<QGraphicsOpacityEffect*>(ui->status_dot->graphicsEffect());
+            if (eff) eff->setOpacity(1.0);
+        }
+    } else {
+        // ... previous dot logic ...
+        QGraphicsOpacityEffect *dotEff = qobject_cast<QGraphicsOpacityEffect*>(ui->status_dot->graphicsEffect());
+        if (!dotEff) {
+            dotEff = new QGraphicsOpacityEffect(ui->status_dot);
+            ui->status_dot->setGraphicsEffect(dotEff);
+        }
+        
+        m_statusPulseAnimation = new QPropertyAnimation(dotEff, "opacity", this);
+        m_statusPulseAnimation->setDuration(1200);
+        m_statusPulseAnimation->setStartValue(1.0);
+        m_statusPulseAnimation->setKeyValueAt(0.5, 0.3);
+        m_statusPulseAnimation->setEndValue(1.0);
+        m_statusPulseAnimation->setLoopCount(-1);
+        m_statusPulseAnimation->setEasingCurve(QEasingCurve::InOutSine);
+        m_statusPulseAnimation->start();
+        
+        // Creative Breathing Animation
+        m_profileBreathAnim = new QPropertyAnimation(ui->profile_frame, "geometry", this);
+        QRect ori = ui->profile_frame->geometry();
+        m_profileBreathAnim->setDuration(3000);
+        m_profileBreathAnim->setStartValue(ori);
+        m_profileBreathAnim->setKeyValueAt(0.5, QRect(ori.x() - 1, ori.y() - 1, ori.width() + 2, ori.height() + 2));
+        m_profileBreathAnim->setEndValue(ori);
+        m_profileBreathAnim->setLoopCount(-1);
+        m_profileBreathAnim->start();
+    }
+}
+
 void HomeWindow::setupHomeButtons()
 {
+    m_settingsGearPixmap = QPixmap(":/assets/gear.png");
+    if (!m_settingsGearPixmap.isNull()) {
+        ui->btn_settings->setText("");
+        ui->btn_settings->setIcon(QIcon(m_settingsGearPixmap));
+        ui->btn_settings->setIconSize(QSize(30, 30));
+        ui->btn_settings->setStyleSheet(R"(
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 25px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.2);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.3);
+            }
+        )");
+
+        ui->btn_settings->installEventFilter(this);
+
+        if (!m_settingsTiltAnim) {
+            m_settingsTiltAnim = new QVariantAnimation(this);
+            m_settingsTiltAnim->setStartValue(0.0);
+            m_settingsTiltAnim->setEndValue(1.0);
+            m_settingsTiltAnim->setDuration(700);
+            m_settingsTiltAnim->setLoopCount(-1);
+
+            connect(m_settingsTiltAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+                if (!ui || !ui->btn_settings || m_settingsGearPixmap.isNull() || !m_settingsHoverActive)
+                    return;
+
+                const qreal t = value.toReal();
+                const qreal angle = qSin(t * (2.0 * M_PI)) * 8.0;
+
+                QTransform transform;
+                transform.rotate(angle);
+                QPixmap rotated = m_settingsGearPixmap.transformed(transform, Qt::SmoothTransformation);
+                ui->btn_settings->setIcon(QIcon(rotated));
+            });
+        }
+    }
+
     // Employee button - Completely invisible
     QString employeeStyle = R"(
         QPushButton {

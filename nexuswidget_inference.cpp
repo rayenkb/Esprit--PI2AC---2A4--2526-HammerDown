@@ -41,7 +41,12 @@ void InferenceEngine::loadData() {
 
 void InferenceEngine::runAllRules() {
     m_insights.clear();
-    if (m_equipment.isEmpty()) return;
+    if (m_equipment.isEmpty()) {
+        m_healthScore = 100.0;
+        m_overallConfidence = 90;
+        emit insightsReady();
+        return;
+    }
 
     rule01_AgeRisk();
     rule02_CascadeRisk();

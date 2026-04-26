@@ -22,10 +22,15 @@
 // ============================================================================
 QList<NexusEquipment> loadAllEquipment() {
     QList<NexusEquipment> list;
+    // Keep this query aligned with the actual EQUIPMENT schema used by MainWindow CRUD.
     QSqlQuery q("SELECT EQUIPMENT_ID, EQUIPMENT_TYPE, QUANTITY, UNIT_PRICE, STATUS, DESCRIPTION, "
-                "EMPLOYEE_ID, PURCHASE_DATE, LOCATION, NOTES, NEXT_MAINTENANCE, "
+                "EMPLOYEE_ID, PURCHASE_DATE, LOCATION, NEXT_MAINTENANCE, "
                 "COUT_ACQUISITION, RESPONSABLE FROM EQUIPMENT "
                 "WHERE STATUS != 'Retired' ORDER BY EQUIPMENT_ID");
+    if (!q.isActive()) {
+        qDebug() << "NEXUS loadAllEquipment SQL error:" << q.lastError().text();
+        return list;
+    }
     while (q.next()) {
         NexusEquipment e;
         e.id = q.value(0).toInt();
@@ -37,10 +42,10 @@ QList<NexusEquipment> loadAllEquipment() {
         e.employeeId = q.value(6).toInt();
         e.purchaseDate = q.value(7).toDate();
         e.location = q.value(8).toString();
-        e.notes = q.value(9).toString();
-        e.nextMaintenance = q.value(10).toDate();
-        e.coutAcquisition = q.value(11).toDouble();
-        e.responsable = q.value(12).toString();
+        e.notes = QString();
+        e.nextMaintenance = q.value(9).toDate();
+        e.coutAcquisition = q.value(10).toDouble();
+        e.responsable = q.value(11).toString();
         list.append(e);
     }
     return list;
@@ -105,7 +110,6 @@ void KnowledgeGraphWidget::loadData() {
 void KnowledgeGraphWidget::buildGraph() {
     m_nodes.clear();
     m_edges.clear();
-    qreal cx = width() / 2.0, cy = height() / 2.0;
 
     // Equipment nodes
     for (const auto &eq : m_equipment) {

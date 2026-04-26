@@ -763,6 +763,22 @@ QLineEdit:focus {
          <normaloff>:/assets/modify.png</normaloff>:/assets/modify.png</iconset>
        </property>
       </widget>
+      <widget class="QPushButton" name="btn_bulk_delete_all">
+       <property name="geometry">
+        <rect>
+         <x>730</x>
+         <y>20</y>
+         <width>240</width>
+         <height>30</height>
+        </rect>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QPushButton { background-color: #A63D2E; border-radius: 10px; color: white; font-weight: bold; } QPushButton:hover { background-color: white; color: #A63D2E; border: 2px solid #A63D2E; }</string>
+       </property>
+       <property name="text">
+        <string>Delete All Equipments</string>
+       </property>
+      </widget>
      </widget>
    </widget>
    <widget class="QWidget" name="tab_history">

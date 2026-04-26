@@ -29,6 +29,7 @@ public:
 
     void setWeatherMode(bool enable) { m_isWeatherBot = enable; }
     bool isWeatherMode() const { return m_isWeatherBot; }
+    void setGuideSpriteVisible(bool visible);
     // Called externally to inject a message and get AI response
     void sendExternalMessage(const QString &text);
 
@@ -41,6 +42,17 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
+    enum class GuideSpriteState {
+        Hidden,
+        Idle,
+        Thinking,
+        Responding
+    };
+
+    void updateGuideSpritePosition();
+    void setGuideStateIdle();
+    void setGuideStateThinking();
+    void setGuideStateResponding();
     void appendMessage(const QString &sender, const QString &text, bool isUser);
     void appendImageMessage(const QString &sender, const QPixmap &pixmap, const QString &caption, bool isUser);
     void setupUI();
@@ -57,7 +69,7 @@ private:
     QString getColumnDefaultValue(const QString &tableName, const QString &columnName);
     QStringList getDistinctColumnValues(const QString &tableName, const QString &columnName);
     QStringList getAllowedColumnValues(const QString &tableName, const QString &columnName);
-    void callApi(const QString &userMessage);
+    void callApi(const QString &userMessage, bool isSystemRetry = false);
     void callImageApi(const QString &prompt);
     void retryWithNextModel();
     bool isImageRequest(const QString &text) const;
@@ -68,11 +80,21 @@ private:
     QVBoxLayout *chatLayout;
     QScrollArea *scrollArea;
     QWidget *chatContainer;
+    QWidget *guideSpriteSpacer;
     QLineEdit *inputField;
     QPushButton *sendButton;
     QLabel *typingIndicator;
     QFrame *titleBar;
     QSizeGrip *sizeGrip;
+    QLabel *guideSpriteLabel;
+    QPixmap guideSpriteNormalPix;
+    QPixmap guideSpriteThinkingPix;
+    QPixmap guideSpriteRespondingPix;
+    QTimer *guideSpriteTimer;
+    GuideSpriteState guideSpriteState = GuideSpriteState::Hidden;
+    int guideSpriteAnimStep = 0;
+    int guideSpriteYOffset = 0;
+    bool m_guideSpriteVisible = false;
     bool m_dragging = false;
     QPoint m_dragStartPos;
     QPoint m_windowStartPos;
@@ -85,6 +107,7 @@ private:
     bool m_isWeatherBot;
     int retryCount;
     int rateLimitRetries;
+    int sqlRetryCount;       // tracks AI self-correction attempts for blocked SQL
     QString pendingUserMessage;
     QStringList modelList;
 };
