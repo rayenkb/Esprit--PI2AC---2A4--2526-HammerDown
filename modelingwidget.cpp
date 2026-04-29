@@ -1997,11 +1997,11 @@ void GLViewport::updateWalkNavigation()
     QVector3D right = QVector3D::crossProduct(forward, QVector3D(0, 1, 0)).normalized();
     QVector3D move(0, 0, 0);
 
-    if (m_pressedKeys.contains(Qt::Key_Z) || m_pressedKeys.contains(Qt::Key_W) || m_pressedKeys.contains(Qt::Key_Up))
+    if (m_pressedKeys.contains(Qt::Key_Z) || m_pressedKeys.contains(Qt::Key_Up))
         move += QVector3D(forward.x(), 0.0f, forward.z()).normalized();
     if (m_pressedKeys.contains(Qt::Key_S) || m_pressedKeys.contains(Qt::Key_Down))
         move -= QVector3D(forward.x(), 0.0f, forward.z()).normalized();
-    if (m_pressedKeys.contains(Qt::Key_Q) || m_pressedKeys.contains(Qt::Key_A) || m_pressedKeys.contains(Qt::Key_Left))
+    if (m_pressedKeys.contains(Qt::Key_Q) || m_pressedKeys.contains(Qt::Key_Left))
         move -= right;
     if (m_pressedKeys.contains(Qt::Key_D) || m_pressedKeys.contains(Qt::Key_Right))
         move += right;
@@ -2094,10 +2094,10 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     auto *tbRowViews = new QHBoxLayout;
     tbRowViews->setSpacing(6);
 
-    m_btnSelect = new QPushButton("Select");
-    m_btnMove   = new QPushButton("Move");
-    m_btnRotate = new QPushButton("Rotate");
-    m_btnScale  = new QPushButton("Scale");
+    m_btnSelect = new QPushButton(tr("Select"));
+    m_btnMove   = new QPushButton(tr("Move"));
+    m_btnRotate = new QPushButton(tr("Rotate"));
+    m_btnScale  = new QPushButton(tr("Scale"));
     for (auto *b : {m_btnSelect, m_btnMove, m_btnRotate, m_btnScale}) {
         b->setCheckable(true);
         b->setStyleSheet(kBtnStyle);
@@ -2108,31 +2108,31 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     m_btnSelect->setChecked(true);
 
     tbRowTop->addSpacing(8);
-    m_gridCheck = new QCheckBox("Grid");
+    m_gridCheck = new QCheckBox(tr("Grid"));
     m_gridCheck->setChecked(true);
     m_gridCheck->setStyleSheet("color: #F5E6C8; font-weight: bold;");
     m_gridCheck->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_gridCheck->setMinimumWidth(m_gridCheck->sizeHint().width() + 6);
     tbRowTop->addWidget(m_gridCheck);
 
-    m_boundsCheck = new QCheckBox("Bounds");
+    m_boundsCheck = new QCheckBox(tr("Bounds"));
     m_boundsCheck->setStyleSheet("color: #F5E6C8; font-weight: bold;");
     m_boundsCheck->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_boundsCheck->setMinimumWidth(m_boundsCheck->sizeHint().width() + 6);
     tbRowTop->addWidget(m_boundsCheck);
 
-    auto *walkModeCheck = new QCheckBox("Walk Mode");
+    auto *walkModeCheck = new QCheckBox(tr("Walk Mode"));
     walkModeCheck->setStyleSheet("color: #F5E6C8; font-weight: bold;");
     walkModeCheck->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     walkModeCheck->setMinimumWidth(walkModeCheck->sizeHint().width() + 6);
     tbRowTop->addWidget(walkModeCheck);
 
-    auto *shadeLabel = new QLabel("Shading");
+    auto *shadeLabel = new QLabel(tr("Shading"));
     shadeLabel->setStyleSheet("color: #F5E6C8; font-weight: bold;");
     shadeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     tbRowTop->addWidget(shadeLabel);
     m_shadingCombo = new QComboBox;
-    m_shadingCombo->addItems({"Solid", "Wireframe", "Solid+Wire", "Unlit"});
+    m_shadingCombo->addItems({tr("Solid"), tr("Wireframe"), tr("Solid+Wire"), tr("Unlit")});
     m_shadingCombo->setStyleSheet("QComboBox { background: #FFF; border-radius: 6px; padding: 4px 8px; font-size: 12px; }");
     m_shadingCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
     m_shadingCombo->setMinimumContentsLength(10);
@@ -2142,7 +2142,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
 
     auto *btnHelpModeling = new QToolButton;
     btnHelpModeling->setObjectName("btn_help_modeling");
-    btnHelpModeling->setText("?");
+    btnHelpModeling->setText(tr("?"));
     btnHelpModeling->setCheckable(true);
     btnHelpModeling->setCursor(Qt::PointingHandCursor);
     btnHelpModeling->setFixedSize(32, 32);
@@ -2164,13 +2164,13 @@ ModelingWidget::ModelingWidget(QWidget *parent)
             m_viewport->setPresetView(preset);
         });
     };
-    addViewButton("Top", GLViewport::ViewPreset::Top);
-    addViewButton("Bottom", GLViewport::ViewPreset::Bottom);
-    addViewButton("Left", GLViewport::ViewPreset::Left);
-    addViewButton("Right", GLViewport::ViewPreset::Right);
-    addViewButton("Front", GLViewport::ViewPreset::Front);
-    addViewButton("Back", GLViewport::ViewPreset::Back);
-    addViewButton("Perspective", GLViewport::ViewPreset::Perspective);
+    addViewButton(tr("Top"), GLViewport::ViewPreset::Top);
+    addViewButton(tr("Bottom"), GLViewport::ViewPreset::Bottom);
+    addViewButton(tr("Left"), GLViewport::ViewPreset::Left);
+    addViewButton(tr("Right"), GLViewport::ViewPreset::Right);
+    addViewButton(tr("Front"), GLViewport::ViewPreset::Front);
+    addViewButton(tr("Back"), GLViewport::ViewPreset::Back);
+    addViewButton(tr("Perspective"), GLViewport::ViewPreset::Perspective);
 
     tbRowViews->addStretch();
 
@@ -2203,31 +2203,34 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     sideLayout->setSpacing(8);
 
     // ── Add primitives ──
-    auto *addGroup = new QGroupBox("Add Primitives");
+    auto *addGroup = new QGroupBox(tr("Add Primitives"));
     addGroup->setStyleSheet(kGroupStyle);
     auto *addLayout = new QHBoxLayout(addGroup);
     m_addCombo = new QComboBox;
-    m_addCombo->addItems({"Cube", "Cylinder", "Sphere", "Plane", "Cone", "Pyramid", "Capsule", "Torus"});
+    m_addCombo->addItems({
+        tr("Cube"), tr("Cylinder"), tr("Sphere"), tr("Plane"),
+        tr("Cone"), tr("Pyramid"), tr("Capsule"), tr("Torus")
+    });
     m_addCombo->setStyleSheet("QComboBox { background: #FFF; border-radius: 6px; padding: 4px 8px; font-size: 13px; }");
     addLayout->addWidget(m_addCombo);
 
-    auto *btnAdd = new QPushButton("Add");
+    auto *btnAdd = new QPushButton(tr("Add"));
     btnAdd->setStyleSheet(kBtnStyle);
     addLayout->addWidget(btnAdd);
     sideLayout->addWidget(addGroup);
 
     // ── Presets ──
-    auto *presetGroup = new QGroupBox("Furniture & Test Presets");
+    auto *presetGroup = new QGroupBox(tr("Furniture & Test Presets"));
     presetGroup->setStyleSheet(kGroupStyle);
     auto *presetLayout = new QVBoxLayout(presetGroup);
     auto *presetRow1 = new QHBoxLayout;
     auto *presetRow2 = new QHBoxLayout;
-    auto *btnChair    = new QPushButton("Chair");
-    auto *btnTable    = new QPushButton("Table");
-    auto *btnCabinet  = new QPushButton("Cabinet");
-    auto *btnWardrobe = new QPushButton("Wardrobe");
-    auto *btnHouseOnly = new QPushButton("House (Empty)");
-    auto *btnSimRoom  = new QPushButton("House Sim Room");
+    auto *btnChair    = new QPushButton(tr("Chair"));
+    auto *btnTable    = new QPushButton(tr("Table"));
+    auto *btnCabinet  = new QPushButton(tr("Cabinet"));
+    auto *btnWardrobe = new QPushButton(tr("Wardrobe"));
+    auto *btnHouseOnly = new QPushButton(tr("House (Empty)"));
+    auto *btnSimRoom  = new QPushButton(tr("House Sim Room"));
     for (auto *b : {btnChair, btnTable, btnCabinet, btnWardrobe, btnHouseOnly, btnSimRoom})
         b->setStyleSheet(kBtnStyle);
     presetRow1->addWidget(btnChair);
@@ -2241,11 +2244,11 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     sideLayout->addWidget(presetGroup);
 
     // ── Object list ──
-    auto *objGroup = new QGroupBox("Scene Objects");
+    auto *objGroup = new QGroupBox(tr("Scene Objects"));
     objGroup->setStyleSheet(kGroupStyle);
     auto *objLayout = new QVBoxLayout(objGroup);
     m_objectSearch = new QLineEdit;
-    m_objectSearch->setPlaceholderText("Search objects...");
+    m_objectSearch->setPlaceholderText(tr("Search objects..."));
     m_objectSearch->setStyleSheet("QLineEdit { background: #FFF; border-radius: 6px; padding: 4px 8px; font-size: 12px; }");
     objLayout->addWidget(m_objectSearch);
 
@@ -2256,15 +2259,15 @@ ModelingWidget::ModelingWidget(QWidget *parent)
         QListWidget::item:selected { background: #8B6F47; color: white; }
     )");
     m_objectList->setMaximumHeight(160);
-    auto *multiHint = new QLabel("Ctrl+Click or Shift+Click to select multiple");
+    auto *multiHint = new QLabel(tr("Ctrl+Click or Shift+Click to select multiple"));
     multiHint->setStyleSheet("color: #999; font-size: 10px; padding: 1px 2px;");
     objLayout->addWidget(m_objectList);
     objLayout->addWidget(multiHint);
 
     auto *objBtnRow = new QHBoxLayout;
-    auto *btnDuplicate = new QPushButton("Duplicate");
-    auto *btnDelete = new QPushButton("Delete");
-    auto *btnClear = new QPushButton("Clear All");
+    auto *btnDuplicate = new QPushButton(tr("Duplicate"));
+    auto *btnDelete = new QPushButton(tr("Delete"));
+    auto *btnClear = new QPushButton(tr("Clear All"));
     btnDuplicate->setStyleSheet(kBtnStyle);
     btnDelete->setStyleSheet(kBtnStyle + "QPushButton { background-color: #A03030; } QPushButton:hover { background-color: #D04040; }");
     btnClear->setStyleSheet(kBtnStyle + "QPushButton { background-color: #A03030; } QPushButton:hover { background-color: #D04040; }");
@@ -2274,9 +2277,9 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     objLayout->addLayout(objBtnRow);
 
     auto *visRow = new QHBoxLayout;
-    m_btnHideSelected = new QPushButton("Hide");
-    m_btnIsolateSelected = new QPushButton("Isolate");
-    m_btnUnhideAll = new QPushButton("Unhide All");
+    m_btnHideSelected = new QPushButton(tr("Hide"));
+    m_btnIsolateSelected = new QPushButton(tr("Isolate"));
+    m_btnUnhideAll = new QPushButton(tr("Unhide All"));
     m_btnHideSelected->setStyleSheet(kBtnStyle);
     m_btnIsolateSelected->setStyleSheet(kBtnStyle);
     m_btnUnhideAll->setStyleSheet(kBtnStyle);
@@ -2287,8 +2290,8 @@ ModelingWidget::ModelingWidget(QWidget *parent)
 
     // Save / Load row
     auto *ioRow = new QHBoxLayout;
-    auto *btnSave = new QPushButton("Save Scene");
-    auto *btnLoad = new QPushButton("Load Scene");
+    auto *btnSave = new QPushButton(tr("Save Scene"));
+    auto *btnLoad = new QPushButton(tr("Load Scene"));
     const QString ioStyle = kBtnStyle + "QPushButton { background-color: #2E6B3E; } QPushButton:hover { background-color: #3A8A4F; }";
     btnSave->setStyleSheet(ioStyle);
     btnLoad->setStyleSheet(ioStyle);
@@ -2298,15 +2301,15 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     sideLayout->addWidget(objGroup);
 
     // ── Snapping ──
-    auto *snapGroup = new QGroupBox("Snapping");
+    auto *snapGroup = new QGroupBox(tr("Snapping"));
     snapGroup->setStyleSheet(kGroupStyle);
     auto *snapLayout = new QVBoxLayout(snapGroup);
-    m_snapCheck = new QCheckBox("Enable snapping");
+    m_snapCheck = new QCheckBox(tr("Enable snapping"));
     m_snapCheck->setStyleSheet("color: #F5E6C8; font-weight: bold; font-size: 12px;");
     snapLayout->addWidget(m_snapCheck);
 
     auto *snapRow1 = new QHBoxLayout;
-    auto *lblMoveSnap = new QLabel("Move");
+    auto *lblMoveSnap = new QLabel(tr("Move"));
     lblMoveSnap->setStyleSheet("color: #F5E6C8; font-weight: bold; font-size: 11px;");
     m_snapMoveCombo = new QComboBox;
     m_snapMoveCombo->addItems({"0.1", "0.5", "1"});
@@ -2317,7 +2320,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     snapLayout->addLayout(snapRow1);
 
     auto *snapRow2 = new QHBoxLayout;
-    auto *lblRotSnap = new QLabel("Rotate");
+    auto *lblRotSnap = new QLabel(tr("Rotate"));
     lblRotSnap->setStyleSheet("color: #F5E6C8; font-weight: bold; font-size: 11px;");
     m_snapRotateCombo = new QComboBox;
     m_snapRotateCombo->addItems({"5", "15", "30"});
@@ -2328,7 +2331,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     snapLayout->addLayout(snapRow2);
 
     auto *snapRow3 = new QHBoxLayout;
-    auto *lblScaleSnap = new QLabel("Scale");
+    auto *lblScaleSnap = new QLabel(tr("Scale"));
     lblScaleSnap->setStyleSheet("color: #F5E6C8; font-weight: bold; font-size: 11px;");
     m_snapScaleCombo = new QComboBox;
     m_snapScaleCombo->addItems({"0.1", "0.25", "0.5"});
@@ -2341,7 +2344,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     sideLayout->addWidget(snapGroup);
     
     // ── Properties ──
-    auto *propGroup = new QGroupBox("Properties");
+    auto *propGroup = new QGroupBox(tr("Properties"));
     propGroup->setStyleSheet(kGroupStyle);
     auto *propLayout = new QVBoxLayout(propGroup);
 
@@ -2362,12 +2365,12 @@ ModelingWidget::ModelingWidget(QWidget *parent)
         propLayout->addLayout(row);
     };
 
-    makeRow("Pos",   m_posX,   m_posY,   m_posZ,   -50, 50, 0.1);
-    makeRow("Rot",   m_rotX,   m_rotY,   m_rotZ,   -360, 360, 5.0);
-    makeRow("Scale", m_scaleX, m_scaleY, m_scaleZ,  0.01, 50, 0.1);
+    makeRow(tr("Pos"),   m_posX,   m_posY,   m_posZ,   -50, 50, 0.1);
+    makeRow(tr("Rot"),   m_rotX,   m_rotY,   m_rotZ,   -360, 360, 5.0);
+    makeRow(tr("Scale"), m_scaleX, m_scaleY, m_scaleZ,  0.01, 50, 0.1);
 
     auto *parentRow = new QHBoxLayout;
-    auto *parentLabel = new QLabel("Parent");
+    auto *parentLabel = new QLabel(tr("Parent"));
     parentLabel->setStyleSheet("color: #F5E6C8; font-weight: bold; font-size: 12px;");
     parentLabel->setFixedWidth(50);
     parentRow->addWidget(parentLabel);
@@ -2378,7 +2381,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
 
     // Color
     auto *colorRow = new QHBoxLayout;
-    auto *colorLabel = new QLabel("Color");
+    auto *colorLabel = new QLabel(tr("Color"));
     colorLabel->setStyleSheet("color: #F5E6C8; font-weight: bold; font-size: 12px;");
     colorLabel->setFixedWidth(50);
     colorRow->addWidget(colorLabel);
@@ -2387,7 +2390,7 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     m_colorBtn->setStyleSheet("background: #c8a064; border: 2px solid #8B6F47; border-radius: 6px;");
     colorRow->addWidget(m_colorBtn);
 
-    m_visibleCheck = new QCheckBox("Visible");
+    m_visibleCheck = new QCheckBox(tr("Visible"));
     m_visibleCheck->setChecked(true);
     m_visibleCheck->setStyleSheet("color: #F5E6C8; font-weight: bold; font-size: 12px;");
     colorRow->addWidget(m_visibleCheck);
@@ -2670,7 +2673,12 @@ static QVector3D jsonToVec3(const QJsonArray &a) {
 
 void ModelingWidget::saveScene()
 {
-    QString path = QFileDialog::getSaveFileName(this, "Save Scene", QString(), "HammerDown Scene (*.hd3d);;JSON (*.json)");
+    QString path = QFileDialog::getSaveFileName(
+        this,
+        tr("Save Scene"),
+        QString(),
+        tr("HammerDown Scene (*.hd3d);;JSON (*.json)")
+    );
     if (path.isEmpty()) return;
 
     QJsonArray arr;
@@ -2694,7 +2702,7 @@ void ModelingWidget::saveScene()
 
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
-        QMessageBox::warning(this, "Save Failed", "Could not open file for writing:\n" + path);
+        QMessageBox::warning(this, tr("Save Failed"), tr("Could not open file for writing:\n") + path);
         return;
     }
     f.write(QJsonDocument(root).toJson());
@@ -2702,19 +2710,24 @@ void ModelingWidget::saveScene()
 
 void ModelingWidget::loadScene()
 {
-    QString path = QFileDialog::getOpenFileName(this, "Load Scene", QString(), "HammerDown Scene (*.hd3d);;JSON (*.json);;All Files (*)");
+    QString path = QFileDialog::getOpenFileName(
+        this,
+        tr("Load Scene"),
+        QString(),
+        tr("HammerDown Scene (*.hd3d);;JSON (*.json);;All Files (*)")
+    );
     if (path.isEmpty()) return;
     pushUndoSnapshot();
 
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, "Load Failed", "Could not open file:\n" + path);
+        QMessageBox::warning(this, tr("Load Failed"), tr("Could not open file:\n") + path);
         return;
     }
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
     if (doc.isNull()) {
-        QMessageBox::warning(this, "Load Failed", "Invalid scene file:\n" + err.errorString());
+        QMessageBox::warning(this, tr("Load Failed"), tr("Invalid scene file:\n") + err.errorString());
         return;
     }
 

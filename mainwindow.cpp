@@ -854,6 +854,22 @@ MainWindow::MainWindow(QWidget *parent)
     // Connect Order Management help buttons
     connectHelpButton(orderPage, "btn_help", "This is the order tutorial. Here you can add, modify, or delete orders. Fill in all fields and click 'Add' to create a new order. Use the search and catalog features to manage orders efficiently.");
     connectHelpButton(orderPage, "btn_help_qr", "This is the QR code tutorial. Here you can generate, save, and print QR codes for orders.");
+    // Connect help button inside the 3D Modeling widget (nested child)
+    connectHelpButton(orderPage, "btn_help_modeling",
+                      "This is the 3D modeling tutorial. Here you can add primitives, manipulate objects, and use the viewport controls to preview models.\n\n"
+                      "Shortcuts:\n"
+                      "- F: Frame selected\n"
+                      "- Shift+F: Frame all\n"
+                      "- Ctrl+D: Duplicate selected\n"
+                      "- Shift+D: Duplicate (viewport)\n"
+                      "- Delete: Delete selected\n"
+                      "- H: Hide selected\n"
+                      "- Shift+H: Isolate selected\n"
+                      "- Alt+H: Unhide all\n"
+                      "- Shift+Tab: Toggle snap\n"
+                      "- Ctrl+Z: Undo\n"
+                      "- Ctrl+Shift+Z: Redo\n"
+                      "- Ctrl+A: Select whole object");
     
     // Initialize audio player for management pages
     loginAudioPlayer = new QMediaPlayer(this);
@@ -2550,6 +2566,7 @@ void MainWindow::switchLanguage(const QString &language)
     if (homeWindow) {
         homeWindow->setLanguage(language);
     }
+    m_suppressAudioOnPageChanged = true;
     onPageChanged(ui->stackedWidget->currentIndex());
 }
 
@@ -2572,43 +2589,48 @@ void MainWindow::showWelcomeNotification(QWidget *parent, const QString &managem
 
 void MainWindow::onPageChanged(int index)
 {
-    // --- Background Music Logic ---
-    if (index == 1) {
-        // Home page: stop OST1 and ensure OSTM is active (covers login -> home and module -> home)
-        if (loginAudioPlayer && loginAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
-            fadeOut(loginAudioOutput, [this](){ loginAudioPlayer->stop(); });
-        }
+    const bool suppressAudio = m_suppressAudioOnPageChanged;
+    m_suppressAudioOnPageChanged = false;
 
-        if (homeAudioPlayer) {
-            homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
-            homeAudioPlayer->setPosition(0);
-            homeAudioPlayer->play();
-        }
-    } else {
-        // All other pages: stop home-page audio (OST2 + animation track)
-        homeWindow->stopHomeAudio();
-        if (homeAudioPlayer && homeAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
-            fadeOut(homeAudioOutput, [this](){
-                if (ui && ui->stackedWidget && ui->stackedWidget->currentIndex() != 1) {
-                    homeAudioPlayer->stop();
-                }
-            });
-        }
-        if (chatAudioPlayer && chatAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
-            fadeOut(chatAudioOutput, [this](){ chatAudioPlayer->stop(); });
-        }
-
-        // Management pages (2-6): play OST1 (including chat tab — music continues uninterrupted)
-        if (index >= 2 && index <= 6) {
-            if (loginAudioPlayer && loginAudioPlayer->playbackState() != QMediaPlayer::PlayingState) {
-                loginAudioPlayer->setPosition(0);
-                loginAudioPlayer->play();
-                fadeIn(loginAudioOutput);
-            }
-        } else {
-            // Login (0): no music
+    if (!suppressAudio) {
+        // --- Background Music Logic ---
+        if (index == 1) {
+            // Home page: stop OST1 and ensure OSTM is active (covers login -> home and module -> home)
             if (loginAudioPlayer && loginAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
                 fadeOut(loginAudioOutput, [this](){ loginAudioPlayer->stop(); });
+            }
+
+            if (homeAudioPlayer) {
+                homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
+                homeAudioPlayer->setPosition(0);
+                homeAudioPlayer->play();
+            }
+        } else {
+            // All other pages: stop home-page audio (OST2 + animation track)
+            homeWindow->stopHomeAudio();
+            if (homeAudioPlayer && homeAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
+                fadeOut(homeAudioOutput, [this](){
+                    if (ui && ui->stackedWidget && ui->stackedWidget->currentIndex() != 1) {
+                        homeAudioPlayer->stop();
+                    }
+                });
+            }
+            if (chatAudioPlayer && chatAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
+                fadeOut(chatAudioOutput, [this](){ chatAudioPlayer->stop(); });
+            }
+
+            // Management pages (2-6): play OST1 (including chat tab — music continues uninterrupted)
+            if (index >= 2 && index <= 6) {
+                if (loginAudioPlayer && loginAudioPlayer->playbackState() != QMediaPlayer::PlayingState) {
+                    loginAudioPlayer->setPosition(0);
+                    loginAudioPlayer->play();
+                    fadeIn(loginAudioOutput);
+                }
+            } else {
+                // Login (0): no music
+                if (loginAudioPlayer && loginAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
+                    fadeOut(loginAudioOutput, [this](){ loginAudioPlayer->stop(); });
+                }
             }
         }
     }

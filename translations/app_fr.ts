@@ -888,4 +888,83 @@
         <translation>Exporter la commande en PDF</translation>
     </message>
 </context>
+<context>
+    <name>HomeWindow</name>
+    <message>
+        <source>Select Language</source>
+        <translation>Sélectionner la langue</translation>
+    </message>
+    <message>
+        <source>Volume</source>
+        <translation>Volume</translation>
+    </message>
+    <message>
+        <source>Mode</source>
+        <translation>Mode</translation>
+    </message>
+    <message>
+        <source>Standard</source>
+        <translation>Standard</translation>
+    </message>
+    <message>
+        <source>Animation</source>
+        <translation>Animation</translation>
+    </message>
+    <message>
+        <source>English</source>
+        <translation>Anglais</translation>
+    </message>
+    <message>
+        <source>Francais</source>
+        <translation>Français</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Fermer</translation>
+    </message>
+    <message>
+        <source>Press Esc or Close</source>
+        <translation>Appuyez sur Échap ou Fermer</translation>
+    </message>
+    <message>
+        <source>hammer down crew:</source>
+        <translation>équipe Hammer Down :</translation>
+    </message>
+    <message>
+        <source>home page</source>
+        <translation>page d'accueil</translation>
+    </message>
+    <message>
+        <source>order management</source>
+        <translation>gestion des commandes</translation>
+    </message>
+    <message>
+        <source>login page</source>
+        <translation>page de connexion</translation>
+    </message>
+    <message>
+        <source>supplier management</source>
+        <translation>gestion des fournisseurs</translation>
+    </message>
+    <message>
+        <source>equipment management</source>
+        <translation>gestion des équipements</translation>
+    </message>
+    <message>
+        <source>employee management</source>
+        <translation>gestion des employés</translation>
+    </message>
+    <message>
+        <source>client management</source>
+        <translation>gestion des clients</translation>
+    </message>
+    <message>
+        <source>thank you for chosing us</source>
+        <translation>merci de nous avoir choisis</translation>
+    </message>
+    <message>
+        <source>CREDITS</source>
+        <translation>CRÉDITS</translation>
+    </message>
+</context>
 </TS>

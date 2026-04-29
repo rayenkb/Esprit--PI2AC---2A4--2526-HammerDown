@@ -94,7 +94,7 @@ void LoreGuideWidget::setupUI()
     QHBoxLayout *tl = new QHBoxLayout(m_titleBar);
     tl->setContentsMargins(14, 0, 10, 0);
 
-    QLabel *titleLbl = new QLabel("HammerDown Assistant", m_titleBar);
+    QLabel *titleLbl = new QLabel(tr("HammerDown Assistant"), m_titleBar);
     titleLbl->setStyleSheet("color:#d4a96a; font-size:14px; font-weight:700;"
                             "font-family:'Georgia',serif; background:transparent; border:none;");
 
@@ -140,7 +140,7 @@ void LoreGuideWidget::setupUI()
     m_scrollArea->setWidget(m_bubbleContainer);
 
     // ── Typing indicator ─────────────────────────────────────
-    m_typingLabel = new QLabel("Assistant is typing...", this);
+    m_typingLabel = new QLabel(tr("Assistant is typing..."), this);
     m_typingLabel->setStyleSheet(
         "color:#8B6F47;font-size:11px;font-style:italic;"
         "background:transparent;border:none;padding:2px 14px;");
@@ -160,7 +160,7 @@ void LoreGuideWidget::setupUI()
     il->setSpacing(8);
 
     m_input = new QLineEdit(inputFrame);
-    m_input->setPlaceholderText("Type a message...");
+    m_input->setPlaceholderText(tr("Type a message..."));
     m_input->setStyleSheet(
         "QLineEdit{background:#1a1208;color:#e8dcc8;border:1px solid #3d2e18;"
         "border-radius:16px;padding:5px 12px;font-size:12px;font-family:'Georgia',serif;}"
@@ -188,7 +188,7 @@ void LoreGuideWidget::setupUI()
 
     // Opening message
     QTimer::singleShot(400, this, [this](){
-        appendBubble("Welcome to HammerDown!\nI'm your AI assistant. Ask me anything about this app - employees, clients, orders, equipment, suppliers, or any feature!", false);
+        appendBubble(tr("Welcome to HammerDown!\nI'm your AI assistant. Ask me anything about this app - employees, clients, orders, equipment, suppliers, or any feature!"), false);
     });
 }
 

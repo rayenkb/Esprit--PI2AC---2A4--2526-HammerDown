@@ -281,7 +281,7 @@ ChatBotDialog::~ChatBotDialog()
 
 void ChatBotDialog::setupUI()
 {
-    setWindowTitle("HammerDown Assistant");
+    setWindowTitle(tr("HammerDown Assistant"));
     setMinimumSize(360, 480);
     resize(420, 580);
     setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
@@ -315,7 +315,7 @@ void ChatBotDialog::setupUI()
         botIcon->setStyleSheet("font-size: 22px; background: transparent; border: none;");
     }
 
-    QLabel *titleLabel = new QLabel(m_isWeatherBot ? "Weather AI Expert" : "HammerDown Assistant", titleBar);
+    QLabel *titleLabel = new QLabel(m_isWeatherBot ? tr("Weather AI Expert") : tr("HammerDown Assistant"), titleBar);
     titleLabel->setObjectName("chatTitle");
 
     QPushButton *closeBtn = new QPushButton(titleBar);
@@ -325,7 +325,7 @@ void ChatBotDialog::setupUI()
     closeBtn->setDefault(false);
     closeBtn->setFocusPolicy(Qt::NoFocus);
     closeBtn->setCursor(Qt::PointingHandCursor);
-    closeBtn->setToolTip("Close chat");
+    closeBtn->setToolTip(tr("Close chat"));
     closeBtn->setText("✕");
     closeBtn->setStyleSheet("background-color: #d4a96a; color: #1a1208; border: none; border-radius: 19px; font-size: 22px; font-weight: bold;");
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::close);
@@ -408,7 +408,7 @@ void ChatBotDialog::setupUI()
     });
 
     // Typing Indicator
-    typingIndicator = new QLabel("Assistant is typing...", mainFrame);
+    typingIndicator = new QLabel(tr("Assistant is typing..."), mainFrame);
     typingIndicator->setObjectName("typingIndicator");
     typingIndicator->setVisible(false);
 
@@ -423,7 +423,7 @@ void ChatBotDialog::setupUI()
 
     inputField = new QLineEdit(inputFrame);
     inputField->setObjectName("chatInput");
-    inputField->setPlaceholderText("Type a message...");
+    inputField->setPlaceholderText(tr("Type a message..."));
     connect(inputField, &QLineEdit::returnPressed, this, &ChatBotDialog::sendMessage);
 
     sendButton = new QPushButton("\xE2\x9E\xA4", inputFrame);

@@ -68,6 +68,9 @@ HomeWindow::HomeWindow(QWidget *parent) :
     updateProfileAnimations();
 
     setupHomeButtons();
+    if (m_creditsButton) {
+        connect(m_creditsButton, &QPushButton::clicked, this, &HomeWindow::handleCredits);
+    }
 }
 
 HomeWindow::~HomeWindow()
@@ -278,11 +281,11 @@ void HomeWindow::handleSettingsClicked()
     cardLayout->setContentsMargins(20, 18, 20, 16);
     cardLayout->setSpacing(10);
 
-    QLabel *title = new QLabel("Select Language", card);
+    QLabel *title = new QLabel(tr("Select Language"), card);
     title->setObjectName("dialogTitle");
     title->setAlignment(Qt::AlignCenter);
 
-    QLabel *volumeLabel = new QLabel("Volume", card);
+    QLabel *volumeLabel = new QLabel(tr("Volume"), card);
     volumeLabel->setObjectName("volumeLabel");
 
     QLabel *volumeValue = new QLabel(QString("%1%").arg(100), card);
@@ -296,26 +299,26 @@ void HomeWindow::handleSettingsClicked()
     // Initial sync of volume value label
     volumeValue->setText(QString("%1%").arg(volumeSlider->value()));
 
-    QPushButton *englishButton = new QPushButton("English", card);
+    QPushButton *englishButton = new QPushButton(tr("English"), card);
     englishButton->setObjectName("primaryBtn");
     englishButton->setCursor(Qt::PointingHandCursor);
     englishButton->setCheckable(true);
     englishButton->setChecked(m_currentLanguage == "en");
 
-    QPushButton *frenchButton = new QPushButton("Francais", card);
+    QPushButton *frenchButton = new QPushButton(tr("Francais"), card);
     frenchButton->setObjectName("primaryBtn");
     frenchButton->setCursor(Qt::PointingHandCursor);
     frenchButton->setCheckable(true);
     frenchButton->setChecked(m_currentLanguage == "fr");
 
     // --- New: Standard/Animation buttons ---
-    QLabel *modeLabel = new QLabel("Mode", card);
+    QLabel *modeLabel = new QLabel(tr("Mode"), card);
     modeLabel->setObjectName("volumeLabel");
     
     QHBoxLayout *modeLayout = new QHBoxLayout();
     modeLayout->setSpacing(8);
-    QPushButton *standardButton = new QPushButton("Standard", card);
-    QPushButton *animationButton = new QPushButton("Animation", card);
+    QPushButton *standardButton = new QPushButton(tr("Standard"), card);
+    QPushButton *animationButton = new QPushButton(tr("Animation"), card);
     standardButton->setCheckable(true);
     animationButton->setCheckable(true);
     standardButton->setObjectName("primaryBtn");
@@ -346,6 +349,9 @@ void HomeWindow::handleSettingsClicked()
         // Allow animation to be triggered again when switching back to Animation mode
         m_animationTriggered = false;
         ui->btn_help->setEnabled(true);
+        if (chatBotDialog && chatBotDialog->isVisible()) {
+            chatBotDialog->close();
+        }
     });
     // Show current selection based on m_isStandardMode
     if (m_isStandardMode) {
@@ -356,7 +362,7 @@ void HomeWindow::handleSettingsClicked()
         standardButton->setChecked(false);
     }
 
-    QPushButton *closeButton = new QPushButton("Close", card);
+    QPushButton *closeButton = new QPushButton(tr("Close"), card);
     closeButton->setObjectName("closeBtn");
     closeButton->setCursor(Qt::PointingHandCursor);
 
@@ -894,6 +900,144 @@ void HomeWindow::handleHelp()
     player->play();
 }
 
+void HomeWindow::handleCredits()
+{
+    QWidget *topLevel = this->window();
+    if (!topLevel)
+        return;
+
+    // Stop any home/animation audio before starting credits music.
+    stopHomeAudio();
+
+    const int w = topLevel->width();
+    const int h = topLevel->height();
+    const QPoint origin = topLevel->mapToGlobal(QPoint(0, 0));
+
+    QDialog dialog(topLevel);
+    dialog.setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
+    dialog.setModal(true);
+    dialog.setGeometry(origin.x(), origin.y(), w, h);
+    dialog.setStyleSheet("QDialog { background: black; }");
+
+    emit tutorialOpened();
+
+    QAudioOutput *audioOut = new QAudioOutput(&dialog);
+    audioOut->setVolume(m_currentVolume);
+    QMediaPlayer *player = new QMediaPlayer(&dialog);
+    player->setAudioOutput(audioOut);
+    player->setSource(QUrl("qrc:/assets/crost.mp3"));
+    player->setLoops(QMediaPlayer::Infinite);
+    player->play();
+    connect(this, &HomeWindow::volumeChanged, audioOut, &QAudioOutput::setVolume);
+
+    auto *viewport = new QWidget(&dialog);
+    viewport->setGeometry(0, 0, w, h);
+    viewport->setStyleSheet("background: black;");
+
+    auto *closeBtn = new QPushButton("Close", &dialog);
+    closeBtn->setGeometry(w - 130, 22, 96, 38);
+    closeBtn->setCursor(Qt::PointingHandCursor);
+    closeBtn->setStyleSheet(
+        "QPushButton { background: rgba(90, 60, 30, 0.55); color: #F5E6C8; border: 2px solid #8B6F47; border-radius: 8px; font-weight: bold; }"
+        "QPushButton:hover { background: rgba(139, 111, 71, 0.75); border: 2px solid #d4a96a; }"
+    );
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    auto *hint = new QLabel(tr("Press Esc or Close"), &dialog);
+    hint->setAlignment(Qt::AlignCenter);
+    hint->setGeometry(0, h - 44, w, 24);
+    hint->setStyleSheet("color: rgba(245,230,200,0.65); font-size: 12px;");
+
+    auto *content = new QWidget(viewport);
+    auto *contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(10, 10, 10, 10);
+    contentLayout->setSpacing(24);
+
+    auto *logoLabel = new QLabel(content);
+    logoLabel->setAlignment(Qt::AlignCenter);
+    QPixmap logoPixmap(":/assets/logo.png");
+    if (!logoPixmap.isNull()) {
+        logoLabel->setPixmap(logoPixmap.scaledToWidth(260, Qt::SmoothTransformation));
+    } else {
+        logoLabel->setText("HAMMER DOWN");
+        logoLabel->setStyleSheet("color: #F5E6C8; font-size: 34px; font-weight: 900;");
+    }
+
+    auto *titleLabel = new QLabel(tr("hammer down crew:"), content);
+    titleLabel->setAlignment(Qt::AlignCenter);
+    titleLabel->setStyleSheet("color: #D4A96A; font-size: 36px; font-weight: 800; letter-spacing: 1px;");
+
+    const QString creditsText = QStringList{
+        "Yassine Ben Mustapha:",
+        "",
+        tr("home page"),
+        tr("order management"),
+        "",
+        "Mohamed Amine Challouf:",
+        "",
+        tr("login page"),
+        tr("supplier management"),
+        "",
+        "Rami Aouini:",
+        "",
+        tr("equipment management"),
+        "",
+        "Rayen Kaabar:",
+        "",
+        tr("employee management"),
+        "",
+        "Mohamed Amine Gaalish:",
+        "",
+        tr("client management")
+    }.join("\n");
+
+    auto *namesLabel = new QLabel(creditsText, content);
+    namesLabel->setAlignment(Qt::AlignCenter);
+    namesLabel->setWordWrap(true);
+    namesLabel->setStyleSheet("color: #F5E6C8; font-size: 24px; font-weight: 600; line-height: 1.45;");
+
+    auto *thankYouLabel = new QLabel(tr("thank you for chosing us"), &dialog);
+    thankYouLabel->setAlignment(Qt::AlignCenter);
+    thankYouLabel->setGeometry(0, h / 2 - 45, w, 90);
+    thankYouLabel->setStyleSheet(
+        "color: #D4A96A; font-size: 40px; font-weight: 800;"
+    );
+    thankYouLabel->hide();
+
+    contentLayout->addWidget(logoLabel, 0, Qt::AlignHCenter);
+    contentLayout->addWidget(titleLabel, 0, Qt::AlignHCenter);
+    contentLayout->addWidget(namesLabel, 0, Qt::AlignHCenter);
+
+    content->adjustSize();
+
+    const int contentW = qMax(content->sizeHint().width(), 640);
+    const int contentH = content->sizeHint().height();
+    content->setFixedSize(contentW, contentH);
+    const int x = (w - contentW) / 2;
+
+    const int topMargin = contentLayout->contentsMargins().top();
+    const int logoH = logoLabel->sizeHint().height();
+    const int startY = (h - logoH) / 2 - topMargin;
+    const int endY = -contentH - 40;
+    content->move(x, startY);
+
+    auto *scrollAnim = new QPropertyAnimation(content, "pos", &dialog);
+    scrollAnim->setDuration(26000);
+    scrollAnim->setStartValue(QPoint(x, startY));
+    scrollAnim->setEndValue(QPoint(x, endY));
+    scrollAnim->setEasingCurve(QEasingCurve::Linear);
+    scrollAnim->setLoopCount(1);
+    connect(scrollAnim, &QPropertyAnimation::finished, &dialog, [content, thankYouLabel]() {
+        content->hide();
+        thankYouLabel->show();
+        thankYouLabel->raise();
+    });
+    scrollAnim->start();
+
+    dialog.exec();
+    emit tutorialClosed();
+}
+
 void HomeWindow::stopHomeAudio()
 {
     if (m_animationAudioPlayer)
@@ -1121,4 +1265,29 @@ void HomeWindow::setupHomeButtons()
     ui->gs_fournisseur->setStyleSheet(supplierStyle);
     ui->gs_fournisseur->setFixedSize(480, 90);
     ui->gs_fournisseur->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+    if (!m_creditsButton) {
+        m_creditsButton = new QPushButton(tr("CREDITS"), this);
+        m_creditsButton->setGeometry(140, 20, 120, 50);
+        m_creditsButton->setCursor(Qt::PointingHandCursor);
+        m_creditsButton->setStyleSheet(R"(
+            QPushButton {
+                background-color: rgba(90, 60, 30, 0.55);
+                color: #f5e6c8;
+                border: 2px solid #8B6F47;
+                border-radius: 12px;
+                font-size: 13px;
+                font-weight: bold;
+                letter-spacing: 0.6px;
+            }
+            QPushButton:hover {
+                background-color: rgba(139, 111, 71, 0.75);
+                border: 2px solid #d4a96a;
+            }
+            QPushButton:pressed {
+                background-color: rgba(60, 35, 10, 0.85);
+            }
+        )");
+        m_creditsButton->show();
+    }
 }

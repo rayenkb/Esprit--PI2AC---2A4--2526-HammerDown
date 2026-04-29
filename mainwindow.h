@@ -414,6 +414,7 @@ private:
     qint64 m_loginResumePosAfterOstp = 0;
     qint64 m_homeResumePosAfterOstp = 0;
     qint64 m_tutorialResumePosAfterOstp = 0;
+    bool m_suppressAudioOnPageChanged = false;
     
     // Fade animation helpers
     void fadeOutAndPlay(QMediaPlayer *fadeOutPlayer, QAudioOutput *fadeOutOutput,
