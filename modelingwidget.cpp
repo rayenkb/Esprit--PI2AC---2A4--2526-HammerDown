@@ -2421,6 +2421,10 @@ ModelingWidget::ModelingWidget(QWidget *parent)
     auto bindViewportToolShortcut = [this, setToolBtn](int key, QPushButton *button, GLViewport::Tool tool) {
         auto *sc = new QShortcut(QKeySequence(key), m_viewport);
         sc->setContext(Qt::WidgetWithChildrenShortcut);
+        // Disable the shortcut while the viewport is in walk mode so the key
+        // is delivered to the walk navigation handler instead of the shortcut.
+        sc->setEnabled(!m_viewport->isWalkMode());
+        connect(m_viewport, &GLViewport::walkModeChanged, sc, [sc](bool enabled) { sc->setEnabled(!enabled); });
         connect(sc, &QShortcut::activated, this, [=]() { setToolBtn(button, tool); });
     };
     bindViewportToolShortcut(Qt::Key_Q, m_btnSelect, GLViewport::Select);
