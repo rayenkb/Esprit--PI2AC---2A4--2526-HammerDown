@@ -59,6 +59,8 @@
 #include <QValueAxis>
 #include <QChart>
 #include <QSplineSeries>
+#include <QAreaSeries>
+#include <QScrollArea>
 
 // Helper functions for translation
 namespace {
@@ -74,7 +76,7 @@ void setTrKey(QWidget *widget, const QString &key)
 }
 }
 
-static QPixmap getCircularPixmap(const QPixmap &src)
+QPixmap getCircularPixmap(const QPixmap &src)
 {
     if (src.isNull()) return src;
     int size = qMin(src.width(), src.height());
@@ -1406,213 +1408,513 @@ void MainWindow::setupEmployeeStats()
         delete child;
     }
 
+    // --- 3D EFFECT HELPERS ---
+    auto make3DPanel = [](QWidget *w, int shadowBlur = 40, int shadowOffset = 8) {
+        QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect();
+        shadow->setBlurRadius(shadowBlur);
+        shadow->setColor(QColor(0, 0, 0, 180));
+        shadow->setOffset(0, shadowOffset);
+        w->setGraphicsEffect(shadow);
+    };
+
     auto makeObsidianPanel = [](QChartView *v) {
         v->setRenderHint(QPainter::Antialiasing);
         v->setStyleSheet(
             "QChartView { "
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "stop:0 rgba(12,10,8,0.92), stop:0.5 rgba(18,14,10,0.94), stop:1 rgba(24,18,12,0.92));"
-            "border: 3px solid rgba(212,175,55,0.4);"
-            "border-radius: 20px;"
-            "padding: 16px;"
-            "box-shadow: 0 15px 35px rgba(0,0,0,0.3), "
-            "0 0 60px rgba(212,175,55,0.15), "
-            "inset 0 1px 0 rgba(255,255,255,0.1), "
-            "inset 0 -1px 0 rgba(0,0,0,0.2);"
+            "stop:0 rgba(18,14,10,0.95), stop:0.5 rgba(28,22,16,0.97), stop:1 rgba(38,28,20,0.95));"
+            "border: 3px solid rgba(212,175,55,0.5);"
+            "border-radius: 24px;"
+            "padding: 18px;"
             "}");
         
         QGraphicsDropShadowEffect *sh = new QGraphicsDropShadowEffect();
-        sh->setBlurRadius(35); 
-        sh->setColor(QColor(212,175,55,120)); 
-        sh->setOffset(0,12);
+        sh->setBlurRadius(50); 
+        sh->setColor(QColor(0, 0, 0, 200)); 
+        sh->setOffset(0, 15);
         v->setGraphicsEffect(sh);
     };
 
     auto styleObsidianChart = [](QChart *c, const QString &title) {
         c->setTitle(title.toUpper());
-        c->setTitleFont(QFont("Segoe UI", 16, QFont::Black));
+        c->setTitleFont(QFont("Segoe UI", 14, QFont::Black));
         c->setTitleBrush(QBrush(QColor("#D4AF37")));
         c->setBackgroundBrush(Qt::transparent);
         c->setPlotAreaBackgroundBrush(Qt::transparent);
         c->setMargins(QMargins(15, 20, 15, 15));
         c->setAnimationOptions(QChart::AllAnimations);
+        c->setAnimationDuration(1500);
     };
 
+    // --- DATA COLLECTION ---
     QHash<QString, int> counts;
+    QHash<QString, double> salaryByRole;
     double totalSalary = 0;
     int totalCount = 0;
+    double avgAge = 0;
+    int highEarners = 0;
+    QString topDepartment;
+    int maxDeptCount = 0;
+    
     {
-        QSqlQuery q("SELECT JOB_TITLE, COUNT(*), SUM(SALARY) FROM EMPLOYEES GROUP BY JOB_TITLE");
+        QSqlQuery q("SELECT JOB_TITLE, COUNT(*), SUM(SALARY), AVG(SALARY) FROM EMPLOYEES GROUP BY JOB_TITLE");
         while (q.next()) { 
-            counts.insert(q.value(0).toString(), q.value(1).toInt()); 
-            totalSalary += q.value(2).toDouble();
-            totalCount += q.value(1).toInt();
+            QString role = q.value(0).toString();
+            int count = q.value(1).toInt();
+            double sum = q.value(2).toDouble();
+            double avg = q.value(3).toDouble();
+            counts.insert(role, count); 
+            salaryByRole.insert(role, avg);
+            totalSalary += sum;
+            totalCount += count;
+            if (count > maxDeptCount) {
+                maxDeptCount = count;
+                topDepartment = role;
+            }
         }
+        
+        QSqlQuery qAge("SELECT AVG(AGE) FROM EMPLOYEES");
+        if (qAge.next()) avgAge = qAge.value(0).toDouble();
+        
+        QSqlQuery qHigh("SELECT COUNT(*) FROM EMPLOYEES WHERE SALARY > 5000");
+        if (qHigh.next()) highEarners = qHigh.value(0).toInt();
     }
 
-    // --- ENHANCED 3D DONUT (Workforce Distribution) ---
-    QPieSeries *pie = new QPieSeries();
-    pie->setHoleSize(0.65);
-    pie->setPieSize(0.85);
+    // --- TOP STATS CARDS ROW WITH 3D EFFECTS ---
+    QHBoxLayout *statsCardsLayout = new QHBoxLayout();
+    statsCardsLayout->setSpacing(12);
+    statsCardsLayout->setContentsMargins(0, 0, 0, 0);
     
-    QStringList neon = {"#BD93F9", "#F59E0B", "#FF79C6", "#8BE9FD", "#F1FA8C", "#FFB86C", "#FF5555"};
+    auto create3DStatCard = [&](const QString &icon, const QString &title, const QString &value, const QString &subtitle, const QColor &accentColor) -> QFrame* {
+        QFrame *card = new QFrame();
+        card->setStyleSheet(
+            "QFrame { "
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+            "stop:0 rgba(28, 22, 16, 0.95), stop:1 rgba(38, 28, 20, 0.92));"
+            "border: 1px solid rgba(212, 175, 55, 0.3);"
+            "border-radius: 16px;"
+            "}"
+        );
+        card->setMinimumHeight(90);
+        card->setMaximumHeight(90);
+        card->setMinimumWidth(180);
+
+        QVBoxLayout *layout = new QVBoxLayout(card);
+        layout->setContentsMargins(15, 10, 15, 10);
+        layout->setSpacing(3);
+
+        // Header with icon and title
+        QLabel *header = new QLabel(QString("<span style='font-size:14px;'>%1</span> <span style='color:#8B7355; font-size:10px; font-weight:bold; text-transform:uppercase;'>%2</span>").arg(icon, title));
+        layout->addWidget(header);
+
+        // Value
+        QLabel *valLabel = new QLabel(value);
+        valLabel->setStyleSheet(QString("color: %1; font-size: 22px; font-weight: 800; font-family: 'Segoe UI';").arg(accentColor.name()));
+        layout->addWidget(valLabel);
+
+        // Subtitle
+        QLabel *subLabel = new QLabel(subtitle);
+        subLabel->setStyleSheet("color: #6B5B3E; font-size: 9px; font-weight: 500;");
+        layout->addWidget(subLabel);
+
+        // 3D shadow effect
+        QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect();
+        shadow->setBlurRadius(20);
+        shadow->setColor(QColor(0, 0, 0, 120));
+        shadow->setOffset(0, 6);
+        card->setGraphicsEffect(shadow);
+
+        return card;
+    };
+    
+    // Card 1: Total Workforce
+    QFrame *cardTotal = create3DStatCard("👥", "Total Force", QString::number(totalCount), 
+        totalCount == 1 ? "ACTIVE PERSONNEL" : "ACTIVE PERSONNEL", QColor("#D4AF37"));
+    statsCardsLayout->addWidget(cardTotal, 1);
+    
+    // Card 2: Average Salary
+    QFrame *cardSalary = create3DStatCard("💰", "Avg Value", QString("$%1").arg((int)(totalCount > 0 ? totalSalary/totalCount : 0)),
+        "MONTHLY COMPENSATION", QColor("#10B981"));
+    statsCardsLayout->addWidget(cardSalary, 1);
+    
+    // Card 3: Top Department
+    QFrame *cardDept = create3DStatCard("🏆", "Top Dept", topDepartment.isEmpty() ? "-" : topDepartment,
+        QString("%1 MEMBERS").arg(maxDeptCount), QColor("#8B5CF6"));
+    statsCardsLayout->addWidget(cardDept, 1);
+    
+    // Card 4: Team Age
+    QFrame *cardAge = create3DStatCard("📊", "Team Age", QString("%1 yrs").arg(avgAge, 0, 'f', 1),
+        "AVERAGE EXPERIENCE", QColor("#F59E0B"));
+    statsCardsLayout->addWidget(cardAge, 1);
+    
+    // Card 5: High Performers
+    double highPerformerPct = totalCount > 0 ? (highEarners * 100.0 / totalCount) : 0;
+    QFrame *cardHigh = create3DStatCard("⭐", "High Value", QString("%1%").arg((int)highPerformerPct),
+        QString("%1 EMPLOYEES EARNING >$5K").arg(highEarners), QColor("#EC4899"));
+    statsCardsLayout->addWidget(cardHigh, 1);
+
+    // --- ENHANCED 3D DONUT CHART (Workforce Composition) ---
+    QPieSeries *pie = new QPieSeries();
+    pie->setHoleSize(0.55);
+    pie->setPieSize(0.85);
+
+    // HammerDown themed colors (browns, golds, complementary)
+    QStringList themeColors = {"#D4AF37", "#8B6F47", "#A0825A", "#C4A35A", "#6B5B3E", "#B8956A", "#4A3C28"};
     int pIdx = 0;
     for (auto it = counts.begin(); it != counts.end(); ++it) {
         QPieSlice *s = pie->append(it.key(), it.value());
-        QColor base = QColor(neon.at(pIdx % neon.size()));
-        
-        QRadialGradient grad(0.5, 0.5, 0.8); grad.setCoordinateMode(QGradient::ObjectBoundingMode);
-        grad.setColorAt(0, base.lighter(140)); grad.setColorAt(0.7, base); grad.setColorAt(1, base.darker(160));
+        QColor base = QColor(themeColors.at(pIdx % themeColors.size()));
+
+        // 3D gradient effect
+        QRadialGradient grad(0.5, 0.5, 0.9);
+        grad.setCoordinateMode(QGradient::ObjectBoundingMode);
+        grad.setColorAt(0, base.lighter(160));
+        grad.setColorAt(0.4, base);
+        grad.setColorAt(0.8, base.darker(120));
+        grad.setColorAt(1, base.darker(180));
         s->setBrush(QBrush(grad));
-        
-        s->setLabel(QString("%1 (%2)").arg(it.key()).arg(it.value()));
-        s->setLabelVisible(totalCount < 15); // Hide labels if too many for cleaner look
+
+        // Show label outside with line connecting to slice
+        QString shortName = it.key().left(12);
+        s->setLabel(QString("%1 (%2)").arg(shortName).arg(it.value()));
+        s->setLabelVisible(true);
         s->setLabelPosition(QPieSlice::LabelOutside);
-        s->setLabelColor(Qt::white);
-        s->setLabelFont(QFont("Outfit", 10, QFont::Medium));
-        s->setPen(QPen(Qt::black, 1));
+        s->setLabelColor(QColor("#D4AF37"));
+        s->setLabelFont(QFont("Segoe UI", 10, QFont::Bold));
+        s->setPen(QPen(base.darker(140), 2));
         pIdx++;
     }
 
     QChart *c1 = new QChart();
     c1->addSeries(pie);
-    styleObsidianChart(c1, "Workforce Matrix");
-    c1->legend()->setAlignment(Qt::AlignBottom); // Move legend to bottom to center the donut holes
-    c1->legend()->setFont(QFont("Outfit", 9, QFont::Medium));
+    styleObsidianChart(c1, "⚔️ WORKFORCE COMPOSITION");
+    c1->legend()->setAlignment(Qt::AlignRight);
+    c1->legend()->setFont(QFont("Segoe UI", 10, QFont::Medium));
     c1->legend()->setLabelBrush(QBrush(QColor("#D4AF37")));
+    c1->legend()->setBackgroundVisible(false);
     
     QChartView *v1 = new QChartView(c1);
     makeObsidianPanel(v1);
-    v1->setMinimumSize(500, 420);
+    v1->setMinimumSize(420, 320);
+    v1->setMaximumSize(500, 380);
 
-    // Interactive 3D Float effect when hovered for the pie slices
+    // Enhanced hover 3D effect
     connect(pie, &QPieSeries::hovered, pie, [=](QPieSlice *slice, bool state){
         if (state) {
             slice->setExploded(true);
-            slice->setExplodeDistanceFactor(0.12);
-            slice->setLabelFont(QFont("Outfit", 12, QFont::Bold));
+            slice->setExplodeDistanceFactor(0.15);
+            slice->setLabelFont(QFont("Segoe UI", 13, QFont::Black));
         } else {
             slice->setExploded(false);
-            slice->setExplodeDistanceFactor(0.04);
-            slice->setLabelFont(QFont("Outfit", 10, QFont::Medium));
+            slice->setExplodeDistanceFactor(0.05);
+            slice->setLabelFont(QFont("Segoe UI", 11, QFont::Bold));
         }
     });
 
-    // Dynamic Central Label (Centered Percentage)
+    // Center Info Label with enhanced 3D text effect
     QLabel *lblCenter = new QLabel(v1);
-    lblCenter->setAlignment(Qt::AlignCenter); 
+    lblCenter->setAlignment(Qt::AlignCenter);
     lblCenter->setStyleSheet("background: transparent; border: none;");
-    
+
     QVBoxLayout *cL = new QVBoxLayout(v1);
-    cL->setContentsMargins(0,0,0,30); // Offset upwards slightly to account for bottom legend
+    cL->setContentsMargins(0, 0, 100, 0); // Offset for right legend
     cL->addWidget(lblCenter, 0, Qt::AlignCenter);
 
     QPointer<QLabel> pL = lblCenter;
-    auto updateLabel = [pL](const QString &t, double p, int c) {
-        if(!pL) return;
-        pL->setText(QString("<div style='text-align:center;'>"
-                           "<span style='color:#D4AF37; font-family:\"Outfit\", \"Segoe UI\"; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:1px;'>%1</span><br/>"
-                           "<span style='font-size:32px; font-family:\"Outfit\", sans-serif; font-weight:900; color:white; margin: 4px 0;'>%2%</span><br/>"
-                           "<span style='color:#A0825A; font-family:\"Outfit\"; font-size:11px; font-weight:bold; opacity: 0.8;'>RECORDS: %3</span>"
-                           "</div>")
-                    .arg(t).arg((int)p).arg(c));
+    auto updateCenterLabel = [pL](const QString &title, const QString &value, const QString &subtitle) {
+        if (!pL) return;
+        pL->setText(QString(
+            "<div style='text-align:center;'>"
+            "<span style='color:#8B7355; font-size:9px; font-weight:bold; text-transform:uppercase; letter-spacing:1px;'>%1</span><br/>"
+            "<span style='color:#D4AF37; font-size:42px; font-weight:900; font-family:\"Segoe UI\"; text-shadow: 0 0 20px rgba(212,175,55,0.6), 2px 2px 4px rgba(0,0,0,0.8);'>%2</span><br/>"
+            "<span style='color:#A0825A; font-size:10px; font-weight:600;'>%3</span>"
+            "</div>"
+        ).arg(title, value, subtitle));
     };
-    updateLabel("Workforce", 100.0, totalCount);
+    updateCenterLabel("TOTAL FORCE", QString::number(totalCount), "PERSONNEL");
 
     for (QPieSlice *s : pie->slices()) {
-        connect(s, &QPieSlice::hovered, this, [s, updateLabel, totalCount](bool st){
-            s->setExploded(st); 
-            s->setExplodeDistanceFactor(st ? 0.12 : 0.04); 
-            if(st) updateLabel(s->label().split(" (").first(), s->percentage()*100.0, s->value()); 
-            else updateLabel("Workforce", 100.0, totalCount);
+        connect(s, &QPieSlice::hovered, this, [s, updateCenterLabel, totalCount](bool st) {
+            s->setExploded(st);
+            s->setExplodeDistanceFactor(st ? 0.12 : 0.02);
+            if (st) {
+                int pct = (int)(s->percentage() * 100);
+                QString jobName = s->label().split("\n").first();
+                updateCenterLabel(jobName, QString("%1%").arg(pct), QString("OF %1 TOTAL").arg(totalCount));
+            } else {
+                updateCenterLabel("TOTAL FORCE", QString::number(totalCount), "PERSONNEL");
+            }
         });
     }
 
-    // --- SYNERGY INDEX (Departmental Power) ---
-    QBarSet *setPower = new QBarSet("Current Avg");
-    QBarSet *setBenchmark = new QBarSet("Market Benchmark");
+    // --- SALARY DISTRIBUTION BAR CHART (3D Styled) ---
+    QBarSet *setCurrent = new QBarSet("Current");
+    QBarSet *setMarket = new QBarSet("Market Avg");
     
-    setPower->setBrush(QColor("#9146FF"));
-    setBenchmark->setBrush(QColor(212, 175, 55, 120)); // Faded gold for benchmark
+    // 3D gradient brushes
+    QLinearGradient currentGrad(0, 0, 0, 1);
+    currentGrad.setCoordinateMode(QGradient::ObjectBoundingMode);
+    currentGrad.setColorAt(0, QColor("#D4AF37"));
+    currentGrad.setColorAt(0.5, QColor("#B8941D"));
+    currentGrad.setColorAt(1, QColor("#8B6F47"));
+    setCurrent->setBrush(QBrush(currentGrad));
+    setCurrent->setBorderColor(QColor("#6B5B3E"));
+
+    QLinearGradient marketGrad(0, 0, 0, 1);
+    marketGrad.setCoordinateMode(QGradient::ObjectBoundingMode);
+    marketGrad.setColorAt(0, QColor(139, 111, 71, 100));
+    marketGrad.setColorAt(1, QColor(139, 111, 71, 60));
+    setMarket->setBrush(QBrush(marketGrad));
+    setMarket->setBorderColor(QColor(139, 111, 71, 120));
     
-    QStringList labels;
-    QSqlQuery qP("SELECT JOB_TITLE, AVG(SALARY) FROM EMPLOYEES GROUP BY JOB_TITLE ORDER BY AVG(SALARY) DESC FETCH FIRST 5 ROWS ONLY");
-    while(qP.next()) {
-        labels << qP.value(0).toString();
-        double avg = qP.value(1).toDouble();
-        *setPower << avg;
-        *setBenchmark << avg * (1.1 + (QRandomGenerator::global()->generateDouble() * 0.2)); // Competitive benchmark
+    QStringList barLabels;
+    QSqlQuery qBar("SELECT JOB_TITLE, AVG(SALARY) FROM EMPLOYEES GROUP BY JOB_TITLE ORDER BY AVG(SALARY) DESC");
+    int barCount = 0;
+    while (qBar.next() && barCount < 6) {
+        barLabels << qBar.value(0).toString();
+        double avg = qBar.value(1).toDouble();
+        *setCurrent << avg;
+        // Market benchmark with variation
+        double marketVar = 0.9 + (QRandomGenerator::global()->generateDouble() * 0.25);
+        *setMarket << avg * marketVar;
+        barCount++;
     }
     
-    QBarSeries *bs = new QBarSeries(); bs->append(setPower); bs->append(setBenchmark);
-    QChart *c2 = new QChart(); c2->addSeries(bs); styleObsidianChart(c2, "Dept Market Value");
+    QBarSeries *barSeries = new QBarSeries();
+    barSeries->append(setCurrent);
+    barSeries->append(setMarket);
+    barSeries->setBarWidth(0.7);
+    barSeries->setLabelsVisible(false);
     
-    QBarCategoryAxis *axisX = new QBarCategoryAxis(); axisX->append(labels);
-    axisX->setLabelsColor(Qt::white); axisX->setLabelsFont(QFont("Outfit", 8));
-    c2->addAxis(axisX, Qt::AlignBottom); bs->attachAxis(axisX);
+    QChart *c2 = new QChart();
+    c2->addSeries(barSeries);
+    styleObsidianChart(c2, "💎 SALARY DISTRIBUTION");
     
-    QValueAxis *axisY = new QValueAxis(); axisY->setRange(0, 12000); 
-    axisY->setLabelsColor(QColor("#D4AF37")); axisY->setGridLineColor(QColor(255,255,255,30));
-    c2->addAxis(axisY, Qt::AlignLeft); bs->attachAxis(axisY);
+    QBarCategoryAxis *axisX = new QBarCategoryAxis();
+    axisX->append(barLabels);
+    axisX->setLabelsColor(QColor("#D4AF37"));
+    axisX->setLabelsFont(QFont("Segoe UI", 9, QFont::Bold));
+    axisX->setGridLineColor(QColor(212, 175, 55, 40));
+    c2->addAxis(axisX, Qt::AlignBottom);
+    barSeries->attachAxis(axisX);
+    
+    QValueAxis *axisY = new QValueAxis();
+    axisY->setRange(0, qMax(10000.0, totalCount > 0 ? (totalSalary/totalCount) * 2.5 : 8000));
+    axisY->setLabelsColor(QColor("#A0825A"));
+    axisY->setGridLineColor(QColor(255, 255, 255, 25));
+    axisY->setLabelFormat("$%d");
+    c2->addAxis(axisY, Qt::AlignLeft);
+    barSeries->attachAxis(axisY);
     
     c2->legend()->setVisible(true);
-    c2->legend()->setAlignment(Qt::AlignBottom);
-    c2->legend()->setLabelBrush(Qt::white);
-    c2->legend()->setFont(QFont("Outfit", 8, QFont::Bold));
-    QChartView *v2 = new QChartView(c2); makeObsidianPanel(v2);
+    c2->legend()->setAlignment(Qt::AlignTop);
+    c2->legend()->setLabelBrush(QBrush(QColor("#D4AF37")));
+    c2->legend()->setFont(QFont("Segoe UI", 10, QFont::Bold));
+    c2->legend()->setBackgroundVisible(false);
+    
+    QChartView *v2 = new QChartView(c2);
+    makeObsidianPanel(v2);
+    v2->setMinimumSize(420, 260);
+    v2->setMaximumSize(500, 300);
 
-    // --- REAL SYNERGY ANALYTICS (Hiring Trends) ---
+    // --- DEPARTMENTAL STATS (Clean List Style) ---
+    QFrame *gaugeFrame = new QFrame();
+    gaugeFrame->setStyleSheet(
+        "QFrame { "
+        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+        "stop:0 rgba(40, 30, 20, 0.98), stop:1 rgba(50, 38, 26, 0.95));"
+        "border: 2px solid rgba(212, 175, 55, 0.5);"
+        "border-radius: 16px;"
+        "}"
+    );
+
+    make3DPanel(gaugeFrame, 30, 8);
+
+    QVBoxLayout *gaugeLayout = new QVBoxLayout(gaugeFrame);
+    gaugeLayout->setContentsMargins(16, 12, 16, 12);
+    gaugeLayout->setSpacing(6);
+
+    // Title
+    QLabel *gaugeTitle = new QLabel("📊 TEAM BREAKDOWN");
+    gaugeTitle->setStyleSheet("color: #FFD700; font-size: 13px; font-weight: 800; font-family: 'Segoe UI'; letter-spacing: 1px;");
+    gaugeTitle->setAlignment(Qt::AlignCenter);
+    gaugeLayout->addWidget(gaugeTitle);
+
+    // Calculate diversity score
+    double diversityScore = (totalCount > 0) ? qMin(100.0, (counts.size() * 100.0 / totalCount) * 3.0) : 0;
+
+    // Department list with clean styling (limit to top 5)
+    int deptCount = 0;
+    for (auto it = counts.begin(); it != counts.end() && deptCount < 5; ++it, ++deptCount) {
+        double pct = (it.value() * 100.0) / totalCount;
+
+        // Clean card for each dept
+        QFrame *deptCard = new QFrame();
+        deptCard->setStyleSheet(
+            "QFrame { "
+            "background: rgba(60, 45, 30, 0.6);"
+            "border: 1px solid rgba(212, 175, 55, 0.4);"
+            "border-radius: 8px;"
+            "}"
+        );
+
+        QHBoxLayout *cardLayout = new QHBoxLayout(deptCard);
+        cardLayout->setContentsMargins(12, 6, 12, 6);
+        cardLayout->setSpacing(8);
+
+        // Dept name - bright white for visibility
+        QLabel *nameLabel = new QLabel(it.key());
+        nameLabel->setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 700;");
+        cardLayout->addWidget(nameLabel);
+
+        cardLayout->addStretch();
+
+        // Count - bright gold
+        QLabel *countLabel = new QLabel(QString("%1").arg(it.value()));
+        countLabel->setStyleSheet("color: #FFD700; font-size: 13px; font-weight: 700;");
+        cardLayout->addWidget(countLabel);
+
+        // Percentage badge - high contrast
+        QLabel *pctBadge = new QLabel(QString("%1%").arg((int)pct));
+        pctBadge->setStyleSheet(
+            "background: rgba(212, 175, 55, 0.3);"
+            "color: #FFFFFF;"
+            "font-size: 11px;"
+            "font-weight: 800;"
+            "padding: 3px 10px;"
+            "border-radius: 5px;"
+            "border: 1px solid rgba(212, 175, 55, 0.5);"
+        );
+        cardLayout->addWidget(pctBadge);
+
+        gaugeLayout->addWidget(deptCard);
+    }
+
+    // Diversity score footer
+    QFrame *footerCard = new QFrame();
+    footerCard->setStyleSheet(
+        "QFrame { "
+        "background: rgba(60, 45, 30, 0.6);"
+        "border: 1px solid rgba(16, 185, 129, 0.5);"
+        "border-radius: 8px;"
+        "}"
+    );
+
+    QHBoxLayout *footerLayout = new QHBoxLayout(footerCard);
+    footerLayout->setContentsMargins(12, 6, 12, 6);
+    footerLayout->setSpacing(8);
+
+    QLabel *divLabel = new QLabel("📊 Diversity Score");
+    divLabel->setStyleSheet("color: #A0A0A0; font-size: 11px; font-weight: 600;");
+    footerLayout->addWidget(divLabel);
+
+    footerLayout->addStretch();
+
+    QString divColor = diversityScore > 70 ? "#10B981" : (diversityScore > 40 ? "#F59E0B" : "#EF4444");
+    QLabel *divValue = new QLabel(QString("%1%").arg((int)diversityScore));
+    divValue->setStyleSheet(QString("color: %1; font-size: 16px; font-weight: 800;").arg(divColor));
+    footerLayout->addWidget(divValue);
+
+    gaugeLayout->addWidget(footerCard);
+
+    gaugeFrame->setMinimumSize(360, 220);
+    gaugeFrame->setMaximumSize(440, 280);
+
+    // --- HIRING VELOCITY CHART ---
     QSplineSeries *trend = new QSplineSeries();
-    trend->setName("Acquisition Velocity");
-    QPen trendPen(QColor("#00F2FF"), 5); trendPen.setCapStyle(Qt::RoundCap);
+    trend->setName("Hiring Rate");
+    
+    QPen trendPen(QColor("#D4AF37"), 4);
+    trendPen.setCapStyle(Qt::RoundCap);
     trend->setPen(trendPen);
     
-    // Calculate Synergy Score based on diversity vs size
-    double synergyScore = (totalCount > 0) ? (double)counts.size() / totalCount * 100 : 0;
-    synergyScore = qMin(100.0, synergyScore * 2.5); // Normalize
-
     QSqlQuery qH("SELECT TO_CHAR(HIRE_DATE, 'MM'), COUNT(*) FROM EMPLOYEES GROUP BY TO_CHAR(HIRE_DATE, 'MM') ORDER BY 1");
     int mCount = 0;
-    while(qH.next()) { trend->append(qH.value(0).toInt(), qH.value(1).toInt()); mCount++; }
-    if(mCount < 2) { // Fallback if no dates
-        for(int k=0; k<12; ++k) trend->append(k, 1 + QRandomGenerator::global()->bounded(5));
+    int maxHires = 0;
+    while (qH.next()) {
+        int month = qH.value(0).toInt();
+        int count = qH.value(1).toInt();
+        trend->append(month, count);
+        maxHires = qMax(maxHires, count);
+        mCount++;
+    }
+    if (mCount < 2) {
+        for (int k = 1; k <= 12; ++k) trend->append(k, 1 + QRandomGenerator::global()->bounded(4));
+        maxHires = 5;
     }
 
-    QChart *c3 = new QChart(); c3->addSeries(trend); styleObsidianChart(c3, "Synergy Momentum");
+    QChart *c3 = new QChart();
+    c3->addSeries(trend);
+    styleObsidianChart(c3, "📈 HIRING VELOCITY");
     c3->createDefaultAxes();
-    if(auto *axX = qobject_cast<QValueAxis*>(c3->axes(Qt::Horizontal).first())) {
-        axX->setRange(1, 12); axX->setLabelFormat("%d"); axX->setLabelsColor(Qt::white);
-        axX->setGridLineColor(QColor(255,255,255,20));
+    
+    if (auto *axX = qobject_cast<QValueAxis*>(c3->axes(Qt::Horizontal).first())) {
+        axX->setRange(1, 12);
+        axX->setLabelFormat("M%d");
+        axX->setLabelsColor(QColor("#A0825A"));
+        axX->setGridLineColor(QColor(255, 255, 255, 20));
+        axX->setTickCount(12);
     }
-    if(auto *axY = qobject_cast<QValueAxis*>(c3->axes(Qt::Vertical).first())) {
-        axY->setLabelsColor(Qt::white); axY->setGridLineColor(QColor(255,255,255,20));
+    if (auto *axY = qobject_cast<QValueAxis*>(c3->axes(Qt::Vertical).first())) {
+        axY->setRange(0, qMax(5, maxHires + 2));
+        axY->setLabelsColor(QColor("#A0825A"));
+        axY->setGridLineColor(QColor(255, 255, 255, 20));
     }
     
-    QChartView *v3 = new QChartView(c3); makeObsidianPanel(v3);
+    // Add area under curve for 3D effect
+    QAreaSeries *area = new QAreaSeries(trend);
+    QLinearGradient areaGrad(0, 0, 0, 1);
+    areaGrad.setCoordinateMode(QGradient::ObjectBoundingMode);
+    areaGrad.setColorAt(0, QColor(212, 175, 55, 80));
+    areaGrad.setColorAt(1, QColor(212, 175, 55, 10));
+    area->setBrush(QBrush(areaGrad));
+    area->setPen(QPen(Qt::transparent));
+    c3->addSeries(area);
+    area->attachAxis(c3->axes(Qt::Horizontal).first());
+    area->attachAxis(c3->axes(Qt::Vertical).first());
 
-    // --- SYNERGY PULSE CARD ---
-    QFrame *fPulse = new QFrame(); 
-    fPulse->setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1a1510, stop:1 #2C2418); border: 2px solid #D4AF37; border-radius: 20px;");
-    QVBoxLayout *lv = new QVBoxLayout(fPulse);
-    
-    QString syncStatus = (synergyScore > 70) ? "OPTIMAL" : (synergyScore > 40 ? "STABLE" : "DILUTED");
-    QString syncColor = (synergyScore > 70) ? "#F59E0B" : (synergyScore > 40 ? "#FBBF24" : "#EF4444");
-    
-    QLabel *lPulse = new QLabel(QString(
-        "<div align='center'>"
-        "<span style='color:#D4AF37; font-size:12px; font-weight:bold;'>⚡ SYNERGY PULSE</span><br/>"
-        "<span style='color:%1; font-size:24px; font-weight:900;'>%2%</span><br/>"
-        "<span style='color:white; font-size:11px;'>STATUS: <b>%3</b></span>"
-        "</div>").arg(syncColor).arg(synergyScore, 0, 'f', 1).arg(syncStatus));
-    lPulse->setStyleSheet("border:none; background:transparent;"); lv->addWidget(lPulse);
+    QChartView *v3 = new QChartView(c3);
+    makeObsidianPanel(v3);
+    v3->setMinimumSize(420, 220);
+    v3->setMaximumSize(500, 260);
 
-    ui_employee->gridLayout_stats->setSpacing(20);
-    ui_employee->gridLayout_stats->addWidget(v1, 0, 0, 3, 1);
-    ui_employee->gridLayout_stats->addWidget(v2, 0, 1, 1, 1);
-    ui_employee->gridLayout_stats->addWidget(v3, 1, 1, 1, 1);
-    ui_employee->gridLayout_stats->addWidget(fPulse, 2, 1, 1, 1);
-    
-    ui_employee->gridLayout_stats->setRowStretch(0, 4); ui_employee->gridLayout_stats->setRowStretch(1, 4); ui_employee->gridLayout_stats->setRowStretch(2, 2);
+    // --- CREATE SCROLLABLE CONTENT ---
+    QWidget *contentWidget = new QWidget();
+    QGridLayout *contentLayout = new QGridLayout(contentWidget);
+    contentLayout->setSpacing(12);
+    contentLayout->setContentsMargins(8, 8, 8, 8);
+
+    // Add stats cards
+    contentLayout->addLayout(statsCardsLayout, 0, 0, 1, 2);
+
+    // Better organized 2x2 layout
+    contentLayout->addWidget(v1, 1, 0); // Donut - left
+    contentLayout->addWidget(v2, 1, 1); // Bar chart - right
+    contentLayout->addWidget(gaugeFrame, 2, 0); // Gauge - bottom left
+    contentLayout->addWidget(v3, 2, 1); // Trend - bottom right
+
+    contentLayout->setRowStretch(0, 0);  // Stats cards
+    contentLayout->setRowStretch(1, 5); // Charts
+    contentLayout->setRowStretch(2, 4); // Bottom row
+    contentLayout->setColumnStretch(0, 1);
+    contentLayout->setColumnStretch(1, 1);
+
+    // Create scroll area
+    QScrollArea *scrollArea = new QScrollArea();
+    scrollArea->setWidget(contentWidget);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setStyleSheet(
+        "QScrollArea { border: none; background: transparent; }"
+        "QScrollBar:vertical { background: rgba(28, 22, 16, 0.8); width: 12px; border-radius: 6px; }"
+        "QScrollBar::handle:vertical { background: rgba(212, 175, 55, 0.5); border-radius: 6px; min-height: 30px; }"
+        "QScrollBar::handle:vertical:hover { background: rgba(212, 175, 55, 0.7); }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+    );
+
+    // Add to the original grid layout
+    ui_employee->gridLayout_stats->addWidget(scrollArea, 0, 0);
 }
 void MainWindow::onEmployeeAdd()
 {
