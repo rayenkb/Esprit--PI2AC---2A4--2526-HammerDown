@@ -3,10 +3,22 @@
 
 #include <QPoint>
 #include <QListWidgetItem>
+#include <QFrame>
+#include <QLabel>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QPropertyAnimation>
+#include <QParallelAnimationGroup>
+#include <QSequentialAnimationGroup>
+#include <QGraphicsOpacityEffect>
+#include <QGraphicsDropShadowEffect>
+#include <QPainter>
+#include <QTimer>
+#include <QPainterPath>
+#include "creative_components.h"
 
 class QProgressBar;
-class QLabel;
-class QTimer;
 class QMediaRecorder;
 class QAudioOutput;
 class QNetworkAccessManager;
@@ -87,6 +99,9 @@ class EquipmentHoverCard;
     bool m_isChatModernTheme = false; \
     bool m_resumeChatAfterOstp = false; \
     qint64 m_chatResumePosAfterOstp = 0; \
+    RadialCommandMenu *m_radialMenu = nullptr; \
+    IdentityCard *m_identityCard = nullptr; \
+    void onRadialAction(const QString &action, int id); \
     void shakeWidget(QWidget *w); \
     void showUnreadMessagesSplash();
 
