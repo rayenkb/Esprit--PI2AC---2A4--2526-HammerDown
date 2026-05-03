@@ -63,6 +63,7 @@ SOURCES += \
     supplier.cpp \
     order.cpp \
     employee.cpp \
+    clientmanagement.cpp \
     creative_components.cpp
 
 # Header files
@@ -87,6 +88,7 @@ HEADERS += \
     supplier.h \
     order.h \
     employee.h \
+    clientmanagement.h \
     creative_components.h
 
 # UI files
@@ -107,9 +109,9 @@ RESOURCES += \
 
 # Translation files
 TRANSLATIONS += \
-    HammerDown_en.ts \
-    HammerDown_fr.ts
+    translations/app_fr.ts
 
 # Deployment
-target.path = $$[QT_INSTALL_BINS]
-INSTALLS += target
+qnx: target.path = /tmp/$${TARGET}/bin
+else: unix:!android: target.path = /opt/$${TARGET}/bin
+!isEmpty(target.path): INSTALLS += target
