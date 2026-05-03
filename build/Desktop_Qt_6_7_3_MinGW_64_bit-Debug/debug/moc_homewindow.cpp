@@ -47,6 +47,13 @@ constexpr auto qt_meta_stringdata_CLASSHomeWindowENDCLASS = QtMocHelpers::string
     "volumeChanged",
     "volume",
     "disconnectClicked",
+    "userProfileClicked",
+    "settingsDialogOpened",
+    "settingsDialogClosed",
+    "botawkAnimationStarted",
+    "gerPlaybackFinished",
+    "tutorialOpened",
+    "tutorialClosed",
     "handleEmployes",
     "handleClient",
     "handleOrder",
@@ -55,7 +62,8 @@ constexpr auto qt_meta_stringdata_CLASSHomeWindowENDCLASS = QtMocHelpers::string
     "handleSettingsClicked",
     "handleDisconnect",
     "handleChatBot",
-    "handleHelp"
+    "handleHelp",
+    "handleProfileMenu"
 );
 #else  // !QT_MOC_HAS_STRINGDATA
 #error "qtmochelpers.h not found or too old."
@@ -68,33 +76,41 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSHomeWindowENDCLASS[] = {
       12,       // revision
        0,       // classname
        0,    0, // classinfo
-      17,   14, // methods
+      25,   14, // methods
        0,    0, // properties
        0,    0, // enums/sets
        0,    0, // constructors
        0,       // flags
-       8,       // signalCount
+      15,       // signalCount
 
  // signals: name, argc, parameters, tag, flags, initial metatype offsets
-       1,    0,  116,    2, 0x06,    1 /* Public */,
-       3,    0,  117,    2, 0x06,    2 /* Public */,
-       4,    0,  118,    2, 0x06,    3 /* Public */,
-       5,    0,  119,    2, 0x06,    4 /* Public */,
-       6,    0,  120,    2, 0x06,    5 /* Public */,
-       7,    1,  121,    2, 0x06,    6 /* Public */,
-       9,    1,  124,    2, 0x06,    8 /* Public */,
-      11,    0,  127,    2, 0x06,   10 /* Public */,
+       1,    0,  164,    2, 0x06,    1 /* Public */,
+       3,    0,  165,    2, 0x06,    2 /* Public */,
+       4,    0,  166,    2, 0x06,    3 /* Public */,
+       5,    0,  167,    2, 0x06,    4 /* Public */,
+       6,    0,  168,    2, 0x06,    5 /* Public */,
+       7,    1,  169,    2, 0x06,    6 /* Public */,
+       9,    1,  172,    2, 0x06,    8 /* Public */,
+      11,    0,  175,    2, 0x06,   10 /* Public */,
+      12,    0,  176,    2, 0x06,   11 /* Public */,
+      13,    0,  177,    2, 0x06,   12 /* Public */,
+      14,    0,  178,    2, 0x06,   13 /* Public */,
+      15,    0,  179,    2, 0x06,   14 /* Public */,
+      16,    0,  180,    2, 0x06,   15 /* Public */,
+      17,    0,  181,    2, 0x06,   16 /* Public */,
+      18,    0,  182,    2, 0x06,   17 /* Public */,
 
  // slots: name, argc, parameters, tag, flags, initial metatype offsets
-      12,    0,  128,    2, 0x08,   11 /* Private */,
-      13,    0,  129,    2, 0x08,   12 /* Private */,
-      14,    0,  130,    2, 0x08,   13 /* Private */,
-      15,    0,  131,    2, 0x08,   14 /* Private */,
-      16,    0,  132,    2, 0x08,   15 /* Private */,
-      17,    0,  133,    2, 0x08,   16 /* Private */,
-      18,    0,  134,    2, 0x08,   17 /* Private */,
-      19,    0,  135,    2, 0x08,   18 /* Private */,
-      20,    0,  136,    2, 0x08,   19 /* Private */,
+      19,    0,  183,    2, 0x08,   18 /* Private */,
+      20,    0,  184,    2, 0x08,   19 /* Private */,
+      21,    0,  185,    2, 0x08,   20 /* Private */,
+      22,    0,  186,    2, 0x08,   21 /* Private */,
+      23,    0,  187,    2, 0x08,   22 /* Private */,
+      24,    0,  188,    2, 0x08,   23 /* Private */,
+      25,    0,  189,    2, 0x08,   24 /* Private */,
+      26,    0,  190,    2, 0x08,   25 /* Private */,
+      27,    0,  191,    2, 0x08,   26 /* Private */,
+      28,    0,  192,    2, 0x08,   27 /* Private */,
 
  // signals: parameters
     QMetaType::Void,
@@ -105,8 +121,16 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSHomeWindowENDCLASS[] = {
     QMetaType::Void, QMetaType::QString,    8,
     QMetaType::Void, QMetaType::QReal,   10,
     QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
 
  // slots: parameters
+    QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
@@ -147,6 +171,20 @@ Q_CONSTINIT const QMetaObject HomeWindow::staticMetaObject = { {
         QtPrivate::TypeAndForceComplete<qreal, std::false_type>,
         // method 'disconnectClicked'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'userProfileClicked'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'settingsDialogOpened'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'settingsDialogClosed'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'botawkAnimationStarted'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'gerPlaybackFinished'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'tutorialOpened'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'tutorialClosed'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'handleEmployes'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'handleClient'
@@ -164,6 +202,8 @@ Q_CONSTINIT const QMetaObject HomeWindow::staticMetaObject = { {
         // method 'handleChatBot'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'handleHelp'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'handleProfileMenu'
         QtPrivate::TypeAndForceComplete<void, std::false_type>
     >,
     nullptr
@@ -183,15 +223,23 @@ void HomeWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
         case 5: _t->languageChanged((*reinterpret_cast< std::add_pointer_t<QString>>(_a[1]))); break;
         case 6: _t->volumeChanged((*reinterpret_cast< std::add_pointer_t<qreal>>(_a[1]))); break;
         case 7: _t->disconnectClicked(); break;
-        case 8: _t->handleEmployes(); break;
-        case 9: _t->handleClient(); break;
-        case 10: _t->handleOrder(); break;
-        case 11: _t->handleFournisseur(); break;
-        case 12: _t->handleEquipment(); break;
-        case 13: _t->handleSettingsClicked(); break;
-        case 14: _t->handleDisconnect(); break;
-        case 15: _t->handleChatBot(); break;
-        case 16: _t->handleHelp(); break;
+        case 8: _t->userProfileClicked(); break;
+        case 9: _t->settingsDialogOpened(); break;
+        case 10: _t->settingsDialogClosed(); break;
+        case 11: _t->botawkAnimationStarted(); break;
+        case 12: _t->gerPlaybackFinished(); break;
+        case 13: _t->tutorialOpened(); break;
+        case 14: _t->tutorialClosed(); break;
+        case 15: _t->handleEmployes(); break;
+        case 16: _t->handleClient(); break;
+        case 17: _t->handleOrder(); break;
+        case 18: _t->handleFournisseur(); break;
+        case 19: _t->handleEquipment(); break;
+        case 20: _t->handleSettingsClicked(); break;
+        case 21: _t->handleDisconnect(); break;
+        case 22: _t->handleChatBot(); break;
+        case 23: _t->handleHelp(); break;
+        case 24: _t->handleProfileMenu(); break;
         default: ;
         }
     } else if (_c == QMetaObject::IndexOfMethod) {
@@ -252,6 +300,55 @@ void HomeWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
                 return;
             }
         }
+        {
+            using _t = void (HomeWindow::*)();
+            if (_t _q_method = &HomeWindow::userProfileClicked; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+                *result = 8;
+                return;
+            }
+        }
+        {
+            using _t = void (HomeWindow::*)();
+            if (_t _q_method = &HomeWindow::settingsDialogOpened; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+                *result = 9;
+                return;
+            }
+        }
+        {
+            using _t = void (HomeWindow::*)();
+            if (_t _q_method = &HomeWindow::settingsDialogClosed; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+                *result = 10;
+                return;
+            }
+        }
+        {
+            using _t = void (HomeWindow::*)();
+            if (_t _q_method = &HomeWindow::botawkAnimationStarted; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+                *result = 11;
+                return;
+            }
+        }
+        {
+            using _t = void (HomeWindow::*)();
+            if (_t _q_method = &HomeWindow::gerPlaybackFinished; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+                *result = 12;
+                return;
+            }
+        }
+        {
+            using _t = void (HomeWindow::*)();
+            if (_t _q_method = &HomeWindow::tutorialOpened; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+                *result = 13;
+                return;
+            }
+        }
+        {
+            using _t = void (HomeWindow::*)();
+            if (_t _q_method = &HomeWindow::tutorialClosed; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+                *result = 14;
+                return;
+            }
+        }
     }
 }
 
@@ -274,13 +371,13 @@ int HomeWindow::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 17)
+        if (_id < 25)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 17;
+        _id -= 25;
     } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 17)
+        if (_id < 25)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 17;
+        _id -= 25;
     }
     return _id;
 }
@@ -333,5 +430,47 @@ void HomeWindow::volumeChanged(qreal _t1)
 void HomeWindow::disconnectClicked()
 {
     QMetaObject::activate(this, &staticMetaObject, 7, nullptr);
+}
+
+// SIGNAL 8
+void HomeWindow::userProfileClicked()
+{
+    QMetaObject::activate(this, &staticMetaObject, 8, nullptr);
+}
+
+// SIGNAL 9
+void HomeWindow::settingsDialogOpened()
+{
+    QMetaObject::activate(this, &staticMetaObject, 9, nullptr);
+}
+
+// SIGNAL 10
+void HomeWindow::settingsDialogClosed()
+{
+    QMetaObject::activate(this, &staticMetaObject, 10, nullptr);
+}
+
+// SIGNAL 11
+void HomeWindow::botawkAnimationStarted()
+{
+    QMetaObject::activate(this, &staticMetaObject, 11, nullptr);
+}
+
+// SIGNAL 12
+void HomeWindow::gerPlaybackFinished()
+{
+    QMetaObject::activate(this, &staticMetaObject, 12, nullptr);
+}
+
+// SIGNAL 13
+void HomeWindow::tutorialOpened()
+{
+    QMetaObject::activate(this, &staticMetaObject, 13, nullptr);
+}
+
+// SIGNAL 14
+void HomeWindow::tutorialClosed()
+{
+    QMetaObject::activate(this, &staticMetaObject, 14, nullptr);
 }
 QT_WARNING_POP

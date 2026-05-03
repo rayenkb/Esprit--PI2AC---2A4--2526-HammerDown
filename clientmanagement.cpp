@@ -260,13 +260,18 @@ void MainWindow::setupClientStats()
 //  ARDUINO LCD HELPERS
 // =============================================================================
 
+// Finds the Arduino's COM port automatically, opens it at 9600 baud,
+// then sends two lines of text using the protocol: "LCD:line1|line2\n"
+// The Arduino sketch reads this string and prints each part to its LCD row.
 void MainWindow::sendToArduinoLCD(const QString &line1, const QString &line2)
 {
+    // Create the serial port object once and reuse it
     if (!arduino) {
         arduino = new QSerialPort(this);
         connect(arduino, &QSerialPort::readyRead, this, &MainWindow::onArduinoReadyRead);
     }
     if (!arduino->isOpen()) {
+        // Scan all available COM ports and pick the one that belongs to an Arduino
         const auto ports = QSerialPortInfo::availablePorts();
         QString portName;
         for (const QSerialPortInfo &info : ports) {
@@ -275,11 +280,13 @@ void MainWindow::sendToArduinoLCD(const QString &line1, const QString &line2)
                 portName = info.portName(); break;
             }
         }
+        // Fallback: use the first available port if no Arduino label found
         if (portName.isEmpty() && !ports.isEmpty()) portName = ports.first().portName();
         if (portName.isEmpty()) {
             QMessageBox::warning(this, "Arduino", "No Arduino detected on any serial port.");
             return;
         }
+        // Open the port at 9600 baud — must match the baud rate in the Arduino sketch
         arduino->setPortName(portName);
         arduino->setBaudRate(QSerialPort::Baud9600);
         arduino->setDataBits(QSerialPort::Data8);
@@ -291,12 +298,14 @@ void MainWindow::sendToArduinoLCD(const QString &line1, const QString &line2)
             return;
         }
     }
+    // Trim each line to 16 chars (LCD width), build the message and send it
     QString l1 = line1.trimmed().left(16);
     QString l2 = line2.trimmed().left(16);
     QString msg = "LCD:" + l1 + "|" + l2 + "\n";
     arduino->write(msg.toUtf8());
 }
 
+// Button 1 — queries the total number of clients and sends it to the LCD
 void MainWindow::onClientLCDTotalClients()
 {
     QSqlQuery q;
@@ -306,6 +315,7 @@ void MainWindow::onClientLCDTotalClients()
     sendToArduinoLCD("Clients:", QString::number(total));
 }
 
+// Button 2 — queries how many clients are male vs female and sends both counts
 void MainWindow::onClientLCDGenderDist()
 {
     QSqlQuery q;
@@ -321,6 +331,7 @@ void MainWindow::onClientLCDGenderDist()
                      QString("Female: %1").arg(female));
 }
 
+// Button 3 — finds the most used email provider and sends its name and count
 void MainWindow::onClientLCDTopEmail()
 {
     QSqlQuery q;

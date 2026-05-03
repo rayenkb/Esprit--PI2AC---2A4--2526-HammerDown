@@ -421,6 +421,7 @@ Makefile: ../../connection.pro C:/Qt/6.7.3/mingw_64/mkspecs/win32-g++/qmake.conf
 		C:/Qt/6.7.3/mingw_64/lib/Qt6Sql.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6Network.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6Concurrent.prl \
+		C:/Qt/6.7.3/mingw_64/lib/Qt6SerialPort.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6Core.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6EntryPoint.prl \
 		C:/Qt/6.7.3/mingw_64/mkspecs/features/build_pass.prf \
@@ -778,6 +779,7 @@ C:/Qt/6.7.3/mingw_64/lib/Qt6Gui.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6Sql.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6Network.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6Concurrent.prl:
+C:/Qt/6.7.3/mingw_64/lib/Qt6SerialPort.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6Core.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6EntryPoint.prl:
 C:/Qt/6.7.3/mingw_64/mkspecs/features/build_pass.prf:

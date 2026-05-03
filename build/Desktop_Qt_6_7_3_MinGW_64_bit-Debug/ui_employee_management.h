@@ -27,7 +27,6 @@
 #include <QtWidgets/QTabWidget>
 #include <QtWidgets/QTableView>
 #include <QtWidgets/QTextEdit>
-#include <QtWidgets/QToolButton>
 #include <QtWidgets/QWidget>
 
 QT_BEGIN_NAMESPACE
@@ -44,6 +43,7 @@ public:
     QLabel *label_fonction;
     QLabel *label_age;
     QLabel *label_mdp;
+    QLabel *label_address;
     QLabel *label_salaire;
     QLabel *label_email;
     QLabel *label_num;
@@ -53,9 +53,8 @@ public:
     QLineEdit *le_fonction;
     QDateEdit *de_birthdate;
     QLineEdit *le_mdp;
+    QLineEdit *le_address;
     QDoubleSpinBox *dsb_salaire;
-    QLabel *lbl_salary_insight;
-    QPushButton *btn_suggest_salary;
     QLineEdit *le_email;
     QLineEdit *le_num;
     QPushButton *btn_add;
@@ -65,8 +64,6 @@ public:
     QPushButton *btn_upload_avatar;
     QPushButton *btn_scan_face;
     QPushButton *btn_clear;
-    QToolButton *btn_help_add;
-    QLabel *lbl_hint_add;
     QWidget *tab_view;
     QFrame *frame_view_stats;
     QHBoxLayout *horizontalLayout_view_stats;
@@ -79,14 +76,14 @@ public:
     QPushButton *btn_refresh_emp;
     QTableView *tableView_employes;
     QPushButton *btn_delete;
-    QPushButton *btn_ai_pulse;
-    QLabel *lbl_ai_pulse_result;
+    QPushButton *btn_ai_performance;
+    QPushButton *btn_test_arduino1;
+    QPushButton *btn_test_arduino_scenario_1;
     QWidget *tab_stats;
     QLabel *label_stats_title;
     QWidget *widget_chart_emp;
     QGridLayout *gridLayout_stats;
     QPushButton *btn_stats_ai_gen;
-    QLabel *lbl_stats_ai_insight;
     QWidget *tab_history;
     QFrame *frame_history_header;
     QHBoxLayout *horizontalLayout_history_header;
@@ -168,28 +165,27 @@ public:
         group_add->setObjectName("group_add");
         group_add->setGeometry(QRect(20, 20, 1321, 721));
         group_add->setStyleSheet(QString::fromUtf8("\n"
-"        QGroupBox { background-color: rgba(255, 255, 255, 0.03); border: 2px solid rgba(212, 175, 55, 0.15); border-radius: 25px; margin-top: 30px; }\n"
-"        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 6px 30px; background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8B6F47, stop:1 #A0825A); font-weight: 800; color: white; border-radius: 12px; font-size: 15px; text-transform: uppercase; letter-spacing: 2px; }\n"
-"        QLineEdit {\n"
-"            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFFFFF, stop:1 #F5F5F5);\n"
-"            border: 2px solid #8B6F47;\n"
-"            border-radius: 8px;\n"
-"            padding: 3px 12px;\n"
-"            font-size: 14px;\n"
-"            color: #333;\n"
-"            selection-background-color: #8B6F47;\n"
-"            selection-color: white;\n"
-"        }\n"
-"        QLineEdit:hover {\n"
-"            border: 2px solid #A0825A;\n"
-"            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
-                        "stop:0 #FFFFFF, stop:1 #FAFAFA);\n"
-"        }\n"
-"        QLineEdit:focus {\n"
-"            border: 2px solid #8B4513; \n"
-"            background: #FFFAF0;\n"
-"        }\n"
-"       "));
+"         QGroupBox { background-color: rgba(255, 255, 255, 0.03); border: none; border-radius: 25px; margin-top: 0px; }\n"
+"         QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 0px; color: transparent; font-size: 0px; }\n"
+"         QLineEdit {\n"
+"             background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFFFFF, stop:1 #F5F5F5);\n"
+"             border: 2px solid #8B6F47;\n"
+"             border-radius: 8px;\n"
+"             padding: 3px 12px;\n"
+"             font-size: 14px;\n"
+"             color: #333;\n"
+"             selection-background-color: #8B6F47;\n"
+"             selection-color: white;\n"
+"         }\n"
+"         QLineEdit:hover {\n"
+"             border: 2px solid #A0825A;\n"
+"             background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFFFFF, stop:1 #FAFAFA);\n"
+"         }\n"
+"         QLineEdit:focus {\n"
+"             border: 2px solid #8B4513; \n"
+"             background: #FFFAF0;\n"
+"         }\n"
+"        "));
         label_id = new QLabel(group_add);
         label_id->setObjectName("label_id");
         label_id->setGeometry(QRect(200, 60, 150, 30));
@@ -221,19 +217,24 @@ public:
         label_mdp->setGeometry(QRect(200, 310, 150, 30));
         label_mdp->setStyleSheet(QString::fromUtf8("color: white; font-size: 16px; font-weight: bold;\n"
 ""));
+        label_address = new QLabel(group_add);
+        label_address->setObjectName("label_address");
+        label_address->setGeometry(QRect(200, 360, 150, 30));
+        label_address->setStyleSheet(QString::fromUtf8("color: white; font-size: 16px; font-weight: bold;\n"
+""));
         label_salaire = new QLabel(group_add);
         label_salaire->setObjectName("label_salaire");
-        label_salaire->setGeometry(QRect(200, 360, 150, 30));
+        label_salaire->setGeometry(QRect(200, 410, 150, 30));
         label_salaire->setStyleSheet(QString::fromUtf8("color: white; font-size: 16px; font-weight: bold;\n"
 ""));
         label_email = new QLabel(group_add);
         label_email->setObjectName("label_email");
-        label_email->setGeometry(QRect(200, 410, 150, 30));
+        label_email->setGeometry(QRect(200, 460, 150, 30));
         label_email->setStyleSheet(QString::fromUtf8("color: white; font-size: 16px; font-weight: bold;\n"
 ""));
         label_num = new QLabel(group_add);
         label_num->setObjectName("label_num");
-        label_num->setGeometry(QRect(200, 460, 150, 30));
+        label_num->setGeometry(QRect(200, 510, 150, 30));
         label_num->setStyleSheet(QString::fromUtf8("color: white; font-size: 16px; font-weight: bold;\n"
 ""));
         le_id = new QLineEdit(group_add);
@@ -266,9 +267,12 @@ public:
         le_mdp = new QLineEdit(group_add);
         le_mdp->setObjectName("le_mdp");
         le_mdp->setGeometry(QRect(400, 310, 250, 30));
+        le_address = new QLineEdit(group_add);
+        le_address->setObjectName("le_address");
+        le_address->setGeometry(QRect(400, 360, 250, 30));
         dsb_salaire = new QDoubleSpinBox(group_add);
         dsb_salaire->setObjectName("dsb_salaire");
-        dsb_salaire->setGeometry(QRect(400, 360, 150, 30));
+        dsb_salaire->setGeometry(QRect(400, 410, 150, 30));
         dsb_salaire->setStyleSheet(QString::fromUtf8("QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QTextEdit {\n"
 "    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #FFFFFF, stop:1 #F5F5F5);\n"
 "    border: 2px solid #8B6F47;\n"
@@ -284,21 +288,12 @@ public:
 "}\n"
 ""));
         dsb_salaire->setMaximum(9999.989999999999782);
-        lbl_salary_insight = new QLabel(group_add);
-        lbl_salary_insight->setObjectName("lbl_salary_insight");
-        lbl_salary_insight->setGeometry(QRect(560, 360, 140, 30));
-        lbl_salary_insight->setStyleSheet(QString::fromUtf8("color: #D4AF37; font-size: 11px; font-weight: bold; background: transparent;"));
-        btn_suggest_salary = new QPushButton(group_add);
-        btn_suggest_salary->setObjectName("btn_suggest_salary");
-        btn_suggest_salary->setGeometry(QRect(710, 365, 20, 20));
-        btn_suggest_salary->setStyleSheet(QString::fromUtf8("QPushButton { background: #8B6F47; color: white; border-radius: 10px; font-size: 12px; font-weight: bold; border: none; }\n"
-"QPushButton:hover { background: #A0825A; }"));
         le_email = new QLineEdit(group_add);
         le_email->setObjectName("le_email");
-        le_email->setGeometry(QRect(400, 410, 250, 30));
+        le_email->setGeometry(QRect(400, 460, 250, 30));
         le_num = new QLineEdit(group_add);
         le_num->setObjectName("le_num");
-        le_num->setGeometry(QRect(400, 460, 250, 30));
+        le_num->setGeometry(QRect(400, 510, 250, 30));
         btn_add = new QPushButton(group_add);
         btn_add->setObjectName("btn_add");
         btn_add->setGeometry(QRect(750, 310, 150, 40));
@@ -330,6 +325,10 @@ public:
 "        QPushButton { background-color: #8B6F47; border-radius: 10px; color: white; font-weight: bold; } QPushButton:hover { background-color: #FFF; border: 2px solid #8B6F47; color: #8B6F47; }\n"
 "        QPushButton:hover { background-color: #FFF; border: 2px solid #8B6F47; }\n"
 "       "));
+        QIcon icon2;
+        icon2.addFile(QString::fromUtf8(":/assets/cancel.png"), QSize(), QIcon::Mode::Normal, QIcon::State::Off);
+        btn_cancel->setIcon(icon2);
+        btn_cancel->setIconSize(QSize(20, 20));
         lbl_avatar = new QLabel(group_add);
         lbl_avatar->setObjectName("lbl_avatar");
         lbl_avatar->setGeometry(QRect(750, 30, 150, 150));
@@ -342,6 +341,10 @@ public:
 "         QPushButton { background-color: #8B6F47; border-radius: 10px; color: white; font-weight: bold; }\n"
 "         QPushButton:hover { background-color: #FFF; border: 2px solid #8B6F47; color: #8B6F47; }\n"
 "        "));
+        QIcon icon3;
+        icon3.addFile(QString::fromUtf8(":/assets/upload.png"), QSize(), QIcon::Mode::Normal, QIcon::State::Off);
+        btn_upload_avatar->setIcon(icon3);
+        btn_upload_avatar->setIconSize(QSize(20, 20));
         btn_scan_face = new QPushButton(group_add);
         btn_scan_face->setObjectName("btn_scan_face");
         btn_scan_face->setGeometry(QRect(750, 240, 150, 40));
@@ -349,9 +352,9 @@ public:
 "         QPushButton { background-color: #8B6F47; border-radius: 10px; color: white; font-weight: bold; }\n"
 "         QPushButton:hover { background-color: #FFF; border: 2px solid #8B6F47; color: #8B6F47; }\n"
 "        "));
-        QIcon icon2;
-        icon2.addFile(QString::fromUtf8(":/assets/chat_bot.svg"), QSize(), QIcon::Mode::Normal, QIcon::State::Off);
-        btn_scan_face->setIcon(icon2);
+        QIcon icon4;
+        icon4.addFile(QString::fromUtf8(":/assets/chat_bot.svg"), QSize(), QIcon::Mode::Normal, QIcon::State::Off);
+        btn_scan_face->setIcon(icon4);
         btn_scan_face->setIconSize(QSize(24, 24));
         btn_clear = new QPushButton(group_add);
         btn_clear->setObjectName("btn_clear");
@@ -359,21 +362,10 @@ public:
         btn_clear->setStyleSheet(QString::fromUtf8("\n"
 "         QPushButton { background-color: #8B6F47; border-radius: 10px; color: white; font-weight: bold; } QPushButton:hover { background-color: #FFF; border: 2px solid #8B6F47; color: #8B6F47; }\n"
 "        "));
-        QIcon icon3;
-        icon3.addFile(QString::fromUtf8(":/assets/clear.png"), QSize(), QIcon::Mode::Normal, QIcon::State::Off);
-        btn_clear->setIcon(icon3);
-        btn_clear->setIconSize(QSize(24, 24));
-        btn_help_add = new QToolButton(group_add);
-        btn_help_add->setObjectName("btn_help_add");
-        btn_help_add->setGeometry(QRect(990, 20, 30, 30));
-        btn_help_add->setStyleSheet(QString::fromUtf8("QToolButton { background-color: #8B6F47; border-radius: 15px; color: white; font-weight: bold; border: none; }\n"
-"        QToolButton:checked { background-color: white; color: #8B6F47; border: 2px solid #8B6F47; }"));
-        btn_help_add->setCheckable(true);
-        lbl_hint_add = new QLabel(group_add);
-        lbl_hint_add->setObjectName("lbl_hint_add");
-        lbl_hint_add->setGeometry(QRect(200, 520, 800, 60));
-        lbl_hint_add->setVisible(false);
-        lbl_hint_add->setStyleSheet(QString::fromUtf8("color: white; font-size: 13px; font-style: italic; background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 5px;"));
+        QIcon icon5;
+        icon5.addFile(QString::fromUtf8(":/assets/clear.png"), QSize(), QIcon::Mode::Normal, QIcon::State::Off);
+        btn_clear->setIcon(icon5);
+        btn_clear->setIconSize(QSize(20, 20));
         tabWidget->addTab(tab_add, QString());
         tab_view = new QWidget();
         tab_view->setObjectName("tab_view");
@@ -408,9 +400,9 @@ public:
 
         label_titre_liste_emp = new QLabel(tab_view);
         label_titre_liste_emp->setObjectName("label_titre_liste_emp");
-        label_titre_liste_emp->setGeometry(QRect(720, 70, 300, 30));
-        label_titre_liste_emp->setStyleSheet(QString::fromUtf8("font-size: 18px; font-weight: bold; color: white;"));
-        label_titre_liste_emp->setAlignment(Qt::AlignmentFlag::AlignCenter);
+        label_titre_liste_emp->setGeometry(QRect(890, 65, 140, 35));
+        label_titre_liste_emp->setStyleSheet(QString::fromUtf8("font-size: 16px; font-weight: bold; color: white;"));
+        label_titre_liste_emp->setAlignment(Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter);
         le_recherche_emp = new QLineEdit(tab_view);
         le_recherche_emp->setObjectName("le_recherche_emp");
         le_recherche_emp->setGeometry(QRect(20, 70, 250, 30));
@@ -428,25 +420,28 @@ public:
         btn_delete->setObjectName("btn_delete");
         btn_delete->setGeometry(QRect(850, 605, 150, 40));
         btn_delete->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #A31D1D; border-radius: 10px; color: white; font-weight: bold; } QPushButton:hover { background-color: #D32F2F; }"));
-        btn_ai_pulse = new QPushButton(tab_view);
-        btn_ai_pulse->setObjectName("btn_ai_pulse");
-        btn_ai_pulse->setGeometry(QRect(420, 65, 250, 40));
-        btn_ai_pulse->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #4CAF50; border-radius: 20px; color: white; font-weight: bold; font-size: 13px; border: 2px solid #D4AF37; }\n"
-"QPushButton:hover { background-color: #66BB6A; border: 2px solid #FFF; box-shadow: 0px 0px 15px rgba(76, 175, 80, 0.8); }"));
-        lbl_ai_pulse_result = new QLabel(tab_view);
-        lbl_ai_pulse_result->setObjectName("lbl_ai_pulse_result");
-        lbl_ai_pulse_result->setGeometry(QRect(420, 120, 590, 90));
-        lbl_ai_pulse_result->setStyleSheet(QString::fromUtf8("color: #FFF; font-size: 13px; font-weight: bold; background: rgba(0, 0, 0, 0.85); padding: 15px; border-radius: 15px; border: 2px solid #D4AF37;"));
-        lbl_ai_pulse_result->setAlignment(Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop);
-        lbl_ai_pulse_result->setWordWrap(true);
-        lbl_ai_pulse_result->setVisible(false);
+        btn_ai_performance = new QPushButton(tab_view);
+        btn_ai_performance->setObjectName("btn_ai_performance");
+        btn_ai_performance->setGeometry(QRect(680, 65, 200, 40));
+        btn_ai_performance->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #F59E0B; border-radius: 20px; color: white; font-weight: bold; font-size: 13px; border: 2px solid #D4AF37; }\n"
+"QPushButton:hover { background-color: #D97706; border: 2px solid #FFF; box-shadow: 0px 0px 15px rgba(245, 158, 11, 0.8); }"));
+        btn_test_arduino1 = new QPushButton(tab_view);
+        btn_test_arduino1->setObjectName("btn_test_arduino1");
+        btn_test_arduino1->setGeometry(QRect(400, 65, 130, 40));
+        btn_test_arduino1->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #2D5A27; border-radius: 20px; color: white; font-weight: bold; font-size: 11px; border: 2px solid #3E7A37; }\n"
+"QPushButton:hover { background-color: #3E7A37; border: 2px solid #FFF; }"));
+        btn_test_arduino_scenario_1 = new QPushButton(tab_view);
+        btn_test_arduino_scenario_1->setObjectName("btn_test_arduino_scenario_1");
+        btn_test_arduino_scenario_1->setGeometry(QRect(540, 65, 130, 40));
+        btn_test_arduino_scenario_1->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #2D5A27; border-radius: 20px; color: white; font-weight: bold; font-size: 11px; border: 2px solid #3E7A37; }\n"
+"QPushButton:hover { background-color: #3E7A37; border: 2px solid #FFF; }"));
         tabWidget->addTab(tab_view, QString());
         tab_stats = new QWidget();
         tab_stats->setObjectName("tab_stats");
         label_stats_title = new QLabel(tab_stats);
         label_stats_title->setObjectName("label_stats_title");
-        label_stats_title->setGeometry(QRect(720, 30, 300, 30));
-        label_stats_title->setStyleSheet(QString::fromUtf8("font-size: 18px; font-weight: bold; color: white;"));
+        label_stats_title->setGeometry(QRect(720, 30, 320, 35));
+        label_stats_title->setStyleSheet(QString::fromUtf8("font-size: 20px; font-family: 'Segoe UI'; font-weight: 900; color: #F8F9FA; letter-spacing: 3px; background: transparent; border: none; text-shadow: 0px 2px 4px rgba(0,0,0,0.5);"));
         label_stats_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
         widget_chart_emp = new QWidget(tab_stats);
         widget_chart_emp->setObjectName("widget_chart_emp");
@@ -456,14 +451,27 @@ public:
         btn_stats_ai_gen = new QPushButton(tab_stats);
         btn_stats_ai_gen->setObjectName("btn_stats_ai_gen");
         btn_stats_ai_gen->setGeometry(QRect(20, 70, 220, 50));
-        btn_stats_ai_gen->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #5D3FD3; border-radius: 25px; color: white; font-weight: bold; font-size: 14px; border: 2px solid #D4AF37; }\n"
-"QPushButton:hover { background-color: #7B68EE; border-color: #FFF; }"));
-        lbl_stats_ai_insight = new QLabel(tab_stats);
-        lbl_stats_ai_insight->setObjectName("lbl_stats_ai_insight");
-        lbl_stats_ai_insight->setGeometry(QRect(260, 70, 771, 70));
-        lbl_stats_ai_insight->setStyleSheet(QString::fromUtf8("color: #D4AF37; font-size: 13px; font-style: italic; background: rgba(93, 63, 211, 0.1); padding: 10px; border-radius: 12px; border: 1px solid rgba(212, 175, 55, 0.3);"));
-        lbl_stats_ai_insight->setAlignment(Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop);
-        lbl_stats_ai_insight->setWordWrap(true);
+        btn_stats_ai_gen->setStyleSheet(QString::fromUtf8("QPushButton {\n"
+"    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6A1B9A, stop:1 #4A148C);\n"
+"    border-radius: 25px;\n"
+"    color: white;\n"
+"    font-weight: 800;\n"
+"    font-size: 15px;\n"
+"    font-family: 'Segoe UI';\n"
+"    border: 2px solid #D4AF37;\n"
+"    border-bottom: 5px solid #8B6F47;\n"
+"}\n"
+"QPushButton:hover {\n"
+"    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #8E24AA, stop:1 #6A1B9A);\n"
+"    border-bottom: 5px solid #D4AF37;\n"
+"    color: #FDEBD0;\n"
+"}\n"
+"QPushButton:pressed {\n"
+"    background: #4A148C;\n"
+"    border-top: 3px solid #8B6F47;\n"
+"    border-bottom: 2px solid #8B6F47;\n"
+"    padding-top: 3px;\n"
+"}"));
         tabWidget->addTab(tab_stats, QString());
         tab_history = new QWidget();
         tab_history->setObjectName("tab_history");
@@ -583,7 +591,6 @@ public:
 "   "));
 
         retranslateUi(EmployeeManagement);
-        QObject::connect(btn_help_add, &QToolButton::toggled, lbl_hint_add, &QLabel::setVisible);
 
         tabWidget->setCurrentIndex(3);
 
@@ -594,44 +601,41 @@ public:
     void retranslateUi(QWidget *EmployeeManagement)
     {
         EmployeeManagement->setWindowTitle(QCoreApplication::translate("EmployeeManagement", "Employee Management", nullptr));
-        group_add->setTitle(QCoreApplication::translate("EmployeeManagement", "Add Employee", nullptr));
+        group_add->setTitle(QString());
         label_id->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\206\224 Employee ID:", nullptr));
         label_nom->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\221\244 Last Name:", nullptr));
         label_prenom->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\221\244 First Name:", nullptr));
         label_fonction->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\222\274 Job Title:", nullptr));
         label_age->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\223\205 Birth Date:", nullptr));
         label_mdp->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\224\222 Password:", nullptr));
+        label_address->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\217\240 Address:", nullptr));
         label_salaire->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\222\260 Salary:", nullptr));
         label_email->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\223\247 Email Address:", nullptr));
         label_num->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\223\236 Number:", nullptr));
-        lbl_salary_insight->setText(QCoreApplication::translate("EmployeeManagement", "Market Avg: --", nullptr));
-#if QT_CONFIG(tooltip)
-        btn_suggest_salary->setToolTip(QCoreApplication::translate("EmployeeManagement", "Suggest Market Salary", nullptr));
-#endif // QT_CONFIG(tooltip)
-        btn_suggest_salary->setText(QCoreApplication::translate("EmployeeManagement", "\342\230\205", nullptr));
         btn_add->setText(QCoreApplication::translate("EmployeeManagement", "Add", nullptr));
         btn_modify->setText(QCoreApplication::translate("EmployeeManagement", "Modify", nullptr));
-        btn_cancel->setText(QCoreApplication::translate("EmployeeManagement", "Cancel", nullptr));
+        btn_cancel->setText(QCoreApplication::translate("EmployeeManagement", "\342\235\214 Cancel", nullptr));
         lbl_avatar->setText(QCoreApplication::translate("EmployeeManagement", "No Avatar", nullptr));
-        btn_upload_avatar->setText(QCoreApplication::translate("EmployeeManagement", "Upload Avatar", nullptr));
+        btn_upload_avatar->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\223\267 Upload Avatar", nullptr));
         btn_scan_face->setText(QCoreApplication::translate("EmployeeManagement", "Scan Face ID", nullptr));
-        btn_clear->setText(QCoreApplication::translate("EmployeeManagement", "Clear Fields", nullptr));
-        btn_help_add->setText(QCoreApplication::translate("EmployeeManagement", "?", nullptr));
-        lbl_hint_add->setText(QCoreApplication::translate("EmployeeManagement", "Quick Info: Use this form to add or modify employee records. Passwords and Salary are sensitive data. Job Title helps in team assignment.", nullptr));
+        btn_clear->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\227\221\357\270\217 Clear Fields", nullptr));
         tabWidget->setTabText(tabWidget->indexOf(tab_add), QCoreApplication::translate("EmployeeManagement", "Add Employee", nullptr));
         lbl_stat_total->setText(QCoreApplication::translate("EmployeeManagement", "Total Personnel: --", nullptr));
         lbl_stat_avg_salary->setText(QCoreApplication::translate("EmployeeManagement", "Avg Salary: --", nullptr));
         lbl_stat_avg_age->setText(QCoreApplication::translate("EmployeeManagement", "Avg Age: --", nullptr));
-        label_titre_liste_emp->setText(QCoreApplication::translate("EmployeeManagement", "Employee List", nullptr));
+        label_titre_liste_emp->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\221\245 Employee List", nullptr));
         le_recherche_emp->setPlaceholderText(QCoreApplication::translate("EmployeeManagement", "Search employees...", nullptr));
         btn_refresh_emp->setText(QCoreApplication::translate("EmployeeManagement", "Refresh", nullptr));
         btn_delete->setText(QCoreApplication::translate("EmployeeManagement", "Delete Selected", nullptr));
-        btn_ai_pulse->setText(QCoreApplication::translate("EmployeeManagement", "\342\232\241 Company AI Pulse Tracker", nullptr));
-        lbl_ai_pulse_result->setText(QCoreApplication::translate("EmployeeManagement", "AI Pulse Initialization...", nullptr));
+        btn_ai_performance->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\216\257 AI Performance Predictor", nullptr));
+#if QT_CONFIG(tooltip)
+        btn_ai_performance->setToolTip(QCoreApplication::translate("EmployeeManagement", "Predict employee performance and identify high-potential talent", nullptr));
+#endif // QT_CONFIG(tooltip)
+        btn_test_arduino1->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\223\237 Test Arduino1", nullptr));
+        btn_test_arduino_scenario_1->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\223\237 Test Arduino Scenario 1", nullptr));
         tabWidget->setTabText(tabWidget->indexOf(tab_view), QCoreApplication::translate("EmployeeManagement", "View Employees", nullptr));
-        label_stats_title->setText(QCoreApplication::translate("EmployeeManagement", "Employee Statistics", nullptr));
-        btn_stats_ai_gen->setText(QCoreApplication::translate("EmployeeManagement", "\342\234\250 Generate AI Insights", nullptr));
-        lbl_stats_ai_insight->setText(QCoreApplication::translate("EmployeeManagement", "Your automated workforce analysis will appear here. Click the button to get started.", nullptr));
+        label_stats_title->setText(QCoreApplication::translate("EmployeeManagement", "WORKFORCE INTELLIGENCE", nullptr));
+        btn_stats_ai_gen->setText(QCoreApplication::translate("EmployeeManagement", "\360\237\232\200 GENERATE 3D AI INSIGHTS", nullptr));
         tabWidget->setTabText(tabWidget->indexOf(tab_stats), QCoreApplication::translate("EmployeeManagement", "Statistics", nullptr));
         label_titre_histo->setText(QCoreApplication::translate("EmployeeManagement", "TIMELINE & STAFF DIRECTORY", nullptr));
         cb_history_filter->setItemText(0, QCoreApplication::translate("EmployeeManagement", "All Personnel", nullptr));

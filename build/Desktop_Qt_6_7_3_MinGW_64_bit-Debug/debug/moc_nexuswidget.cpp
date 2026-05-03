@@ -612,6 +612,218 @@ int DecisionMapperWidget::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
 namespace {
 
 #ifdef QT_MOC_HAS_STRINGDATA
+struct qt_meta_stringdata_CLASSAiForgeWidgetENDCLASS_t {};
+constexpr auto qt_meta_stringdata_CLASSAiForgeWidgetENDCLASS = QtMocHelpers::stringData(
+    "AiForgeWidget",
+    "onTick",
+    "",
+    "onSend",
+    "onGroqResponse",
+    "text"
+);
+#else  // !QT_MOC_HAS_STRINGDATA
+#error "qtmochelpers.h not found or too old."
+#endif // !QT_MOC_HAS_STRINGDATA
+} // unnamed namespace
+
+Q_CONSTINIT static const uint qt_meta_data_CLASSAiForgeWidgetENDCLASS[] = {
+
+ // content:
+      12,       // revision
+       0,       // classname
+       0,    0, // classinfo
+       3,   14, // methods
+       0,    0, // properties
+       0,    0, // enums/sets
+       0,    0, // constructors
+       0,       // flags
+       0,       // signalCount
+
+ // slots: name, argc, parameters, tag, flags, initial metatype offsets
+       1,    0,   32,    2, 0x08,    1 /* Private */,
+       3,    0,   33,    2, 0x08,    2 /* Private */,
+       4,    1,   34,    2, 0x08,    3 /* Private */,
+
+ // slots: parameters
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void, QMetaType::QString,    5,
+
+       0        // eod
+};
+
+Q_CONSTINIT const QMetaObject AiForgeWidget::staticMetaObject = { {
+    QMetaObject::SuperData::link<QWidget::staticMetaObject>(),
+    qt_meta_stringdata_CLASSAiForgeWidgetENDCLASS.offsetsAndSizes,
+    qt_meta_data_CLASSAiForgeWidgetENDCLASS,
+    qt_static_metacall,
+    nullptr,
+    qt_incomplete_metaTypeArray<qt_meta_stringdata_CLASSAiForgeWidgetENDCLASS_t,
+        // Q_OBJECT / Q_GADGET
+        QtPrivate::TypeAndForceComplete<AiForgeWidget, std::true_type>,
+        // method 'onTick'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'onSend'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'onGroqResponse'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        QtPrivate::TypeAndForceComplete<const QString &, std::false_type>
+    >,
+    nullptr
+} };
+
+void AiForgeWidget::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        auto *_t = static_cast<AiForgeWidget *>(_o);
+        (void)_t;
+        switch (_id) {
+        case 0: _t->onTick(); break;
+        case 1: _t->onSend(); break;
+        case 2: _t->onGroqResponse((*reinterpret_cast< std::add_pointer_t<QString>>(_a[1]))); break;
+        default: ;
+        }
+    }
+}
+
+const QMetaObject *AiForgeWidget::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *AiForgeWidget::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_meta_stringdata_CLASSAiForgeWidgetENDCLASS.stringdata0))
+        return static_cast<void*>(this);
+    return QWidget::qt_metacast(_clname);
+}
+
+int AiForgeWidget::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QWidget::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 3)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 3;
+    } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 3)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 3;
+    }
+    return _id;
+}
+namespace {
+
+#ifdef QT_MOC_HAS_STRINGDATA
+struct qt_meta_stringdata_CLASSParallelFuturesWidgetENDCLASS_t {};
+constexpr auto qt_meta_stringdata_CLASSParallelFuturesWidgetENDCLASS = QtMocHelpers::stringData(
+    "ParallelFuturesWidget",
+    "onTick",
+    "",
+    "onGenerate",
+    "onGroqDebateResponse",
+    "text"
+);
+#else  // !QT_MOC_HAS_STRINGDATA
+#error "qtmochelpers.h not found or too old."
+#endif // !QT_MOC_HAS_STRINGDATA
+} // unnamed namespace
+
+Q_CONSTINIT static const uint qt_meta_data_CLASSParallelFuturesWidgetENDCLASS[] = {
+
+ // content:
+      12,       // revision
+       0,       // classname
+       0,    0, // classinfo
+       3,   14, // methods
+       0,    0, // properties
+       0,    0, // enums/sets
+       0,    0, // constructors
+       0,       // flags
+       0,       // signalCount
+
+ // slots: name, argc, parameters, tag, flags, initial metatype offsets
+       1,    0,   32,    2, 0x08,    1 /* Private */,
+       3,    0,   33,    2, 0x08,    2 /* Private */,
+       4,    1,   34,    2, 0x08,    3 /* Private */,
+
+ // slots: parameters
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void, QMetaType::QString,    5,
+
+       0        // eod
+};
+
+Q_CONSTINIT const QMetaObject ParallelFuturesWidget::staticMetaObject = { {
+    QMetaObject::SuperData::link<QWidget::staticMetaObject>(),
+    qt_meta_stringdata_CLASSParallelFuturesWidgetENDCLASS.offsetsAndSizes,
+    qt_meta_data_CLASSParallelFuturesWidgetENDCLASS,
+    qt_static_metacall,
+    nullptr,
+    qt_incomplete_metaTypeArray<qt_meta_stringdata_CLASSParallelFuturesWidgetENDCLASS_t,
+        // Q_OBJECT / Q_GADGET
+        QtPrivate::TypeAndForceComplete<ParallelFuturesWidget, std::true_type>,
+        // method 'onTick'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'onGenerate'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'onGroqDebateResponse'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        QtPrivate::TypeAndForceComplete<const QString &, std::false_type>
+    >,
+    nullptr
+} };
+
+void ParallelFuturesWidget::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        auto *_t = static_cast<ParallelFuturesWidget *>(_o);
+        (void)_t;
+        switch (_id) {
+        case 0: _t->onTick(); break;
+        case 1: _t->onGenerate(); break;
+        case 2: _t->onGroqDebateResponse((*reinterpret_cast< std::add_pointer_t<QString>>(_a[1]))); break;
+        default: ;
+        }
+    }
+}
+
+const QMetaObject *ParallelFuturesWidget::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *ParallelFuturesWidget::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_meta_stringdata_CLASSParallelFuturesWidgetENDCLASS.stringdata0))
+        return static_cast<void*>(this);
+    return QWidget::qt_metacast(_clname);
+}
+
+int ParallelFuturesWidget::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QWidget::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 3)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 3;
+    } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 3)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 3;
+    }
+    return _id;
+}
+namespace {
+
+#ifdef QT_MOC_HAS_STRINGDATA
 struct qt_meta_stringdata_CLASSNexusGroqClientENDCLASS_t {};
 constexpr auto qt_meta_stringdata_CLASSNexusGroqClientENDCLASS = QtMocHelpers::stringData(
     "NexusGroqClient"

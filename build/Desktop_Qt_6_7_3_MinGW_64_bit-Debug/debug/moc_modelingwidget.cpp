@@ -45,7 +45,9 @@ constexpr auto qt_meta_stringdata_CLASSGLViewportENDCLASS = QtMocHelpers::string
     "Qt::KeyboardModifiers",
     "mods",
     "transformStarted",
-    "transformFinished"
+    "transformFinished",
+    "walkModeChanged",
+    "enabled"
 );
 #else  // !QT_MOC_HAS_STRINGDATA
 #error "qtmochelpers.h not found or too old."
@@ -58,19 +60,20 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSGLViewportENDCLASS[] = {
       12,       // revision
        0,       // classname
        0,    0, // classinfo
-       5,   14, // methods
+       6,   14, // methods
        0,    0, // properties
        0,    0, // enums/sets
        0,    0, // constructors
        0,       // flags
-       5,       // signalCount
+       6,       // signalCount
 
  // signals: name, argc, parameters, tag, flags, initial metatype offsets
-       1,    0,   44,    2, 0x06,    1 /* Public */,
-       3,    1,   45,    2, 0x06,    2 /* Public */,
-       5,    2,   48,    2, 0x06,    4 /* Public */,
-       8,    0,   53,    2, 0x06,    7 /* Public */,
-       9,    0,   54,    2, 0x06,    8 /* Public */,
+       1,    0,   50,    2, 0x06,    1 /* Public */,
+       3,    1,   51,    2, 0x06,    2 /* Public */,
+       5,    2,   54,    2, 0x06,    4 /* Public */,
+       8,    0,   59,    2, 0x06,    7 /* Public */,
+       9,    0,   60,    2, 0x06,    8 /* Public */,
+      10,    1,   61,    2, 0x06,    9 /* Public */,
 
  // signals: parameters
     QMetaType::Void,
@@ -78,6 +81,7 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSGLViewportENDCLASS[] = {
     QMetaType::Void, QMetaType::Int, 0x80000000 | 6,    4,    7,
     QMetaType::Void,
     QMetaType::Void,
+    QMetaType::Void, QMetaType::Bool,   11,
 
        0        // eod
 };
@@ -103,7 +107,10 @@ Q_CONSTINIT const QMetaObject GLViewport::staticMetaObject = { {
         // method 'transformStarted'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'transformFinished'
-        QtPrivate::TypeAndForceComplete<void, std::false_type>
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'walkModeChanged'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        QtPrivate::TypeAndForceComplete<bool, std::false_type>
     >,
     nullptr
 } };
@@ -119,6 +126,7 @@ void GLViewport::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
         case 2: _t->objectPicked((*reinterpret_cast< std::add_pointer_t<int>>(_a[1])),(*reinterpret_cast< std::add_pointer_t<Qt::KeyboardModifiers>>(_a[2]))); break;
         case 3: _t->transformStarted(); break;
         case 4: _t->transformFinished(); break;
+        case 5: _t->walkModeChanged((*reinterpret_cast< std::add_pointer_t<bool>>(_a[1]))); break;
         default: ;
         }
     } else if (_c == QMetaObject::IndexOfMethod) {
@@ -158,6 +166,13 @@ void GLViewport::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
                 return;
             }
         }
+        {
+            using _t = void (GLViewport::*)(bool );
+            if (_t _q_method = &GLViewport::walkModeChanged; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+                *result = 5;
+                return;
+            }
+        }
     }
 }
 
@@ -182,13 +197,13 @@ int GLViewport::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 5)
+        if (_id < 6)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 5;
+        _id -= 6;
     } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 5)
+        if (_id < 6)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 5;
+        _id -= 6;
     }
     return _id;
 }
@@ -224,6 +239,13 @@ void GLViewport::transformFinished()
 {
     QMetaObject::activate(this, &staticMetaObject, 4, nullptr);
 }
+
+// SIGNAL 5
+void GLViewport::walkModeChanged(bool _t1)
+{
+    void *_a[] = { nullptr, const_cast<void*>(reinterpret_cast<const void*>(std::addressof(_t1))) };
+    QMetaObject::activate(this, &staticMetaObject, 5, _a);
+}
 namespace {
 
 #ifdef QT_MOC_HAS_STRINGDATA
@@ -256,7 +278,11 @@ constexpr auto qt_meta_stringdata_CLASSModelingWidgetENDCLASS = QtMocHelpers::st
     "onObjectSearchChanged",
     "text",
     "onUndo",
-    "onRedo"
+    "onRedo",
+    "selectWholeObjectFromCurrent",
+    "hideSelectedObjects",
+    "unhideAllObjects",
+    "isolateSelectedObjects"
 );
 #else  // !QT_MOC_HAS_STRINGDATA
 #error "qtmochelpers.h not found or too old."
@@ -269,7 +295,7 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSModelingWidgetENDCLASS[] = {
       12,       // revision
        0,       // classname
        0,    0, // classinfo
-      19,   14, // methods
+      23,   14, // methods
        0,    0, // properties
        0,    0, // enums/sets
        0,    0, // constructors
@@ -277,27 +303,31 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSModelingWidgetENDCLASS[] = {
        1,       // signalCount
 
  // signals: name, argc, parameters, tag, flags, initial metatype offsets
-       1,    0,  128,    2, 0x06,    1 /* Public */,
+       1,    0,  152,    2, 0x06,    1 /* Public */,
 
  // slots: name, argc, parameters, tag, flags, initial metatype offsets
-       3,    1,  129,    2, 0x08,    2 /* Private */,
-       6,    0,  132,    2, 0x08,    4 /* Private */,
-       7,    0,  133,    2, 0x08,    5 /* Private */,
-       8,    0,  134,    2, 0x08,    6 /* Private */,
-       9,    1,  135,    2, 0x08,    7 /* Private */,
-      11,    2,  138,    2, 0x08,    9 /* Private */,
-      15,    0,  143,    2, 0x08,   12 /* Private */,
-      16,    0,  144,    2, 0x08,   13 /* Private */,
-      17,    0,  145,    2, 0x08,   14 /* Private */,
-      18,    0,  146,    2, 0x08,   15 /* Private */,
-      19,    0,  147,    2, 0x08,   16 /* Private */,
-      20,    1,  148,    2, 0x08,   17 /* Private */,
-      21,    0,  151,    2, 0x08,   19 /* Private */,
-      22,    0,  152,    2, 0x08,   20 /* Private */,
-      23,    0,  153,    2, 0x08,   21 /* Private */,
-      24,    1,  154,    2, 0x08,   22 /* Private */,
-      26,    0,  157,    2, 0x08,   24 /* Private */,
-      27,    0,  158,    2, 0x08,   25 /* Private */,
+       3,    1,  153,    2, 0x08,    2 /* Private */,
+       6,    0,  156,    2, 0x08,    4 /* Private */,
+       7,    0,  157,    2, 0x08,    5 /* Private */,
+       8,    0,  158,    2, 0x08,    6 /* Private */,
+       9,    1,  159,    2, 0x08,    7 /* Private */,
+      11,    2,  162,    2, 0x08,    9 /* Private */,
+      15,    0,  167,    2, 0x08,   12 /* Private */,
+      16,    0,  168,    2, 0x08,   13 /* Private */,
+      17,    0,  169,    2, 0x08,   14 /* Private */,
+      18,    0,  170,    2, 0x08,   15 /* Private */,
+      19,    0,  171,    2, 0x08,   16 /* Private */,
+      20,    1,  172,    2, 0x08,   17 /* Private */,
+      21,    0,  175,    2, 0x08,   19 /* Private */,
+      22,    0,  176,    2, 0x08,   20 /* Private */,
+      23,    0,  177,    2, 0x08,   21 /* Private */,
+      24,    1,  178,    2, 0x08,   22 /* Private */,
+      26,    0,  181,    2, 0x08,   24 /* Private */,
+      27,    0,  182,    2, 0x08,   25 /* Private */,
+      28,    0,  183,    2, 0x08,   26 /* Private */,
+      29,    0,  184,    2, 0x08,   27 /* Private */,
+      30,    0,  185,    2, 0x08,   28 /* Private */,
+      31,    0,  186,    2, 0x08,   29 /* Private */,
 
  // signals: parameters
     QMetaType::Void,
@@ -319,6 +349,10 @@ Q_CONSTINIT static const uint qt_meta_data_CLASSModelingWidgetENDCLASS[] = {
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void, QMetaType::QString,   25,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
 
@@ -377,6 +411,14 @@ Q_CONSTINIT const QMetaObject ModelingWidget::staticMetaObject = { {
         // method 'onUndo'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
         // method 'onRedo'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'selectWholeObjectFromCurrent'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'hideSelectedObjects'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'unhideAllObjects'
+        QtPrivate::TypeAndForceComplete<void, std::false_type>,
+        // method 'isolateSelectedObjects'
         QtPrivate::TypeAndForceComplete<void, std::false_type>
     >,
     nullptr
@@ -407,6 +449,10 @@ void ModelingWidget::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _
         case 16: _t->onObjectSearchChanged((*reinterpret_cast< std::add_pointer_t<QString>>(_a[1]))); break;
         case 17: _t->onUndo(); break;
         case 18: _t->onRedo(); break;
+        case 19: _t->selectWholeObjectFromCurrent(); break;
+        case 20: _t->hideSelectedObjects(); break;
+        case 21: _t->unhideAllObjects(); break;
+        case 22: _t->isolateSelectedObjects(); break;
         default: ;
         }
     } else if (_c == QMetaObject::IndexOfMethod) {
@@ -440,13 +486,13 @@ int ModelingWidget::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 19)
+        if (_id < 23)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 19;
+        _id -= 23;
     } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 19)
+        if (_id < 23)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 19;
+        _id -= 23;
     }
     return _id;
 }

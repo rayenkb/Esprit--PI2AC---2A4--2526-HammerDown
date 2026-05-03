@@ -406,12 +406,12 @@ public:
         tabWidget->setTabText(tabWidget->indexOf(tab_manage), QCoreApplication::translate("OrderManagement", "Manage Orders", nullptr));
         label_qr_order_id->setText(QCoreApplication::translate("OrderManagement", "Order ID:", nullptr));
         le_qr_order_id->setPlaceholderText(QCoreApplication::translate("OrderManagement", "Enter Order ID to generate QR code...", nullptr));
-        btn_generate_qr->setText(QCoreApplication::translate("OrderManagement", "Generate QR", nullptr));
-        label_qr_display->setText(QCoreApplication::translate("OrderManagement", "QR Code will appear here", nullptr));
-        btn_save_qr->setText(QCoreApplication::translate("OrderManagement", "Save QR Code", nullptr));
-        btn_print_qr->setText(QCoreApplication::translate("OrderManagement", "Print QR Code", nullptr));
+        btn_generate_qr->setText(QCoreApplication::translate("OrderManagement", "Generate Status", nullptr));
+        label_qr_display->setText(QCoreApplication::translate("OrderManagement", "Status will appear here", nullptr));
+        btn_save_qr->setText(QCoreApplication::translate("OrderManagement", "Save Status", nullptr));
+        btn_print_qr->setText(QCoreApplication::translate("OrderManagement", "Print Status", nullptr));
         btn_help_qr->setText(QCoreApplication::translate("OrderManagement", "?", nullptr));
-        tabWidget->setTabText(tabWidget->indexOf(tab_qrcode), QCoreApplication::translate("OrderManagement", "QR Code", nullptr));
+        tabWidget->setTabText(tabWidget->indexOf(tab_qrcode), QCoreApplication::translate("OrderManagement", "Status", nullptr));
         QTableWidgetItem *___qtablewidgetitem = table_catalog->horizontalHeaderItem(0);
         ___qtablewidgetitem->setText(QCoreApplication::translate("OrderManagement", "Order ID", nullptr));
         QTableWidgetItem *___qtablewidgetitem1 = table_catalog->horizontalHeaderItem(1);
@@ -425,7 +425,7 @@ public:
         QTableWidgetItem *___qtablewidgetitem5 = table_catalog->horizontalHeaderItem(5);
         ___qtablewidgetitem5->setText(QCoreApplication::translate("OrderManagement", "Buyer ID", nullptr));
         QTableWidgetItem *___qtablewidgetitem6 = table_catalog->horizontalHeaderItem(6);
-        ___qtablewidgetitem6->setText(QCoreApplication::translate("OrderManagement", "QR Code", nullptr));
+        ___qtablewidgetitem6->setText(QCoreApplication::translate("OrderManagement", "Status", nullptr));
         btn_export_catalog->setText(QCoreApplication::translate("OrderManagement", "Export Order", nullptr));
         btn_print_catalog->setText(QCoreApplication::translate("OrderManagement", "Print Order", nullptr));
         btn_delete_all->setText(QCoreApplication::translate("OrderManagement", "Delete All", nullptr));

@@ -99,6 +99,9 @@ public:
     QPushButton *btn_chercher;
     QLineEdit *le_recherche;
     QTableView *tableView;
+    QPushButton *btn_export_pdf_view;
+    QPushButton *btn_print_view;
+    QPushButton *btn_delete_all_view;
     QWidget *tab_reviews;
     QLabel *lbl_reviews_title;
     QToolButton *btn_help_reviews;
@@ -434,7 +437,7 @@ public:
         pb_quality = new QProgressBar(group_performance_bars);
         pb_quality->setObjectName("pb_quality");
         pb_quality->setGeometry(QRect(160, 35, 220, 20));
-        pb_quality->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }\n"
+        pb_quality->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #D4AF37; border-radius: 4px; }"));
         pb_quality->setValue(95);
         lbl_bar_speed = new QLabel(group_performance_bars);
@@ -444,7 +447,7 @@ public:
         pb_speed = new QProgressBar(group_performance_bars);
         pb_speed->setObjectName("pb_speed");
         pb_speed->setGeometry(QRect(160, 75, 220, 20));
-        pb_speed->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }\n"
+        pb_speed->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #D4AF37; border-radius: 4px; }"));
         pb_speed->setValue(82);
         frame_stat_summary = new QFrame(tab_stats);
@@ -464,29 +467,29 @@ public:
         frame_chart_types = new QFrame(tab_stats);
         frame_chart_types->setObjectName("frame_chart_types");
         frame_chart_types->setGeometry(QRect(20, 210, 550, 350));
-        frame_chart_types->setStyleSheet(QString::fromUtf8("background-color: white; border-radius: 10px; border: 1px solid #8B6F47;"));
+        frame_chart_types->setStyleSheet(QString::fromUtf8("background-color: rgba(60, 45, 30, 0.7); border-radius: 10px; border: 1px solid #8B6F47;"));
         lbl_chart_types = new QLabel(frame_chart_types);
         lbl_chart_types->setObjectName("lbl_chart_types");
         lbl_chart_types->setGeometry(QRect(0, 0, 550, 40));
-        lbl_chart_types->setStyleSheet(QString::fromUtf8("border: none; font-size: 18px; font-weight: bold; color: #555; padding: 5px;"));
+        lbl_chart_types->setStyleSheet(QString::fromUtf8("border: none; font-size: 18px; font-weight: bold; color: #D4AF37; padding: 5px; background: transparent;"));
         lbl_chart_types->setAlignment(Qt::AlignmentFlag::AlignCenter);
         chart_types_view = new QGraphicsView(frame_chart_types);
         chart_types_view->setObjectName("chart_types_view");
         chart_types_view->setGeometry(QRect(10, 50, 530, 280));
-        chart_types_view->setStyleSheet(QString::fromUtf8("background: rgba(139, 111, 71, 0.05); border: 1px dashed #DDD;"));
+        chart_types_view->setStyleSheet(QString::fromUtf8("background: transparent; border: none;"));
         frame_chart_reviews = new QFrame(tab_stats);
         frame_chart_reviews->setObjectName("frame_chart_reviews");
         frame_chart_reviews->setGeometry(QRect(580, 210, 550, 350));
-        frame_chart_reviews->setStyleSheet(QString::fromUtf8("background-color: white; border-radius: 10px; border: 1px solid #8B6F47;"));
+        frame_chart_reviews->setStyleSheet(QString::fromUtf8("background-color: rgba(60, 45, 30, 0.7); border-radius: 10px; border: 1px solid #8B6F47;"));
         lbl_chart_reviews = new QLabel(frame_chart_reviews);
         lbl_chart_reviews->setObjectName("lbl_chart_reviews");
         lbl_chart_reviews->setGeometry(QRect(0, 0, 550, 40));
-        lbl_chart_reviews->setStyleSheet(QString::fromUtf8("border: none; font-size: 18px; font-weight: bold; color: #555; padding: 5px;"));
+        lbl_chart_reviews->setStyleSheet(QString::fromUtf8("border: none; font-size: 18px; font-weight: bold; color: #D4AF37; padding: 5px; background: transparent;"));
         lbl_chart_reviews->setAlignment(Qt::AlignmentFlag::AlignCenter);
         chart_reviews_view = new QGraphicsView(frame_chart_reviews);
         chart_reviews_view->setObjectName("chart_reviews_view");
         chart_reviews_view->setGeometry(QRect(10, 50, 530, 280));
-        chart_reviews_view->setStyleSheet(QString::fromUtf8("background: rgba(139, 111, 71, 0.05); border: 1px dashed #DDD;"));
+        chart_reviews_view->setStyleSheet(QString::fromUtf8("background: transparent; border: none;"));
         group_regional_stats = new QGroupBox(tab_stats);
         group_regional_stats->setObjectName("group_regional_stats");
         group_regional_stats->setGeometry(QRect(20, 580, 1111, 180));
@@ -499,7 +502,7 @@ public:
         pb_reg_1 = new QProgressBar(group_regional_stats);
         pb_reg_1->setObjectName("pb_reg_1");
         pb_reg_1->setGeometry(QRect(130, 40, 380, 15));
-        pb_reg_1->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }\n"
+        pb_reg_1->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }"));
         pb_reg_1->setValue(88);
         lbl_reg_2 = new QLabel(group_regional_stats);
@@ -509,7 +512,7 @@ public:
         pb_reg_2 = new QProgressBar(group_regional_stats);
         pb_reg_2->setObjectName("pb_reg_2");
         pb_reg_2->setGeometry(QRect(130, 80, 380, 15));
-        pb_reg_2->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }\n"
+        pb_reg_2->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }"));
         pb_reg_2->setValue(72);
         lbl_top_performer = new QLabel(group_regional_stats);
@@ -568,6 +571,21 @@ public:
 "        QTableView::item:selected { background-color: rgba(193,127,62,0.45); color: #FFFFFF; }\n"
 "        QHeaderView::section { background-color: #8B6F47; color: #F5E6D3; font-weight: bold; border: none; padding: 5px; }\n"
 "       "));
+        btn_export_pdf_view = new QPushButton(tab_view);
+        btn_export_pdf_view->setObjectName("btn_export_pdf_view");
+        btn_export_pdf_view->setGeometry(QRect(100, 645, 160, 38));
+        btn_export_pdf_view->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #C0392B; border-radius: 8px; color: white; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #E74C3C; }"));
+        btn_export_pdf_view->setCursor(QCursor(Qt::CursorShape::PointingHandCursor));
+        btn_print_view = new QPushButton(tab_view);
+        btn_print_view->setObjectName("btn_print_view");
+        btn_print_view->setGeometry(QRect(275, 645, 160, 38));
+        btn_print_view->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #2980B9; border-radius: 8px; color: white; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #3498DB; }"));
+        btn_print_view->setCursor(QCursor(Qt::CursorShape::PointingHandCursor));
+        btn_delete_all_view = new QPushButton(tab_view);
+        btn_delete_all_view->setObjectName("btn_delete_all_view");
+        btn_delete_all_view->setGeometry(QRect(760, 645, 160, 38));
+        btn_delete_all_view->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #7B2D2D; border-radius: 8px; color: white; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #C0392B; }"));
+        btn_delete_all_view->setCursor(QCursor(Qt::CursorShape::PointingHandCursor));
         tabWidget->addTab(tab_view, QString());
         tab_reviews = new QWidget();
         tab_reviews->setObjectName("tab_reviews");
@@ -623,7 +641,7 @@ public:
         pb_review_quality = new QProgressBar(group_feedback_breakdown);
         pb_review_quality->setObjectName("pb_review_quality");
         pb_review_quality->setGeometry(QRect(140, 30, 260, 15));
-        pb_review_quality->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }\n"
+        pb_review_quality->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #4CAF50; border-radius: 4px; }"));
         pb_review_quality->setValue(98);
         lbl_cat_response = new QLabel(group_feedback_breakdown);
@@ -633,7 +651,7 @@ public:
         pb_review_response = new QProgressBar(group_feedback_breakdown);
         pb_review_response->setObjectName("pb_review_response");
         pb_review_response->setGeometry(QRect(140, 65, 260, 15));
-        pb_review_response->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }\n"
+        pb_review_response->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #2196F3; border-radius: 4px; }"));
         pb_review_response->setValue(85);
         lbl_cat_price = new QLabel(group_feedback_breakdown);
@@ -643,7 +661,7 @@ public:
         pb_review_price = new QProgressBar(group_feedback_breakdown);
         pb_review_price->setObjectName("pb_review_price");
         pb_review_price->setGeometry(QRect(140, 100, 260, 15));
-        pb_review_price->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: right; color: transparent; }\n"
+        pb_review_price->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 5px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #9C27B0; border-radius: 4px; }"));
         pb_review_price->setValue(90);
         group_submit_review = new QGroupBox(tab_reviews);
@@ -727,7 +745,7 @@ public:
         pb_dist_5 = new QProgressBar(frame_distribution);
         pb_dist_5->setObjectName("pb_dist_5");
         pb_dist_5->setGeometry(QRect(60, 50, 220, 20));
-        pb_dist_5->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }\n"
+        pb_dist_5->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }"));
         pb_dist_5->setValue(80);
         lbl_row_4 = new QLabel(frame_distribution);
@@ -737,7 +755,7 @@ public:
         pb_dist_4 = new QProgressBar(frame_distribution);
         pb_dist_4->setObjectName("pb_dist_4");
         pb_dist_4->setGeometry(QRect(60, 80, 220, 20));
-        pb_dist_4->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }\n"
+        pb_dist_4->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }"));
         pb_dist_4->setValue(15);
         lbl_row_3 = new QLabel(frame_distribution);
@@ -747,7 +765,7 @@ public:
         pb_dist_3 = new QProgressBar(frame_distribution);
         pb_dist_3->setObjectName("pb_dist_3");
         pb_dist_3->setGeometry(QRect(60, 110, 220, 20));
-        pb_dist_3->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: right; color: transparent; }\n"
+        pb_dist_3->setStyleSheet(QString::fromUtf8("QProgressBar { background-color: rgba(0,0,0,0.5); border: 1px solid #8B6F47; border-radius: 10px; text-align: center; color: #FFFFFF; }\n"
 "QProgressBar::chunk { background-color: #D4AF37; border-radius: 8px; }"));
         pb_dist_3->setValue(4);
         lbl_dist_insight = new QLabel(frame_distribution);
@@ -829,7 +847,7 @@ public:
 "Last updated: Today 01:40 AM", nullptr));
         lbl_chart_types->setText(QCoreApplication::translate("SupplierManagement", "Product Categories (%)", nullptr));
         lbl_chart_reviews->setText(QCoreApplication::translate("SupplierManagement", "Monthly Satisfaction Trend", nullptr));
-        group_regional_stats->setTitle(QCoreApplication::translate("SupplierManagement", "Regional Performance Comparison", nullptr));
+        group_regional_stats->setTitle(QCoreApplication::translate("SupplierManagement", "Top Supplier Types by Rating", nullptr));
         lbl_reg_1->setText(QCoreApplication::translate("SupplierManagement", "North Region:", nullptr));
         lbl_reg_2->setText(QCoreApplication::translate("SupplierManagement", "South Region:", nullptr));
         lbl_top_performer->setText(QCoreApplication::translate("SupplierManagement", "?? Top Performer: Global Logistics Corp\n"
@@ -839,6 +857,9 @@ public:
         lbl_title_view->setText(QCoreApplication::translate("SupplierManagement", "Supplier List", nullptr));
         btn_chercher->setText(QCoreApplication::translate("SupplierManagement", "Search by Name", nullptr));
         le_recherche->setPlaceholderText(QString());
+        btn_export_pdf_view->setText(QCoreApplication::translate("SupplierManagement", "\342\254\207 Export PDF", nullptr));
+        btn_print_view->setText(QCoreApplication::translate("SupplierManagement", "\360\237\226\250 Print", nullptr));
+        btn_delete_all_view->setText(QCoreApplication::translate("SupplierManagement", "\360\237\227\221 Delete All", nullptr));
         tabWidget->setTabText(tabWidget->indexOf(tab_view), QCoreApplication::translate("SupplierManagement", "View Supplier", nullptr));
         lbl_reviews_title->setText(QCoreApplication::translate("SupplierManagement", "Supplier Reliability & Feedback", nullptr));
         btn_help_reviews->setText(QCoreApplication::translate("SupplierManagement", "?", nullptr));

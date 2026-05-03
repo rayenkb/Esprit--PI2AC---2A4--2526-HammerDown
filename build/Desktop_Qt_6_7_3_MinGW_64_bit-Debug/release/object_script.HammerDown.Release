@@ -20,6 +20,10 @@ release/costswidget.o
 release/costswidget_engine.o
 release/costswidget_tco.o
 release/costswidget_subtabs.o
+release/equipment.o
+release/supplier.o
+release/order.o
+release/clientmanagement.o
 release/qrc_resources.o
 release/qrc_sounds.o
 release/moc_mainwindow.o

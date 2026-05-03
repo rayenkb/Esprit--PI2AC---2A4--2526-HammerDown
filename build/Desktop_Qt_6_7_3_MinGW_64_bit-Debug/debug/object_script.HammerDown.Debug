@@ -20,6 +20,10 @@ debug/costswidget.o
 debug/costswidget_engine.o
 debug/costswidget_tco.o
 debug/costswidget_subtabs.o
+debug/equipment.o
+debug/supplier.o
+debug/order.o
+debug/clientmanagement.o
 debug/qrc_resources.o
 debug/qrc_sounds.o
 debug/moc_mainwindow.o

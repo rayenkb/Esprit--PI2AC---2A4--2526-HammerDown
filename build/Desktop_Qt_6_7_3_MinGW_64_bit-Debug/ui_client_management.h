@@ -86,6 +86,9 @@ public:
     QWidget *tab_stats;
     QLabel *label_stat_title;
     QFrame *widget_chart;
+    QPushButton *btn_lcd_total_clients;
+    QPushButton *btn_lcd_gender_dist;
+    QPushButton *btn_lcd_top_email;
     QWidget *tab_mail;
     QLabel *label_mail_title;
     QLabel *l_smtp;
@@ -550,11 +553,23 @@ public:
         label_stat_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
         widget_chart = new QFrame(tab_stats);
         widget_chart->setObjectName("widget_chart");
-        widget_chart->setGeometry(QRect(100, 80, 1100, 600));
+        widget_chart->setGeometry(QRect(100, 80, 1100, 560));
         widget_chart->setStyleSheet(QString::fromUtf8("background-color: white; border: 2px solid #333;\n"
 ""));
         widget_chart->setFrameShape(QFrame::Shape::StyledPanel);
         widget_chart->setFrameShadow(QFrame::Shadow::Raised);
+        btn_lcd_total_clients = new QPushButton(tab_stats);
+        btn_lcd_total_clients->setObjectName("btn_lcd_total_clients");
+        btn_lcd_total_clients->setGeometry(QRect(100, 655, 330, 46));
+        btn_lcd_total_clients->setStyleSheet(QString::fromUtf8("QPushButton { background: rgba(139,111,71,0.4); border: 2px solid #D4AF37; border-radius: 8px; color: #D4AF37; font-family: 'Consolas'; font-size: 13px; font-weight: bold; } QPushButton:hover { background: rgba(212,175,55,0.25); border: 2px solid #FFD700; color: #FFD700; } QPushButton:pressed { background: rgba(212,175,55,0.5); }"));
+        btn_lcd_gender_dist = new QPushButton(tab_stats);
+        btn_lcd_gender_dist->setObjectName("btn_lcd_gender_dist");
+        btn_lcd_gender_dist->setGeometry(QRect(485, 655, 330, 46));
+        btn_lcd_gender_dist->setStyleSheet(QString::fromUtf8("QPushButton { background: rgba(139,111,71,0.4); border: 2px solid #D4AF37; border-radius: 8px; color: #D4AF37; font-family: 'Consolas'; font-size: 13px; font-weight: bold; } QPushButton:hover { background: rgba(212,175,55,0.25); border: 2px solid #FFD700; color: #FFD700; } QPushButton:pressed { background: rgba(212,175,55,0.5); }"));
+        btn_lcd_top_email = new QPushButton(tab_stats);
+        btn_lcd_top_email->setObjectName("btn_lcd_top_email");
+        btn_lcd_top_email->setGeometry(QRect(870, 655, 330, 46));
+        btn_lcd_top_email->setStyleSheet(QString::fromUtf8("QPushButton { background: rgba(139,111,71,0.4); border: 2px solid #D4AF37; border-radius: 8px; color: #D4AF37; font-family: 'Consolas'; font-size: 13px; font-weight: bold; } QPushButton:hover { background: rgba(212,175,55,0.25); border: 2px solid #FFD700; color: #FFD700; } QPushButton:pressed { background: rgba(212,175,55,0.5); }"));
         tabWidget->addTab(tab_stats, QString());
         tab_mail = new QWidget();
         tab_mail->setObjectName("tab_mail");
@@ -761,6 +776,9 @@ public:
         btn_clear_mod->setText(QCoreApplication::translate("ClientManagement", "Clear Fields", nullptr));
         tabWidget->setTabText(tabWidget->indexOf(tab_modify), QCoreApplication::translate("ClientManagement", "Modify Client", nullptr));
         label_stat_title->setText(QCoreApplication::translate("ClientManagement", "Client Statistics by Gender", nullptr));
+        btn_lcd_total_clients->setText(QCoreApplication::translate("ClientManagement", "Send Total Clients to LCD", nullptr));
+        btn_lcd_gender_dist->setText(QCoreApplication::translate("ClientManagement", "Send Gender Dist. to LCD", nullptr));
+        btn_lcd_top_email->setText(QCoreApplication::translate("ClientManagement", "Send Top Providers to LCD", nullptr));
         tabWidget->setTabText(tabWidget->indexOf(tab_stats), QCoreApplication::translate("ClientManagement", "Statistics", nullptr));
         label_mail_title->setText(QCoreApplication::translate("ClientManagement", "Mailing", nullptr));
         l_smtp->setText(QCoreApplication::translate("ClientManagement", "Smtp-server:", nullptr));

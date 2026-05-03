@@ -74,6 +74,7 @@ public:
     QLabel *label_bulk_instr;
     QComboBox *cb_bulk_status;
     QPushButton *btn_bulk_update_status;
+    QPushButton *btn_bulk_delete_all;
     QWidget *tab_history;
     QLabel *label_titre_histo;
     QLineEdit *le_history_search;
@@ -432,6 +433,10 @@ public:
         btn_bulk_update_status->setGeometry(QRect(560, 20, 160, 30));
         btn_bulk_update_status->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #8B6F47; border-radius: 10px; color: white; font-weight: bold; } QPushButton:hover { background-color: white; color: #8B6F47; border: 2px solid #8B6F47; }"));
         btn_bulk_update_status->setIcon(icon1);
+        btn_bulk_delete_all = new QPushButton(group_bulk_actions);
+        btn_bulk_delete_all->setObjectName("btn_bulk_delete_all");
+        btn_bulk_delete_all->setGeometry(QRect(730, 20, 240, 30));
+        btn_bulk_delete_all->setStyleSheet(QString::fromUtf8("QPushButton { background-color: #A63D2E; border-radius: 10px; color: white; font-weight: bold; } QPushButton:hover { background-color: white; color: #A63D2E; border: 2px solid #A63D2E; }"));
         tabWidget->addTab(tab_view, QString());
         tab_history = new QWidget();
         tab_history->setObjectName("tab_history");
@@ -904,6 +909,7 @@ public:
         cb_bulk_status->setItemText(3, QCoreApplication::translate("EquipmentManagement", "Retired", nullptr));
 
         btn_bulk_update_status->setText(QCoreApplication::translate("EquipmentManagement", "Update Selected", nullptr));
+        btn_bulk_delete_all->setText(QCoreApplication::translate("EquipmentManagement", "Delete All Equipments", nullptr));
         tabWidget->setTabText(tabWidget->indexOf(tab_view), QCoreApplication::translate("EquipmentManagement", "View Equipments", nullptr));
         label_titre_histo->setText(QCoreApplication::translate("EquipmentManagement", "Activity History", nullptr));
         le_history_search->setPlaceholderText(QCoreApplication::translate("EquipmentManagement", "Search in history...", nullptr));

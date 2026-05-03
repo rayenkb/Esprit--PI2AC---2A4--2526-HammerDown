@@ -1054,7 +1054,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { border: none;
        <x>100</x>
        <y>80</y>
        <width>1100</width>
-       <height>600</height>
+       <height>560</height>
       </rect>
      </property>
      <property name="styleSheet">
@@ -1068,6 +1068,58 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { border: none;
       <enum>QFrame::Shadow::Raised</enum>
      </property>
     </widget>
+
+    <widget class="QPushButton" name="btn_lcd_total_clients">
+     <property name="geometry">
+      <rect>
+       <x>100</x>
+       <y>655</y>
+       <width>330</width>
+       <height>46</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background: rgba(139,111,71,0.4); border: 2px solid #D4AF37; border-radius: 8px; color: #D4AF37; font-family: 'Consolas'; font-size: 13px; font-weight: bold; } QPushButton:hover { background: rgba(212,175,55,0.25); border: 2px solid #FFD700; color: #FFD700; } QPushButton:pressed { background: rgba(212,175,55,0.5); }</string>
+     </property>
+     <property name="text">
+      <string>Send Total Clients to LCD</string>
+     </property>
+    </widget>
+
+    <widget class="QPushButton" name="btn_lcd_gender_dist">
+     <property name="geometry">
+      <rect>
+       <x>485</x>
+       <y>655</y>
+       <width>330</width>
+       <height>46</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background: rgba(139,111,71,0.4); border: 2px solid #D4AF37; border-radius: 8px; color: #D4AF37; font-family: 'Consolas'; font-size: 13px; font-weight: bold; } QPushButton:hover { background: rgba(212,175,55,0.25); border: 2px solid #FFD700; color: #FFD700; } QPushButton:pressed { background: rgba(212,175,55,0.5); }</string>
+     </property>
+     <property name="text">
+      <string>Send Gender Dist. to LCD</string>
+     </property>
+    </widget>
+
+    <widget class="QPushButton" name="btn_lcd_top_email">
+     <property name="geometry">
+      <rect>
+       <x>870</x>
+       <y>655</y>
+       <width>330</width>
+       <height>46</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton { background: rgba(139,111,71,0.4); border: 2px solid #D4AF37; border-radius: 8px; color: #D4AF37; font-family: 'Consolas'; font-size: 13px; font-weight: bold; } QPushButton:hover { background: rgba(212,175,55,0.25); border: 2px solid #FFD700; color: #FFD700; } QPushButton:pressed { background: rgba(212,175,55,0.5); }</string>
+     </property>
+     <property name="text">
+      <string>Send Top Providers to LCD</string>
+     </property>
+    </widget>
+
    </widget>
    <widget class="QWidget" name="tab_mail">
     <attribute name="title">

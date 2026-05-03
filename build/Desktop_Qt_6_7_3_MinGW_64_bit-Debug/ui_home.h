@@ -29,10 +29,14 @@ public:
     QPushButton *btn_chat;
     QFrame *profile_frame;
     QHBoxLayout *profileLayout;
+    QFrame *avatar_container;
     QLabel *lbl_user_avatar;
+    QFrame *status_dot;
     QVBoxLayout *userInfoLayout;
     QLabel *lbl_user_name;
     QLabel *lbl_user_role;
+    QSpacerItem *horizontalSpacer;
+    QPushButton *btn_profile_arrow;
     QPushButton *btn_help;
     QGridLayout *mainGridLayout;
     QPushButton *gs_employes;
@@ -118,49 +122,99 @@ public:
         btn_chat->setFlat(true);
         profile_frame = new QFrame(HomeFrame);
         profile_frame->setObjectName("profile_frame");
-        profile_frame->setGeometry(QRect(900, 15, 250, 60));
+        profile_frame->setGeometry(QRect(930, 15, 230, 60));
+        profile_frame->setCursor(QCursor(Qt::CursorShape::PointingHandCursor));
         profile_frame->setStyleSheet(QString::fromUtf8("#profile_frame {\n"
-"    background: rgba(50, 40, 30, 0.6);\n"
-"    border: 1px solid #8B6F47;\n"
+"    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, \n"
+"        stop:0 rgba(70, 50, 30, 0.85), \n"
+"        stop:0.5 rgba(40, 30, 20, 0.9),\n"
+"        stop:1 rgba(20, 15, 10, 0.95));\n"
+"    border: 2px solid #8B6F47;\n"
 "    border-radius: 30px;\n"
+"}\n"
+"#profile_frame:hover {\n"
+"    border: 2px solid #d4a96a;\n"
+"    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, \n"
+"        stop:0 rgba(90, 70, 50, 0.9), \n"
+"        stop:1 rgba(40, 30, 20, 1.0));\n"
 "}\n"
 "QLabel { background: transparent; border: none; color: white; }"));
         profileLayout = new QHBoxLayout(profile_frame);
-        profileLayout->setSpacing(10);
+        profileLayout->setSpacing(8);
         profileLayout->setObjectName("profileLayout");
-        profileLayout->setContentsMargins(5, 5, 5, 5);
-        lbl_user_avatar = new QLabel(profile_frame);
+        profileLayout->setContentsMargins(6, 5, 12, 5);
+        avatar_container = new QFrame(profile_frame);
+        avatar_container->setObjectName("avatar_container");
+        avatar_container->setMinimumSize(QSize(50, 50));
+        avatar_container->setMaximumSize(QSize(50, 50));
+        avatar_container->setStyleSheet(QString::fromUtf8("background: transparent;"));
+        lbl_user_avatar = new QLabel(avatar_container);
         lbl_user_avatar->setObjectName("lbl_user_avatar");
-        lbl_user_avatar->setMinimumSize(QSize(50, 50));
-        lbl_user_avatar->setMaximumSize(QSize(50, 50));
-        lbl_user_avatar->setStyleSheet(QString::fromUtf8("border: 1.5px solid #d4a96a; border-radius: 25px; background: rgba(255,255,255,0.1);"));
+        lbl_user_avatar->setGeometry(QRect(0, 0, 50, 50));
+        lbl_user_avatar->setStyleSheet(QString::fromUtf8("border: 2px solid #d4a96a; border-radius: 25px; background: rgba(0,0,0,0.3);"));
         lbl_user_avatar->setScaledContents(true);
+        status_dot = new QFrame(avatar_container);
+        status_dot->setObjectName("status_dot");
+        status_dot->setGeometry(QRect(36, 36, 12, 12));
+        status_dot->setStyleSheet(QString::fromUtf8("background-color: #4CAF50; border: 2px solid #2A1E10; border-radius: 6px;"));
 
-        profileLayout->addWidget(lbl_user_avatar);
+        profileLayout->addWidget(avatar_container);
 
         userInfoLayout = new QVBoxLayout();
-        userInfoLayout->setSpacing(0);
+        userInfoLayout->setSpacing(-2);
         userInfoLayout->setObjectName("userInfoLayout");
         lbl_user_name = new QLabel(profile_frame);
         lbl_user_name->setObjectName("lbl_user_name");
         QFont font;
-        font.setPointSize(10);
+        font.setFamilies({QString::fromUtf8("Outfit")});
+        font.setPointSize(11);
         font.setBold(true);
         lbl_user_name->setFont(font);
+        lbl_user_name->setStyleSheet(QString::fromUtf8("color: #FFFFFF; subcontrol-origin: padding;"));
 
         userInfoLayout->addWidget(lbl_user_name);
 
         lbl_user_role = new QLabel(profile_frame);
         lbl_user_role->setObjectName("lbl_user_role");
         QFont font1;
+        font1.setFamilies({QString::fromUtf8("Outfit")});
         font1.setPointSize(8);
+        font1.setBold(true);
         lbl_user_role->setFont(font1);
-        lbl_user_role->setStyleSheet(QString::fromUtf8("color: #D4AF37;"));
+        lbl_user_role->setStyleSheet(QString::fromUtf8("color: rgba(212, 175, 55, 0.8); letter-spacing: 0.5px;"));
 
         userInfoLayout->addWidget(lbl_user_role);
 
 
         profileLayout->addLayout(userInfoLayout);
+
+        horizontalSpacer = new QSpacerItem(10, 20, QSizePolicy::Policy::Fixed, QSizePolicy::Policy::Minimum);
+
+        profileLayout->addItem(horizontalSpacer);
+
+        btn_profile_arrow = new QPushButton(profile_frame);
+        btn_profile_arrow->setObjectName("btn_profile_arrow");
+        btn_profile_arrow->setMinimumSize(QSize(32, 32));
+        btn_profile_arrow->setMaximumSize(QSize(32, 32));
+        btn_profile_arrow->setCursor(QCursor(Qt::CursorShape::PointingHandCursor));
+        btn_profile_arrow->setStyleSheet(QString::fromUtf8("QPushButton {\n"
+"    background: rgba(139, 111, 71, 0.15);\n"
+"    color: #ffd700;\n"
+"    font-size: 15px;\n"
+"    font-weight: bold;\n"
+"    border: 1.5px solid rgba(139, 111, 71, 0.5);\n"
+"    border-radius: 16px;\n"
+"}\n"
+"QPushButton:hover {\n"
+"    background: rgba(212, 169, 106, 0.3);\n"
+"    color: white;\n"
+"    border: 1.5px solid #d4a96a;\n"
+"}\n"
+"QPushButton:pressed {\n"
+"    background: rgba(139, 111, 71, 0.5);\n"
+"}"));
+
+        profileLayout->addWidget(btn_profile_arrow);
 
         btn_help = new QPushButton(HomeFrame);
         btn_help->setObjectName("btn_help");
@@ -307,6 +361,7 @@ public:
         lbl_user_avatar->setText(QString());
         lbl_user_name->setText(QCoreApplication::translate("HomeFrame", "First Name", nullptr));
         lbl_user_role->setText(QCoreApplication::translate("HomeFrame", "Job Title", nullptr));
+        btn_profile_arrow->setText(QCoreApplication::translate("HomeFrame", "\342\226\276", nullptr));
 #if QT_CONFIG(tooltip)
         btn_help->setToolTip(QCoreApplication::translate("HomeFrame", "Help", nullptr));
 #endif // QT_CONFIG(tooltip)
