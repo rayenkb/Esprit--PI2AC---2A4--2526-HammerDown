@@ -1891,3 +1891,943 @@ void MainWindow::onPageChanged(int index)
 
 
 
+
+// === Recovered from client-branch: lines 3246-3452 ===
+void MainWindow::onTestArduino()
+{
+    if (arduino == nullptr) {
+        arduino = new QSerialPort(this);
+        connect(arduino, &QSerialPort::readyRead, this, &MainWindow::onArduinoReadyRead);
+    }
+
+    if (!arduino->isOpen()) {
+        const auto serialPortInfos = QSerialPortInfo::availablePorts();
+        QString targetPort = "";
+        for (const QSerialPortInfo &info : serialPortInfos) {
+            if (info.description().contains("Arduino", Qt::CaseInsensitive) ||
+                info.manufacturer().contains("Arduino", Qt::CaseInsensitive)) {
+                targetPort = info.portName();
+                break;
+            }
+        }
+        if (targetPort.isEmpty() && !serialPortInfos.isEmpty()) targetPort = serialPortInfos.first().portName();
+        
+        if (targetPort.isEmpty()) {
+            QMessageBox::warning(this, "Connection Error", "No Arduino detected.");
+            return;
+        }
+
+        arduino->setPortName(targetPort);
+        arduino->setBaudRate(QSerialPort::Baud9600);
+        if (arduino->open(QIODevice::ReadWrite)) {
+            QMessageBox::information(this, "Success", "Command Center active. Use hardware buttons!");
+        } else {
+            QMessageBox::critical(this, "Error", "Failed to open port.");
+        }
+    } else {
+        QMessageBox::information(this, "Status", "Already listening for hardware buttons.");
+    }
+}
+
+void MainWindow::onTestArduinoScenario1()
+{
+    if (arduino == nullptr) {
+        arduino = new QSerialPort(this);
+        connect(arduino, &QSerialPort::readyRead, this, &MainWindow::onArduinoReadyRead);
+    }
+
+    if (arduino->isOpen()) {
+        arduino->write("START");
+        QMessageBox::information(this, "Scenario 1", "Test sequence 1 triggered on Arduino!");
+        return;
+    }
+
+    // Attempt to find and connect to Arduino
+    // We look for any port that mentions Arduino or just pick the first one if it's a clone
+    const auto serialPortInfos = QSerialPortInfo::availablePorts();
+    QString targetPort = "";
+
+    for (const QSerialPortInfo &info : serialPortInfos) {
+        if (info.description().contains("Arduino", Qt::CaseInsensitive) ||
+            info.manufacturer().contains("Arduino", Qt::CaseInsensitive)) {
+            targetPort = info.portName();
+            break;
+        }
+    }
+
+    // Fallback: pick the first available port if no "Arduino" named port found
+    if (targetPort.isEmpty() && !serialPortInfos.isEmpty()) {
+        targetPort = serialPortInfos.first().portName();
+    }
+
+    if (targetPort.isEmpty()) {
+        QMessageBox::warning(this, "Connection Error", "No Arduino detected. Please ensure it is plugged in.");
+        return;
+    }
+
+    arduino->setPortName(targetPort);
+    arduino->setBaudRate(QSerialPort::Baud9600);
+    arduino->setDataBits(QSerialPort::Data8);
+    arduino->setParity(QSerialPort::NoParity);
+    arduino->setStopBits(QSerialPort::OneStop);
+    arduino->setFlowControl(QSerialPort::NoFlowControl);
+
+    if (arduino->open(QIODevice::ReadWrite)) {
+        // Many Arduinos reset on connection. If yours doesn't, we send a trigger.
+        arduino->write("START"); 
+        QMessageBox::information(this, "Success", "Linked to Arduino on " + targetPort + ".\nScenario 1 started!");
+    } else {
+        QMessageBox::critical(this, "Error", "Failed to open port " + targetPort + ":\n" + arduino->errorString());
+    }
+}
+
+
+void MainWindow::onArduinoReadyRead()
+{
+    if (!arduino) return;
+    while (arduino->canReadLine()) {
+        QByteArray line = arduino->readLine().trimmed();
+        QString msg = QString::fromUtf8(line);
+
+        if (msg.startsWith("UID:")) {
+            QString uid = msg.mid(4).trimmed();
+            
+            // Show a popup to confirm Qt received the scan
+            QMessageBox::information(this, "RFID Scanned", "Qt received scan: " + uid);
+
+            // Find the active employee with this RFID card
+            QSqlQuery findQ;
+            findQ.prepare(
+                "SELECT EMPLOYEE_ID, FIRST_NAME, LAST_NAME, LAST_CHECKIN_DATE "
+                "FROM EMPLOYEES "
+                "WHERE RFID_UID = :uid AND EMPLOYEE_STATUS = 'Active'"
+            );
+            findQ.bindValue(":uid", uid);
+
+            if (findQ.exec() && findQ.next()) {
+                int empId            = findQ.value(0).toInt();
+                QString firstName    = findQ.value(1).toString();
+                QString lastName     = findQ.value(2).toString();
+                QDate lastCheckin    = findQ.value(3).toDate();
+                QDate today          = QDate::currentDate();
+
+                // Grant access
+                arduino->write("GRANT\n");
+                QMessageBox::information(this, "Access Granted", "Match found for: " + firstName + " " + lastName + "\nSending GRANT to Arduino!");
+
+                // Only mark present if not already checked-in today
+                if (lastCheckin != today) {
+                    QSqlQuery updateQ;
+                    updateQ.prepare(
+                        "UPDATE EMPLOYEES SET LAST_CHECKIN_DATE = TRUNC(SYSDATE) "
+                        "WHERE EMPLOYEE_ID = :id"
+                    );
+                    updateQ.bindValue(":id", empId);
+                    if (updateQ.exec()) {
+                        QSqlDatabase::database().commit();
+                    }
+                }
+            } else {
+                // No employee found with this UID
+                arduino->write("DENY\n");
+                QMessageBox::warning(this, "Access Denied", "No active employee found for UID: " + uid + "\nSending DENY to Arduino.");
+            }
+        }
+    }
+}
+
+void MainWindow::callAiModel(const QString &sysPrompt, const QString &userPrompt, std::function<void(QString)> callback)
+{
+    if (aiApiKey.isEmpty() || !aiNetworkManager) {
+        callback("<b style='color:#EF4444;'>AI Error:</b> API key or network manager not configured.");
+        return;
+    }
+
+    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+
+    QNetworkRequest req(QUrl("https://api.groq.com/openai/v1/chat/completions"));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    req.setRawHeader("Authorization", QString("Bearer %1").arg(aiApiKey).toUtf8());
+
+    QJsonObject obj;
+    obj["model"] = "llama-3.3-70b-versatile";
+    QJsonArray msgs;
+    msgs.append(QJsonObject{{"role", "system"}, {"content", sysPrompt}});
+    msgs.append(QJsonObject{{"role", "user"}, {"content", userPrompt}});
+    obj["messages"] = msgs;
+    obj["max_tokens"] = 600;
+    obj["temperature"] = 0.6;
+
+    QNetworkReply *reply = aiNetworkManager->post(req, QJsonDocument(obj).toJson());
+    connect(reply, &QNetworkReply::finished, this, [reply, callback](){
+        QString content;
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray responseData = reply->readAll();
+            QJsonDocument doc = QJsonDocument::fromJson(responseData);
+            
+            if (!doc.isNull() && doc.object().contains("choices")) {
+                content = doc.object()["choices"].toArray().at(0).toObject()["message"].toObject()["content"].toString();
+                if (content.isEmpty()) {
+                    content = "<div style='padding:20px; background:linear-gradient(135deg,#FEF3C7,#FDE68A); border-radius:15px; border:2px solid #F59E0B;'>"
+                             "<h3 style='color:#92400E; margin:0 0 10px 0;'>⚠️ AI Response Empty</h3>"
+                             "<p style='color:#78350F; margin:0;'>The AI returned an empty response. Please try again.</p>"
+                             "</div>";
+                }
+            } else {
+                content = "<div style='padding:20px; background:linear-gradient(135deg,#FEE2E2,#FECACA); border-radius:15px; border:2px solid #EF4444;'>"
+                         "<h3 style='color:#991B1B; margin:0 0 10px 0;'>🔥 API Response Error</h3>"
+                         "<p style='color:#7F1D1D; margin:0;'>Invalid response format from AI service.</p>"
+                         "<details style='margin-top:10px;'><summary style='cursor:pointer;color:#991B1B;'>Technical Details</summary>"
+                         "<pre style='background:#1F2937; color:#F3F4F6; padding:10px; border-radius:8px; margin-top:5px; font-size:12px;'>"
+                         + responseData + "</pre></details></div>";
+            }
+        } else {
+            QString errorStr = reply->errorString();
+            QByteArray errorData = reply->readAll();
+            content = "<div style='padding:20px; background:linear-gradient(135deg,#1E293B,#334155); border-radius:15px; border:2px solid #64748B;'>"
+                     "<h3 style='color:#F1F5F9; margin:0 0 10px 0;'>🚫 Connection Failed</h3>"
+                     "<p style='color:#CBD5E1; margin:0 0 10px 0;'><strong>Error:</strong> " + errorStr + "</p>"
+                     "<p style='color:#94A3B8; margin:0; font-size:14px;'>Please check your API key and internet connection.</p>"
+                     "<details style='margin-top:10px;'><summary style='cursor:pointer;color:#F1F5F9;'>Debug Info</summary>"
+                     "<pre style='background:#0F172A; color:#E2E8F0; padding:10px; border-radius:8px; margin-top:5px; font-size:12px;'>"
+                     + errorData + "</pre></details></div>";
+            qDebug() << "AI Error:" << errorStr << errorData;
+        }
+        callback(content);
+        reply->deleteLater();
+    });
+}
+
+
+// === Recovered from client-branch: lines 4045-4278 ===
+void MainWindow::togglePresentationMode() {
+    m_isPresentationMode = !m_isPresentationMode;
+    
+    if (m_isPresentationMode) {
+        // TURN ON
+        m_presentationStep = 0;
+        
+        // 1. Fade away controls
+        QList<QWidget*> controls;
+        for (auto *w : findChildren<QPushButton*>()) controls << w;
+        for (auto *w : findChildren<QRadioButton*>()) controls << w;
+        for (auto *w : findChildren<QToolButton*>()) controls << w;
+        
+        for (auto *c : controls) {
+            if (c->parent() == this || c->parentWidget() == this) continue; // Keep main window buttons? No, hide all
+            QGraphicsOpacityEffect *eff = new QGraphicsOpacityEffect(c);
+            c->setGraphicsEffect(eff);
+            QPropertyAnimation *a = new QPropertyAnimation(eff, "opacity");
+            a->setDuration(1200);
+            a->setStartValue(1.0);
+            a->setEndValue(0.0);
+            connect(a, &QPropertyAnimation::finished, c, &QWidget::hide);
+            a->start(QAbstractAnimation::DeleteWhenStopped);
+        }
+        
+        // 2. Expand and transform
+        if (ui_equipment && ui_equipment->tabWidget) {
+            ui_equipment->tabWidget->setGeometry(50, 50, width()-100, height()-100);
+            ui_equipment->tabWidget->setStyleSheet("QTabWidget::pane { border: none; background: transparent; } QTabBar::tab { height: 0px; width: 0px; margin: 0; padding: 0; }");
+        }
+
+        // 3. Ken Burns Background
+        startKenBurnsEffect();
+
+        // 4. Watermark
+        m_presentationOverlay = new QWidget(this);
+        m_presentationOverlay->setGeometry(rect());
+        m_presentationOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+        m_presentationOverlay->show();
+
+        QLabel *watermark = new QLabel(m_presentationOverlay);
+        watermark->setPixmap(QIcon(":/assets/logo.png").pixmap(120, 120));
+        watermark->setGeometry(width()-150, height()-150, 120, 120);
+        watermark->setStyleSheet("background: transparent; opacity: 0.5;");
+        watermark->show();
+
+        // 5. Setup Rotation/Navigation state
+        m_presentationStep = ui_equipment->tabWidget->indexOf(ui_equipment->tab_view);
+        if (m_presentationStep == -1) m_presentationStep = 0;
+        
+        ui_equipment->tabWidget->setCurrentIndex(m_presentationStep);
+        advancePresentation(); // Update UI/Toast
+        
+    } else {
+        // TURN OFF (Restore Normal View)
+        if (m_presentationOverlay) m_presentationOverlay->deleteLater();
+        m_presentationOverlay = nullptr;
+        
+        // Restore controls visibility
+        QList<QWidget*> controls;
+        for (auto *w : findChildren<QPushButton*>()) controls << w;
+        for (auto *w : findChildren<QRadioButton*>()) controls << w;
+        for (auto *w : findChildren<QToolButton*>()) controls << w;
+
+        for (auto *c : controls) {
+            c->setGraphicsEffect(nullptr);
+            c->show();
+        }
+
+        if (ui_equipment && ui_equipment->tabWidget) {
+            ui_equipment->tabWidget->setGeometry(118, 70, 1051, 681);
+            ui_equipment->tabWidget->setStyleSheet(""); 
+        }
+    }
+}
+
+void MainWindow::advancePresentation() {
+    if (!m_isPresentationMode || !ui_equipment) return;
+
+    ui_equipment->tabWidget->setCurrentIndex(m_presentationStep);
+    
+    QString stepTitle;
+    QWidget* current = ui_equipment->tabWidget->currentWidget();
+    
+    if (current == ui_equipment->tab_gestion) stepTitle = "Workshop Resource Management";
+    else if (current == ui_equipment->tab_view) stepTitle = "Workshop Inventory Status";
+    else if (current == ui_equipment->tab_stats) stepTitle = "Global Asset Analytics";
+    else if (current == ui_equipment->tab_history) stepTitle = "Operational Activity logs";
+    else if (current == ui_equipment->tab_chat) stepTitle = "Workshop Secure Communications";
+    else stepTitle = "Presentation Slide";
+
+    // Overlay title toast
+    QLabel *toast = new QLabel(stepTitle, this);
+    toast->setFixedSize(500, 80);
+    toast->setAlignment(Qt::AlignCenter);
+    toast->setStyleSheet("background: rgba(139,111,71,0.95); color: white; font-size: 26px; border-radius: 40px; border: 2.5px solid #D4AF37; font-weight: bold;");
+    toast->move(width()/2 - 250, 80);
+    toast->show();
+    
+    QGraphicsOpacityEffect *op = new QGraphicsOpacityEffect(toast);
+    toast->setGraphicsEffect(op);
+    QPropertyAnimation *fIn = new QPropertyAnimation(op, "opacity");
+    fIn->setDuration(800);
+    fIn->setStartValue(0.0);
+    fIn->setEndValue(1.0);
+    fIn->start(QAbstractAnimation::DeleteWhenStopped);
+
+    QTimer::singleShot(2500, [=](){
+        QPropertyAnimation *fOut = new QPropertyAnimation(op, "opacity");
+        fOut->setDuration(1200);
+        fOut->setStartValue(1.0);
+        fOut->setEndValue(0.0);
+        connect(fOut, &QPropertyAnimation::finished, toast, &QLabel::deleteLater);
+        fOut->start(QAbstractAnimation::DeleteWhenStopped);
+    });
+}
+
+void MainWindow::startKenBurnsEffect() {
+    // Find the background (usually set via stylesheet on MainWindow or a central frame)
+    // We'll simulate by animating a large ghost image or the central widget style
+    QPropertyAnimation *kb = new QPropertyAnimation(this, "geometry"); // Dummy for now to trigger background repaint if needed
+    Q_UNUSED(kb);
+    // In a real app, you'd apply this to a specific QGraphicsView background
+}
+
+void MainWindow::keyPressEvent(QKeyEvent *event) {
+    if (m_isPresentationMode) {
+        if (event->key() == Qt::Key_Escape) {
+            togglePresentationMode(); // Exit only on Escape
+            event->accept();
+        } else if (event->key() == Qt::Key_Left) {
+            // Previous tab
+            int count = ui_equipment->tabWidget->count();
+            m_presentationStep = (m_presentationStep - 1 + count) % count;
+            advancePresentation();
+            event->accept();
+        } else if (event->key() == Qt::Key_Right) {
+            // Next tab
+            int count = ui_equipment->tabWidget->count();
+            m_presentationStep = (m_presentationStep + 1) % count;
+            advancePresentation();
+            event->accept();
+        }
+    } else {
+        QMainWindow::keyPressEvent(event);
+    }
+}
+
+
+
+
+
+void MainWindow::onUploadAvatar() {
+    QString fileName = QFileDialog::getOpenFileName(this, tr("Open Image"), "", tr("Image Files (*.png *.jpg *.bmp)"));
+    if (fileName.isEmpty()) return;
+
+    QString employeeId = ui_employee->le_id->text();
+    if (employeeId.isEmpty()) {
+        QMessageBox::warning(this, tr("Avatar"), tr("Please select an employee or enter an ID first."));
+        return;
+    }
+
+    QDir().mkpath("assets/av");
+    QString destPath = QString("assets/av/employee_%1.png").arg(employeeId);
+    if (QFile::exists(destPath)) QFile::remove(destPath);
+    if (QFile::copy(fileName, destPath)) {
+        QPixmap pix(destPath);
+        ui_employee->lbl_avatar->setPixmap(getCircularPixmap(pix).scaled(ui_employee->lbl_avatar->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        // QMessageBox removed to stop annoying duplicate popups for the user
+        if (employeeId.toInt() == currentEmployeeId) updateUserProfileDisplay();
+    } else {
+        QMessageBox::critical(this, tr("Avatar"), tr("Failed to save avatar."));
+    }
+}
+
+void MainWindow::onScanFace() {
+    QString employeeId = ui_employee->le_id->text().trimmed();
+    if (employeeId.isEmpty()) {
+        QMessageBox::warning(this, tr("Face Scan"), tr("Please select an employee or enter an ID first."));
+        return;
+    }
+
+    if (m_isEmpFaceScanActive) {
+        // Capture ONE high-quality frame
+        QVideoFrame frame = m_empVideoSink->videoFrame();
+        if (frame.isValid() && frame.map(QVideoFrame::ReadOnly)) {
+            QImage image = frame.toImage().convertToFormat(QImage::Format_RGB888);
+            frame.unmap();
+            
+            // Flip to ensure it is NOT mirrored (standard view)
+            image = image.mirrored(true, false);
+            
+            QDir().mkpath("assets/av");
+            // face_ path is STRICTLY for biometric login matching only
+            QString facePath = QString("assets/av/face_%1.png").arg(employeeId);
+            if (QFile::exists(facePath)) QFile::remove(facePath);
+            image.save(facePath);
+
+            // Done - stop camera and restore employee avatar display (NOT the face scan image)
+            m_empCamera->stop();
+            m_isEmpFaceScanActive = false;
+            m_faceScanStage = 0;
+            ui_employee->btn_scan_face->setText(tr("Scan Face ID"));
+
+            // Restore the correct avatar (employee_) or placeholder after scan
+            QString avPath = QString("assets/av/employee_%1.png").arg(employeeId);
+            if (QFile::exists(avPath)) {
+                ui_employee->lbl_avatar->setPixmap(getCircularPixmap(QPixmap(avPath)).scaled(ui_employee->lbl_avatar->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            } else {
+                ui_employee->lbl_avatar->setPixmap(QPixmap());
+                ui_employee->lbl_avatar->setText("No Avatar");
+            }
+
+            QMessageBox::information(this, tr("Face ID"), tr("Biometric profile registered successfully.\nThis image is used for login only and is separate from the display avatar."));
+        }
+    } else {
+        // Start Scan
+        if (!m_empCamera) {
+             m_empCamera = new QCamera(QMediaDevices::defaultVideoInput(), this);
+             m_empCaptureSession = new QMediaCaptureSession(this);
+             m_empVideoSink = new QVideoSink(this);
+             m_empCaptureSession->setCamera(m_empCamera);
+             m_empCaptureSession->setVideoSink(m_empVideoSink);
+             connect(m_empVideoSink, &QVideoSink::videoFrameChanged, this, &MainWindow::processEmpCameraFrame);
+        }
+        
+        m_faceScanStage = 0;
+        m_empCamera->start();
+        m_isEmpFaceScanActive = true;
+        ui_employee->btn_scan_face->setText(tr("SAVE CAPTURE"));
+        QMessageBox::information(this, tr("Face Scan"), tr("Scanning started. Please look straight at the camera and click 'SAVE CAPTURE' (Image will be non-mirrored)."));
+    }
+}
+
+
+// === Recovered from client-branch: lines 4297-4365 ===
+void MainWindow::updateUserProfileDisplay() {
+    if (currentEmployeeId <= 0) return;
+
+    QSqlQuery query;
+    query.prepare("SELECT FIRST_NAME, LAST_NAME, JOB_TITLE FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
+    query.bindValue(":id", currentEmployeeId);
+    if (query.exec() && query.next()) {
+        QString firstName = query.value(0).toString();
+        QString jobTitle = query.value(2).toString();
+        
+        if (homeWindow) {
+           QLabel* nameLabel = homeWindow->findChild<QLabel*>("lbl_user_name");
+           QLabel* roleLabel = homeWindow->findChild<QLabel*>("lbl_user_role");
+           QLabel* avatarLabel = homeWindow->findChild<QLabel*>("lbl_user_avatar");
+           
+           if (nameLabel) nameLabel->setText(firstName);
+           if (roleLabel) roleLabel->setText(jobTitle);
+           
+           // Profile sidebar shows AVATAR only (employee_[ID].png) - never the face scan image
+           QString avatarPath = QString("assets/av/employee_%1.png").arg(currentEmployeeId);
+
+           if (avatarLabel) {
+               if (QFile::exists(avatarPath)) {
+                   QPixmap pix(avatarPath);
+                   avatarLabel->setPixmap(getCircularPixmap(pix).scaled(avatarLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                   avatarLabel->setText("");
+               } else {
+                   avatarLabel->setPixmap(QPixmap());
+                   avatarLabel->setText("No Pic");
+               }
+           }
+        }
+    }
+}
+
+QPixmap MainWindow::getCircularPixmap(const QPixmap &src) {
+    if (src.isNull()) return src;
+    
+    int size = qMin(src.width(), src.height());
+    QPixmap out(size, size);
+    out.fill(Qt::transparent);
+    
+    QPainter painter(&out);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    
+    QPainterPath path;
+    path.addEllipse(0, 0, size, size);
+    painter.setClipPath(path);
+    
+    // Center the image
+    int x = (size - src.width()) / 2;
+    int y = (size - src.height()) / 2;
+    painter.drawPixmap(x, y, src);
+    
+    return out;
+}
+
+void MainWindow::on_userProfileClicked() {
+    ui->stackedWidget->setCurrentIndex(2); 
+    if (ui_employee && ui_employee->tabWidget) ui_employee->tabWidget->setCurrentIndex(0);
+    QRadioButton *rbMod = ui_employee->tab_add->findChild<QRadioButton*>("rb_employee_mod_mode");
+    if (rbMod) rbMod->setChecked(true);
+    if (ui_employee && ui_employee->le_id) {
+        ui_employee->le_id->setText(QString::number(currentEmployeeId));
+        onEmployeeRefreshView(); // Refresh to ensure data is loaded
+    }
+}
+
+
+// === Recovered from client-branch: lines 4418-4839 ===
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == ui_employee->tableView_employes->viewport()) {
+        if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            QModelIndex idx = ui_employee->tableView_employes->indexAt(mouse->pos());
+            RowHoverDelegate *del = qobject_cast<RowHoverDelegate*>(ui_employee->tableView_employes->itemDelegate());
+            if (del) {
+                int oldHover = idx.isValid() ? idx.row() : -1;
+                del->setHoveredRow(oldHover);
+                ui_employee->tableView_employes->viewport()->update();
+            }
+        } else if (event->type() == QEvent::Leave) {
+            RowHoverDelegate *del = qobject_cast<RowHoverDelegate*>(ui_employee->tableView_employes->itemDelegate());
+            if (del) {
+                del->setHoveredRow(-1);
+                ui_employee->tableView_employes->viewport()->update();
+            }
+        }
+    }
+    QLabel *mapTarget = nullptr;
+    if (watched == m_mapImageLabel) {
+        mapTarget = m_mapImageLabel;
+    } else if (watched == m_mapFullscreenLabel) {
+        mapTarget = m_mapFullscreenLabel;
+    }
+
+    if (watched == m_supplierMapImageLabel) {
+        if (event->type() == QEvent::Wheel) {
+            QWheelEvent *wheel = static_cast<QWheelEvent *>(event);
+            if (wheel->angleDelta().y() > 0) m_supplierMapZoom = qMin(18, m_supplierMapZoom + 1);
+            else m_supplierMapZoom = qMax(3, m_supplierMapZoom - 1);
+            m_supplierMapImageSize = m_supplierMapImageLabel->size();
+            refreshSupplierMap();
+            return true;
+        }
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton) {
+                m_supplierMapDragging = true;
+                m_supplierMapDragStart = mouse->pos();
+                m_supplierMapDragOffset = QPoint(0, 0);
+                m_supplierMapImageSize = m_supplierMapImageLabel->size();
+                const int tileSize = 256;
+                const int n = 1 << m_supplierMapZoom;
+                double latRad = qDegreesToRadians(m_supplierCenterLat);
+                double xtile = (m_supplierCenterLon + 180.0) / 360.0 * n;
+                double ytile = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / M_PI) / 2.0 * n;
+                m_supplierMapDragCenterX = xtile * tileSize;
+                m_supplierMapDragCenterY = ytile * tileSize;
+                return true;
+            }
+        }
+        if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (m_supplierMapDragging) {
+                QPoint delta = mouse->pos() - m_supplierMapDragStart;
+                m_supplierMapDragOffset = delta;
+                if (m_supplierMapHasPixmap) {
+                    QPixmap shifted(m_supplierMapImageSize);
+                    shifted.fill(QColor(26, 18, 8));
+                    QPainter p(&shifted);
+                    p.drawPixmap(delta, m_supplierMapCurrentPixmap);
+                    m_supplierMapImageLabel->setPixmap(shifted);
+                }
+                return true;
+            } else {
+                bool hovered = false;
+                for (const auto &pin : m_supplierPins) {
+                    if (pin.rect.contains(mouse->pos())) {
+                        QToolTip::showText(mouse->globalPosition().toPoint(),
+                            QString("<b>%1</b><br/>Supplies: %2<br/>Status: %3")
+                                .arg(pin.name).arg(pin.type)
+                                .arg(pin.status == "Active" ? "<font color='green'>Open (Active)</font>" : "<font color='red'>Closed/Inactive</font>"),
+                            m_supplierMapImageLabel);
+                        hovered = true;
+                        break;
+                    }
+                }
+                if (!hovered) QToolTip::hideText();
+            }
+        }
+        if (event->type() == QEvent::MouseButtonRelease) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton && m_supplierMapDragging) {
+                m_supplierMapDragging = false;
+                double centerX = m_supplierMapDragCenterX - m_supplierMapDragOffset.x();
+                double centerY = m_supplierMapDragCenterY - m_supplierMapDragOffset.y();
+                const int n = 1 << m_supplierMapZoom;
+                double lon = (centerX / (n * 256.0)) * 360.0 - 180.0;
+                double latRad = atan(sinh(M_PI * (1.0 - 2.0 * centerY / (n * 256.0))));
+                m_supplierCenterLat = qRadiansToDegrees(latRad);
+                m_supplierCenterLon = lon;
+                refreshSupplierMap();
+                return true;
+            }
+        }
+    }
+
+    if (watched == m_supplierMapImageLabel) {
+        if (event->type() == QEvent::Wheel) {
+            QWheelEvent *wheel = static_cast<QWheelEvent *>(event);
+            if (wheel->angleDelta().y() > 0) m_supplierMapZoom = qMin(18, m_supplierMapZoom + 1);
+            else m_supplierMapZoom = qMax(3, m_supplierMapZoom - 1);
+            m_supplierMapImageSize = m_supplierMapImageLabel->size();
+            refreshSupplierMap();
+            return true;
+        }
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton) {
+                m_supplierMapDragging = true;
+                m_supplierMapDragStart = mouse->pos();
+                m_supplierMapDragOffset = QPoint(0, 0);
+                m_supplierMapImageSize = m_supplierMapImageLabel->size();
+                const int tileSize = 256;
+                const int n = 1 << m_supplierMapZoom;
+                double latRad = qDegreesToRadians(m_supplierCenterLat);
+                double xtile = (m_supplierCenterLon + 180.0) / 360.0 * n;
+                double ytile = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / M_PI) / 2.0 * n;
+                m_supplierMapDragCenterX = xtile * tileSize;
+                m_supplierMapDragCenterY = ytile * tileSize;
+                return true;
+            }
+        }
+        if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (m_supplierMapDragging) {
+                QPoint delta = mouse->pos() - m_supplierMapDragStart;
+                m_supplierMapDragOffset = delta;
+                if (m_supplierMapHasPixmap) {
+                    QPixmap shifted(m_supplierMapImageSize);
+                    shifted.fill(QColor(26, 18, 8));
+                    QPainter p(&shifted);
+                    p.drawPixmap(delta, m_supplierMapCurrentPixmap);
+                    m_supplierMapImageLabel->setPixmap(shifted);
+                }
+                return true;
+            } else {
+                bool hovered = false;
+                for (const auto &pin : m_supplierPins) {
+                    if (pin.rect.contains(mouse->pos())) {
+                        bool isOpen = false;
+                        if (pin.status == "Active") {
+                            QTime openT = QTime::fromString(pin.openTime, "HH:mm");
+                            QTime closeT = QTime::fromString(pin.closeTime, "HH:mm");
+                            QTime now = QTime::currentTime();
+                            if (openT.isValid() && closeT.isValid()) {
+                                if (openT <= closeT) isOpen = (now >= openT && now <= closeT);
+                                else isOpen = (now >= openT || now <= closeT);
+                            } else {
+                                isOpen = true; // Default if no times
+                            }
+                        }
+                        QString timeLabel = "";
+                        if (!pin.openTime.isEmpty() && !pin.closeTime.isEmpty()) {
+                            timeLabel = QString("<br/>Hours: %1 - %2").arg(pin.openTime).arg(pin.closeTime);
+                        }
+                        QToolTip::showText(mouse->globalPosition().toPoint(),
+                            QString("<b>%1</b><br/>Supplies: %2<br/>Status: %3%4")
+                                .arg(pin.name).arg(pin.type)
+                                .arg(isOpen ? "<font color='green'>Open</font>" : "<font color='red'>Closed/Inactive</font>")
+                                .arg(timeLabel),
+                            m_supplierMapImageLabel);
+                        hovered = true;
+                        break;
+                    }
+                }
+                if (!hovered) QToolTip::hideText();
+            }
+        }
+        if (event->type() == QEvent::MouseButtonRelease) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton && m_supplierMapDragging) {
+                m_supplierMapDragging = false;
+                double centerX = m_supplierMapDragCenterX - m_supplierMapDragOffset.x();
+                double centerY = m_supplierMapDragCenterY - m_supplierMapDragOffset.y();
+                const int n = 1 << m_supplierMapZoom;
+                double lon = (centerX / (n * 256.0)) * 360.0 - 180.0;
+                double latRad = atan(sinh(M_PI * (1.0 - 2.0 * centerY / (n * 256.0))));
+                m_supplierCenterLat = qRadiansToDegrees(latRad);
+                m_supplierCenterLon = lon;
+                refreshSupplierMap();
+                return true;
+            }
+        }
+    }
+
+    if (mapTarget) {
+        if (event->type() == QEvent::Wheel) {
+            QWheelEvent *wheel = static_cast<QWheelEvent *>(event);
+            if (wheel->angleDelta().y() > 0) {
+                m_mapZoom = qMin(18, m_mapZoom + 1);
+            } else {
+                m_mapZoom = qMax(3, m_mapZoom - 1);
+            }
+            m_mapImageSize = mapTarget->size();
+            requestMapTiles(m_mapCenterLat, m_mapCenterLon);
+            return true;
+        }
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton) {
+                m_mapDragging = true;
+                m_mapDragStart = mouse->pos();
+                m_mapDragOffset = QPoint(0, 0);
+                m_mapImageSize = mapTarget->size();
+
+                const int tileSize = 256;
+                const int n = 1 << m_mapZoom;
+                double latRad = qDegreesToRadians(m_mapCenterLat);
+                double xtile = (m_mapCenterLon + 180.0) / 360.0 * n;
+                double ytile = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / M_PI) / 2.0 * n;
+                m_mapDragCenterX = xtile * tileSize;
+                m_mapDragCenterY = ytile * tileSize;
+                return true;
+            }
+        }
+        if (event->type() == QEvent::MouseMove) {
+            if (m_mapDragging) {
+                QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+                QPoint delta = mouse->pos() - m_mapDragStart;
+
+                m_mapDragOffset = delta;
+                if (m_mapHasPixmap) {
+                    QPixmap shifted(m_mapImageSize);
+                    shifted.fill(QColor(26, 18, 8));
+                    QPainter p(&shifted);
+                    p.drawPixmap(delta, m_mapCurrentPixmap);
+                    mapTarget->setPixmap(shifted);
+                }
+                return true;
+            }
+        }
+        if (event->type() == QEvent::MouseButtonRelease) {
+            QMouseEvent *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton) {
+                m_mapDragging = false;
+                double centerX = m_mapDragCenterX - m_mapDragOffset.x();
+                double centerY = m_mapDragCenterY - m_mapDragOffset.y();
+
+                const int n = 1 << m_mapZoom;
+                double lon = (centerX / (n * 256.0)) * 360.0 - 180.0;
+                double latRad = atan(sinh(M_PI * (1.0 - 2.0 * centerY / (n * 256.0))));
+                double lat = qRadiansToDegrees(latRad);
+
+                m_mapCenterLat = lat;
+                m_mapCenterLon = lon;
+                requestMapTiles(m_mapCenterLat, m_mapCenterLon);
+                return true;
+            }
+        }
+        if (event->type() == QEvent::MouseButtonDblClick) {
+            if (mapTarget == m_mapFullscreenLabel && m_mapFullscreenDialog) {
+                m_mapFullscreenDialog->close();
+                return true;
+            }
+        }
+    }
+
+    return QMainWindow::eventFilter(watched, event);
+}
+
+// =============================================================================
+// SUPPLIER MAP INTEGRATION
+// =============================================================================
+
+
+
+
+
+
+
+// =============================================================================
+// SUPPLIER NOTIFICATION BELL
+// =============================================================================
+
+
+QString MainWindow::gatherSupplierContextForAi(const QString &equipmentType) {
+    QSqlQuery q("SELECT SUPPLIER_ID, SUPPLIER_NAME, AVERAGE_RATING, OPENING_TIME, CLOSING_TIME, RATINGS_JSON, PRODUCT_TYPE FROM SUPPLIERS WHERE ACCOUNT_STATUS = 'Active'");
+
+    struct SupplierInfo {
+        int    id;
+        QString name;
+        double  rating;
+        QString hours;
+        QString productType;
+        QStringList transactions;
+    };
+
+    QList<SupplierInfo> activeSuppliers;
+
+    while (q.next()) {
+        SupplierInfo s;
+        s.id          = q.value(0).toInt();
+        s.name        = q.value(1).toString();
+        s.rating      = q.value(2).toDouble();
+        s.hours       = q.value(3).toString() + " to " + q.value(4).toString();
+        s.productType = q.value(6).toString();
+
+        // Load transaction history
+        QString ratingsJson = q.value(5).toString();
+        if (!ratingsJson.isEmpty()) {
+            QJsonArray arr = QJsonDocument::fromJson(ratingsJson.toUtf8()).array();
+            for (int i = 0; i < arr.size(); ++i) {
+                QJsonObject obj = arr[i].toObject();
+                int eqId = obj["equipment_id"].toInt();
+                if (eqId > 0) {
+                    QSqlQuery eqQ;
+                    eqQ.prepare("SELECT EQUIPMENT_TYPE, UNIT_PRICE FROM EQUIPMENT WHERE EQUIPMENT_ID = :id");
+                    eqQ.bindValue(":id", eqId);
+                    if (eqQ.exec() && eqQ.next()) {
+                        s.transactions << QString("%1 dt for '%2'")
+                            .arg(eqQ.value(1).toDouble(), 0, 'f', 2)
+                            .arg(eqQ.value(0).toString());
+                    }
+                }
+            }
+        }
+        activeSuppliers.append(s);
+    }
+
+    // Sort by rating descending (best first)
+    auto byRating = [](const SupplierInfo &a, const SupplierInfo &b) {
+        return a.rating > b.rating;
+    };
+    std::sort(activeSuppliers.begin(), activeSuppliers.end(), byRating);
+
+    // Build the context string
+    QString context;
+    context += QString("LOW STOCK: %1\n\n").arg(equipmentType);
+    context += "ACTIVE SUPPLIERS (Evaluate their 'Product Type' to see if they match the low stock item):\n";
+
+    for (const auto &s : activeSuppliers) {
+        context += QString("  - %1 (ID: %2) | Product Type: %3 | Rating: %4/5 | Hours: %5")
+            .arg(s.name).arg(s.id)
+            .arg(s.productType.isEmpty() ? "Not specified" : s.productType)
+            .arg(s.rating, 0, 'f', 1)
+            .arg(s.hours);
+            
+        if (s.rating <= 2.0 && s.rating > 0) context += " [LOW RATING - USE WITH CAUTION]";
+        if (!s.transactions.isEmpty())
+            context += "\n    Past transactions: " + s.transactions.join(", ");
+        context += "\n";
+    }
+
+    if (activeSuppliers.isEmpty())
+        return "No active suppliers found in the system.";
+
+    return context;
+}
+
+
+
+
+
+
+
+void MainWindow::logActivity(const QString &action, const QString &module, const QJsonObject &extra)
+{
+    const QString filePath = "hammerdown_audit_log.json";
+    QJsonArray logArray;
+
+    // Load existing log
+    {
+        QFile file(filePath);
+        if (file.open(QIODevice::ReadOnly)) {
+            const QByteArray raw = file.readAll();
+            file.close();
+
+            const QJsonDocument doc = QJsonDocument::fromJson(raw);
+            if (doc.isArray()) logArray = doc.array();
+        }
+    }
+
+    int nextLogId = 1;
+    for (const QJsonValue &entry : logArray) {
+        if (!entry.isObject()) {
+            continue;
+        }
+        const int id = entry.toObject().value("log_id").toInt();
+        if (id >= nextLogId) {
+            nextLogId = id + 1;
+        }
+    }
+
+    // Create new log entry
+    const QDateTime now = QDateTime::currentDateTime();
+    QJsonObject obj;
+    obj["log_id"] = nextLogId;
+    obj["timestamp_iso"] = now.toString(Qt::ISODate);
+    obj["timestamp_ms"] = static_cast<qint64>(now.toMSecsSinceEpoch());
+    obj["action_details"] = action;
+    obj["module_name"] = module;
+    obj["action"] = action; // Legacy keys kept for backward compatibility.
+    obj["module"] = module;
+
+    // Get current employee name
+    QString empName = "Administrator";
+    if (currentEmployeeId > 0) {
+        QSqlQuery nq;
+        nq.prepare("SELECT FIRST_NAME || ' ' || LAST_NAME FROM EMPLOYEES WHERE EMPLOYEE_ID = :id");
+        nq.bindValue(":id", currentEmployeeId);
+        if (nq.exec() && nq.next()) {
+            empName = nq.value(0).toString();
+        }
+    }
+    obj["employee_name"] = empName;
+
+    for (auto it = extra.begin(); it != extra.end(); ++it) {
+        obj[it.key()] = it.value();
+    }
+
+    logArray.append(obj);
+
+    // Save back to file
+    QFile out(filePath);
+    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        out.write(QJsonDocument(logArray).toJson(QJsonDocument::Compact));
+        out.close();
+    }
+}
