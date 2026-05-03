@@ -1,4 +1,4 @@
-#include "equipment.h"
+﻿#include "equipment.h"
 
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
@@ -58,6 +58,12 @@
 
 #include <QStandardItemModel>
 
+#include <QStyledItemDelegate>
+#include <QStyle>
+#include <QFontMetrics>
+#include <QHeaderView>
+#include <QItemSelectionModel>
+
 #include <QtMath>
 
 #include <algorithm>
@@ -77,6 +83,229 @@ QString trKey(const QString &key)
     return QCoreApplication::translate("QObject", key.toUtf8().constData());
 
 }
+
+class TimelineCardDelegate final : public QStyledItemDelegate {
+public:
+    explicit TimelineCardDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        Q_UNUSED(index);
+        return QSize(option.rect.width(), 90);
+    }
+
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        if (!index.isValid() || index.column() != 0) {
+            return;
+        }
+
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+
+        const QRect base = opt.rect.adjusted(12, 6, -12, -6);
+        const int lineX = base.left() + 12;
+        const int dotY = base.center().y();
+        const int dotBaseR = 4;
+
+        const auto *view = qobject_cast<const QAbstractItemView*>(opt.widget);
+        const int activeRow = view ? view->property("timelineSelectedRow").toInt() : -1;
+        double pulse = view ? view->property("timelinePulse").toDouble() : 0.0;
+        double expand = view ? view->property("timelineExpand").toDouble() : 0.0;
+        if (pulse < 0.0) pulse = 0.0;
+        if (pulse > 1.0) pulse = 1.0;
+        if (expand < 0.0) expand = 0.0;
+        if (expand > 1.0) expand = 1.0;
+        const double pulseEase = (pulse <= 0.5) ? (pulse * 2.0) : (2.0 - pulse * 2.0);
+        const bool isActive = (activeRow == index.row());
+        const double expandFactor = isActive ? expand : 0.0;
+        const int lift = isActive ? static_cast<int>(3 * pulseEase + 2 * expandFactor) : 0;
+
+        QColor accent(212, 175, 55);
+
+        QColor lineColor(139, 111, 71, 180);
+        if (isActive) {
+            lineColor = QColor(accent.red(), accent.green(), accent.blue(), 200);
+        }
+        QColor cardFill(255, 255, 255, 245);
+        QColor cardBorder(210, 180, 140, 200);
+        if (opt.state & QStyle::State_Selected) {
+            cardBorder = QColor(139, 111, 71, 255);
+            cardFill = QColor(255, 248, 235, 255);
+        }
+
+        if (isActive && pulseEase > 0.0) {
+            const int glowAlpha = static_cast<int>(90 * pulseEase);
+            QRect glowRect = base.adjusted(20, -lift - 2, -2, -lift + 2);
+            QPainterPath glowPath;
+            glowPath.addRoundedRect(glowRect, 12, 12);
+            p->setPen(Qt::NoPen);
+            QColor glowColor = accent;
+            glowColor.setAlpha(glowAlpha);
+            p->setBrush(glowColor);
+            p->drawPath(glowPath);
+
+            const int borderAlpha = qMin(255, static_cast<int>(200 + 55 * pulseEase));
+            cardBorder = QColor(accent.red(), accent.green(), accent.blue(), borderAlpha);
+        }
+
+        p->setPen(QPen(lineColor, 2));
+        p->drawLine(QPoint(lineX, base.top() + 4), QPoint(lineX, base.bottom() - 4));
+
+        p->setBrush(lineColor);
+        p->setPen(Qt::NoPen);
+        const int dotR = dotBaseR + (isActive ? static_cast<int>(2 * pulseEase + 1 * expandFactor) : 0);
+        p->drawEllipse(QPoint(lineX, dotY), dotR, dotR);
+
+        QRect cardRect = base.adjusted(24, -lift, 0, -lift);
+        QPainterPath cardPath;
+        cardPath.addRoundedRect(cardRect, 10, 10);
+        p->setBrush(cardFill);
+        p->setPen(QPen(cardBorder, 1));
+        p->drawPath(cardPath);
+
+        const QAbstractItemModel *model = index.model();
+        const int row = index.row();
+        const QString id = model->data(model->index(row, 0)).toString();
+        const QString type = model->data(model->index(row, 1)).toString();
+        const QString desc = model->data(model->index(row, 2)).toString();
+        const QString status = model->data(model->index(row, 3)).toString();
+        const QString price = model->data(model->index(row, 4)).toString();
+        const QString date = model->data(model->index(row, 5)).toString();
+        const QString event = model->data(model->index(row, 6)).toString();
+        const QString eventLower = event.toLower();
+        if (eventLower.contains("delete")) {
+            accent = QColor(176, 60, 60);
+        } else if (eventLower.contains("modify")) {
+            accent = QColor(70, 120, 160);
+        } else if (eventLower.contains("add")) {
+            accent = QColor(60, 150, 95);
+        }
+
+        const QString title = QString("Equipment %1 - %2")
+                                  .arg(id.isEmpty() ? "-" : id, type.isEmpty() ? "-" : type);
+        const QString meta = QString("Status: %1 | Price: %2")
+                                 .arg(status.isEmpty() ? "-" : status, price.isEmpty() ? "-" : price);
+        const QString descLine = desc.isEmpty() ? "-" : desc;
+
+        QFont titleFont = opt.font;
+        titleFont.setBold(true);
+        titleFont.setPointSize(qMax(8, titleFont.pointSize() + 1));
+        QFont metaFont = opt.font;
+        metaFont.setPointSize(qMax(8, metaFont.pointSize() - 1));
+
+        const int textLeft = cardRect.left() + 12;
+        const int textRight = cardRect.right() - 12;
+        QRect titleRect(textLeft, cardRect.top() + 10, textRight - textLeft, 18);
+        QRect metaRect(textLeft, cardRect.top() + 30, textRight - textLeft, 16);
+        const int descHeight = 16 + static_cast<int>(24 * expandFactor);
+        QRect descRect(textLeft, cardRect.top() + 48, textRight - textLeft, descHeight);
+
+        p->setFont(titleFont);
+        p->setPen(QColor(42, 30, 16));
+        QFontMetrics titleMetrics(titleFont);
+        p->drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter,
+                    titleMetrics.elidedText(title, Qt::ElideRight, titleRect.width()));
+
+        p->setFont(metaFont);
+        p->setPen(QColor(90, 70, 50));
+        QFontMetrics metaMetrics(metaFont);
+        p->drawText(metaRect, Qt::AlignLeft | Qt::AlignVCenter,
+                    metaMetrics.elidedText(meta, Qt::ElideRight, metaRect.width()));
+        if (expandFactor < 0.35) {
+            p->drawText(descRect, Qt::AlignLeft | Qt::AlignVCenter,
+                        metaMetrics.elidedText(descLine, Qt::ElideRight, descRect.width()));
+        } else {
+            p->drawText(descRect, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, descLine);
+        }
+
+        p->setPen(QColor(125, 95, 70));
+        p->drawText(titleRect, Qt::AlignRight | Qt::AlignVCenter, date);
+
+        if (isActive && expandFactor > 0.2) {
+            double scan = view ? view->property("timelineScan").toDouble() : 0.0;
+            if (scan < 0.0) scan = 0.0;
+            if (scan > 1.0) scan = 1.0;
+            const int bandY = cardRect.top() + 8 + static_cast<int>((cardRect.height() - 16) * scan);
+            QRect bandRect(cardRect.left() + 8, bandY - 5, cardRect.width() - 16, 10);
+            QLinearGradient bandGrad(bandRect.left(), bandRect.top(), bandRect.right(), bandRect.top());
+            QColor edge = accent;
+            edge.setAlpha(0);
+            QColor center = accent;
+            center.setAlpha(90);
+            bandGrad.setColorAt(0.0, edge);
+            bandGrad.setColorAt(0.5, center);
+            bandGrad.setColorAt(1.0, edge);
+            p->setPen(Qt::NoPen);
+            p->setBrush(bandGrad);
+            p->drawRoundedRect(bandRect, 6, 6);
+
+            const QString badgeText = event.isEmpty() ? "EVENT" : event.toUpper();
+            const int badgeW = 90;
+            const int badgeH = 18;
+            QRect badgeRect(cardRect.right() - badgeW - 8, metaRect.top() - 2, badgeW, badgeH);
+            p->setBrush(accent);
+            p->setPen(Qt::NoPen);
+            p->drawRoundedRect(badgeRect, 8, 8);
+            QFont badgeFont = metaFont;
+            badgeFont.setBold(true);
+            badgeFont.setPointSize(qMax(8, badgeFont.pointSize() - 1));
+            p->setFont(badgeFont);
+            QColor badgeTextColor = (accent.lightness() > 140) ? QColor(30, 20, 12) : QColor(255, 255, 255);
+            p->setPen(badgeTextColor);
+            p->drawText(badgeRect, Qt::AlignCenter, badgeText);
+        }
+
+        if (expandFactor > 0.05) {
+            const int extraTop = descRect.bottom() + 6;
+            const int extraBottom = cardRect.bottom() - 8;
+            if (extraBottom > extraTop) {
+                QRect barRect(textLeft, extraTop, textRight - textLeft - 90, 10);
+                if (barRect.width() > 40) {
+                    const QString key = id + type + status;
+                    const int h = qAbs(static_cast<int>(qHash(key))) % 100;
+                    double score = qMax(0.18, h / 100.0);
+                    const double anim = 0.6 + 0.4 * expandFactor;
+                    int fillW = static_cast<int>(barRect.width() * score * anim);
+
+                    p->setPen(Qt::NoPen);
+                    p->setBrush(QColor(225, 215, 200, 200));
+                    p->drawRoundedRect(barRect, 4, 4);
+
+                    QLinearGradient grad(barRect.topLeft(), barRect.topRight());
+                    grad.setColorAt(0, QColor(212, 175, 55, 220));
+                    grad.setColorAt(1, QColor(139, 111, 71, 220));
+                    p->setBrush(grad);
+                    QRect fillRect = barRect;
+                    fillRect.setWidth(fillW);
+                    p->drawRoundedRect(fillRect, 4, 4);
+
+                    if (isActive) {
+                        const int orbX = barRect.left() + static_cast<int>(barRect.width() * (0.15 + 0.7 * pulseEase));
+                        const int orbR = 3 + static_cast<int>(2 * pulseEase);
+                        p->setBrush(QColor(255, 240, 200, 220));
+                        p->drawEllipse(QPoint(orbX, barRect.center().y()), orbR, orbR);
+                    }
+
+                    const QDate parsed = QDate::fromString(date, "yyyy-MM-dd");
+                    QString ageText = "Age: -";
+                    if (parsed.isValid()) {
+                        const int days = parsed.daysTo(QDate::currentDate());
+                        ageText = QString("Age: %1d").arg(days);
+                    }
+                    QRect ageRect(barRect.right() + 8, barRect.top() - 4,
+                                  cardRect.right() - barRect.right() - 12, 16);
+                    p->setFont(metaFont);
+                    p->setPen(QColor(110, 85, 65));
+                    p->drawText(ageRect, Qt::AlignRight | Qt::AlignVCenter, ageText);
+                }
+            }
+        }
+
+        p->restore();
+    }
+};
 
 
 
@@ -1218,6 +1447,7 @@ void MainWindow::setupEquipmentModes()
     ui_equipment->sb_quantity->setFixedHeight(32);
     ui_equipment->te_desc->setFixedHeight(80);
 
+
     auto updateUI = [=](bool isAdd) {
 
         // Shift amount for other fields when ID is hidden
@@ -1931,13 +2161,161 @@ void MainWindow::onEquipmentHistorySearch()
         return (id + " " + type + " " + description + " " + status + " " + price + " " + dateText).toUpper();
     };
 
+    auto applyTimelineView = [&](QTableView *view) {
+        if (!view) {
+            return;
+        }
+        const int baseHeight = 90;
+        const int expandedHeight = 150;
+
+        if (!dynamic_cast<TimelineCardDelegate*>(view->itemDelegate())) {
+            view->setItemDelegate(new TimelineCardDelegate(view));
+        }
+        if (!view->property("timelinePulse").isValid()) {
+            view->setProperty("timelinePulse", 0.0);
+            view->setProperty("timelineExpand", 0.0);
+            view->setProperty("timelineScan", 0.0);
+            view->setProperty("timelineSelectedRow", -1);
+            view->setProperty("timelineSelectedKey", QString());
+        }
+
+        auto *pulseAnim = view->findChild<QPropertyAnimation*>("timelinePulseAnim");
+        if (!pulseAnim) {
+            pulseAnim = new QPropertyAnimation(view, "timelinePulse", view);
+            pulseAnim->setObjectName("timelinePulseAnim");
+            pulseAnim->setDuration(520);
+            pulseAnim->setKeyValueAt(0.0, 0.0);
+            pulseAnim->setKeyValueAt(0.5, 1.0);
+            pulseAnim->setKeyValueAt(1.0, 0.0);
+            pulseAnim->setEasingCurve(QEasingCurve::OutCubic);
+            QObject::connect(pulseAnim, &QPropertyAnimation::valueChanged, view, [view]() {
+                view->viewport()->update();
+            });
+        }
+
+        auto *expandAnim = view->findChild<QPropertyAnimation*>("timelineExpandAnim");
+        if (!expandAnim) {
+            expandAnim = new QPropertyAnimation(view, "timelineExpand", view);
+            expandAnim->setObjectName("timelineExpandAnim");
+            expandAnim->setDuration(260);
+            expandAnim->setStartValue(0.0);
+            expandAnim->setEndValue(1.0);
+            expandAnim->setEasingCurve(QEasingCurve::OutCubic);
+            QObject::connect(expandAnim, &QPropertyAnimation::valueChanged, view, [view, baseHeight, expandedHeight]() {
+                const int row = view->property("timelineSelectedRow").toInt();
+                if (row < 0 || !view->model()) {
+                    return;
+                }
+                double factor = view->property("timelineExpand").toDouble();
+                if (factor < 0.0) factor = 0.0;
+                if (factor > 1.0) factor = 1.0;
+                const int height = baseHeight + static_cast<int>((expandedHeight - baseHeight) * factor);
+                view->setRowHeight(row, height);
+                view->viewport()->update();
+            });
+        }
+
+        auto *scanAnim = view->findChild<QPropertyAnimation*>("timelineScanAnim");
+        if (!scanAnim) {
+            scanAnim = new QPropertyAnimation(view, "timelineScan", view);
+            scanAnim->setObjectName("timelineScanAnim");
+            scanAnim->setDuration(900);
+            scanAnim->setStartValue(0.0);
+            scanAnim->setEndValue(1.0);
+            scanAnim->setEasingCurve(QEasingCurve::OutCubic);
+            scanAnim->setLoopCount(1);
+            QObject::connect(scanAnim, &QPropertyAnimation::valueChanged, view, [view]() {
+                view->viewport()->update();
+            });
+        }
+
+        view->setShowGrid(false);
+        view->setAlternatingRowColors(false);
+        view->setSelectionBehavior(QAbstractItemView::SelectRows);
+        view->setSelectionMode(QAbstractItemView::SingleSelection);
+        view->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        view->verticalHeader()->setVisible(false);
+        view->horizontalHeader()->setVisible(false);
+        view->setStyleSheet("QTableView { background: transparent; border: none; }");
+        view->verticalHeader()->setDefaultSectionSize(baseHeight);
+
+        if (view->model()) {
+            for (int r = 0; r < view->model()->rowCount(); ++r) {
+                view->setRowHeight(r, baseHeight);
+            }
+        }
+
+        if (view->selectionModel() && view->model()) {
+            const QString key = view->property("timelineSelectedKey").toString();
+            if (!key.isEmpty()) {
+                const QStringList parts = key.split('|');
+                const QString wantedId = parts.value(0);
+                const QString wantedEvent = parts.value(1);
+                const int rowCount = view->model()->rowCount();
+                for (int r = 0; r < rowCount; ++r) {
+                    const QString rowId = view->model()->index(r, 0).data().toString();
+                    const QString rowEvent = view->model()->index(r, 6).data().toString();
+                    if (rowId == wantedId && rowEvent == wantedEvent) {
+                        QSignalBlocker blocker(view->selectionModel());
+                        view->selectionModel()->setCurrentIndex(view->model()->index(r, 0),
+                                                                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+                        view->setProperty("timelineSelectedRow", r);
+                        view->setProperty("timelineExpand", 1.0);
+                        view->setRowHeight(r, expandedHeight);
+                        view->viewport()->update();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (view->selectionModel()) {
+            const quintptr selPtr = reinterpret_cast<quintptr>(view->selectionModel());
+            if (view->property("timelineSelModel").toULongLong() != selPtr) {
+                view->setProperty("timelineSelModel", QVariant::fromValue<qulonglong>(selPtr));
+                QObject::connect(view->selectionModel(), &QItemSelectionModel::currentRowChanged,
+                                 view, [view, pulseAnim, expandAnim, scanAnim, baseHeight](const QModelIndex &current, const QModelIndex &) {
+                    const int prevRow = view->property("timelineSelectedRow").toInt();
+                    if (prevRow >= 0) {
+                        view->setRowHeight(prevRow, baseHeight);
+                    }
+
+                    if (!current.isValid()) {
+                        view->setProperty("timelineSelectedRow", -1);
+                        view->setProperty("timelineExpand", 0.0);
+                        view->setProperty("timelineScan", 0.0);
+                        view->setProperty("timelineSelectedKey", QString());
+                        view->viewport()->update();
+                        return;
+                    }
+
+                    const QString selId = current.model()->index(current.row(), 0).data().toString();
+                    const QString selEvent = current.model()->index(current.row(), 6).data().toString();
+                    view->setProperty("timelineSelectedKey", selId + "|" + selEvent);
+
+                    view->setProperty("timelineSelectedRow", current.row());
+                    view->setProperty("timelineExpand", 0.0);
+                    view->setProperty("timelineScan", 0.0);
+                    view->setRowHeight(current.row(), baseHeight);
+
+                    expandAnim->stop();
+                    expandAnim->start();
+                    pulseAnim->stop();
+                    pulseAnim->start();
+                    scanAnim->stop();
+                    scanAnim->start();
+                });
+            }
+        }
+    };
+
     auto renderRows = [&](QTableView *view, const QJsonArray &rows, const QString &fallbackStatus, int minIdExclusive, bool iterateReversed) {
         if (!view) {
             return;
         }
 
         QStandardItemModel *model = new QStandardItemModel(this);
-        model->setHorizontalHeaderLabels({"ID", "Type", "Description", "Status", "Price", "Date"});
+        model->setHorizontalHeaderLabels({"ID", "Type", "Description", "Status", "Price", "Date", "Event"});
 
         constexpr int kMaxRowsPerSection = 300;
         int appended = 0;
@@ -1965,6 +2343,7 @@ void MainWindow::onEquipmentHistorySearch()
             QString status = getString(obj, "status", "equipment_status");
             QString price = getString(obj, "price", "equipment_price");
             QString dateText = getString(obj, "date");
+            const QString eventType = fallbackStatus;
 
             if (status.isEmpty()) status = fallbackStatus;
             if (type.isEmpty()) type = "-";
@@ -1985,7 +2364,8 @@ void MainWindow::onEquipmentHistorySearch()
                 << new QStandardItem(description)
                 << new QStandardItem(status)
                 << new QStandardItem(price)
-                << new QStandardItem(dateText);
+                << new QStandardItem(dateText)
+                << new QStandardItem(eventType);
             model->appendRow(row);
             ++appended;
         };
@@ -2007,10 +2387,15 @@ void MainWindow::onEquipmentHistorySearch()
         }
 
         view->setModel(model);
-        view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
         view->setSortingEnabled(true);
         if (model->rowCount() > 0) {
             view->sortByColumn(5, Qt::DescendingOrder);
+        }
+
+        applyTimelineView(view);
+        view->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+        for (int c = 1; c < model->columnCount(); ++c) {
+            view->setColumnHidden(c, true);
         }
     };
 
@@ -2942,10 +3327,15 @@ void MainWindow::setupEquipmentConnections()
         double  price   = m->data(m->index(idx.row(), 5)).toDouble();
         QString desc    = m->data(m->index(idx.row(), 8)).toString();
 
-        // Show Identity Card
+        // Show Identity Card only in animation mode
         if (m_identityCard) {
-            m_identityCard->setup(desc, type, cond, price, id.toInt());
-            m_identityCard->animateOpen();
+            const bool animMode = (homeWindow && homeWindow->isAnimationMode());
+            if (animMode) {
+                m_identityCard->setup(desc, type, cond, price, id.toInt());
+                m_identityCard->animateOpen();
+            } else {
+                m_identityCard->hide();
+            }
         }
 
         if (idx.column() == 0) { // Edit Action
