@@ -2,119 +2,245 @@
 #include <QtMath>
 #include <QRandomGenerator>
 #include <QDateTime>
+#include <QGraphicsDropShadowEffect>
+#include <QSequentialAnimationGroup>
+#include <QMovie>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QBuffer>
+#include <QScrollBar>
 
 // ============================================================================
-// RADIAL COMMAND WHEEL IMPLEMENTATION
+// ACTION CARD MENU (formerly Radial Menu) — Premium animated card
 // ============================================================================
-RadialCommandMenu::RadialCommandMenu(QWidget *parent) : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint) {
-    setAttribute(Qt::WA_TranslucentBackground);
-    setFixedSize(280, 280);
+RadialCommandMenu::RadialCommandMenu(QWidget *parent) : QFrame(parent) {
+    setFixedSize(240, 280);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+    hide();
 
-    // Using explicit hex icons/clean text to avoid UTF-8 issues
-    m_actions << Action{"EDIT", "EDIT", QColor(212, 175, 55)}
-              << Action{"STATS", "DATA", QColor(76, 175, 80)}
-              << Action{"DELETE", "TRASH", QColor(211, 47, 47)};
+    m_actions << Action{"STATS", "View Insights", QColor(76, 175, 80)}
+              << Action{"EDIT", "Modify Item", QColor(212, 175, 55)}
+              << Action{"NEXUS", "Go to Nexus", QColor(64, 196, 255)}
+              << Action{"DELETE", "Remove Item", QColor(211, 47, 47)};
 }
 
 void RadialCommandMenu::showMenu(const QPoint &globalPos, int equipmentId) {
     m_activeId = equipmentId;
-    move(globalPos - QPoint(140, 140));
-    m_animProgress = 0.0f;
+    if (parentWidget()) {
+        // Moved slightly left (-30) and slightly down (+60)
+        move(parentWidget()->width() - width() - 30, 60);
+    } else {
+        move(globalPos);
+    }
     show();
+    raise();
     setFocus();
-    
-    QPropertyAnimation *anim = new QPropertyAnimation(this, ""); 
-    anim->setDuration(300);
-    anim->setStartValue(0.0);
-    anim->setEndValue(1.0);
-    connect(anim, &QPropertyAnimation::valueChanged, this, [this](const QVariant &v){
-        m_animProgress = v.toFloat();
-        update();
+    animateOpen();
+}
+
+void RadialCommandMenu::animateOpen() {
+    auto *group = new QParallelAnimationGroup(this);
+
+    // Slide from right
+    QPropertyAnimation *slideAnim = new QPropertyAnimation(this, "pos");
+    slideAnim->setDuration(420);
+    slideAnim->setEasingCurve(QEasingCurve::OutExpo);
+    if(parentWidget()) {
+        slideAnim->setStartValue(QPoint(parentWidget()->width() + 20, 60));
+        slideAnim->setEndValue(QPoint(parentWidget()->width() - width() - 30, 60));
+    }
+    group->addAnimation(slideAnim);
+
+    // Opacity fade-in via graphics effect
+    auto *opacityEffect = new QGraphicsOpacityEffect(this);
+    setGraphicsEffect(opacityEffect);
+    QPropertyAnimation *fadeAnim = new QPropertyAnimation(opacityEffect, "opacity");
+    fadeAnim->setDuration(350);
+    fadeAnim->setStartValue(0.0);
+    fadeAnim->setEndValue(1.0);
+    fadeAnim->setEasingCurve(QEasingCurve::InQuad);
+    group->addAnimation(fadeAnim);
+
+    connect(group, &QParallelAnimationGroup::finished, this, [this]() {
+        setGraphicsEffect(nullptr); // Remove effect to avoid rendering overhead
     });
-    anim->start(QAbstractAnimation::DeleteWhenStopped);
+    group->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void RadialCommandMenu::animateClose() {
+    auto *opacityEffect = new QGraphicsOpacityEffect(this);
+    setGraphicsEffect(opacityEffect);
+
+    auto *group = new QParallelAnimationGroup(this);
+
+    QPropertyAnimation *slideAnim = new QPropertyAnimation(this, "pos");
+    slideAnim->setDuration(300);
+    slideAnim->setEasingCurve(QEasingCurve::InBack);
+    if(parentWidget()) {
+        slideAnim->setStartValue(pos());
+        slideAnim->setEndValue(QPoint(parentWidget()->width() + 20, pos().y()));
+    }
+    group->addAnimation(slideAnim);
+
+    QPropertyAnimation *fadeAnim = new QPropertyAnimation(opacityEffect, "opacity");
+    fadeAnim->setDuration(280);
+    fadeAnim->setStartValue(1.0);
+    fadeAnim->setEndValue(0.0);
+    fadeAnim->setEasingCurve(QEasingCurve::OutQuad);
+    group->addAnimation(fadeAnim);
+
+    connect(group, &QParallelAnimationGroup::finished, this, [this]() {
+        setGraphicsEffect(nullptr);
+        hide();
+    });
+    group->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+QRect RadialCommandMenu::getItemRect(int i) const {
+    int startY = 70;
+    int h = 44;
+    int gap = 6;
+    return QRect(14, startY + i * (h + gap), width() - 28, h);
 }
 
 void RadialCommandMenu::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     
-    QPointF center(140, 140);
-    double innerR = 50 * m_animProgress;
-    double outerR = 120 * m_animProgress;
+    QRect r = rect().adjusted(2, 2, -2, -2);
     
-    // Draw Central Hub
-    p.setPen(QPen(QColor(212, 175, 55, 150), 2));
-    p.setBrush(QColor(25, 20, 15, 240));
-    p.drawEllipse(center, innerR-5, innerR-5);
-    
-    p.setPen(Qt::white);
-    p.setFont(QFont("Segoe UI", 9, QFont::Bold));
-    p.drawText(QRectF(center.x()-innerR, center.y()-innerR, innerR*2, innerR*2), Qt::AlignCenter, "#" + QString::number(m_activeId));
+    // Drop shadow simulation
+    for (int i = 6; i > 0; --i) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0, 0, 0, 8 * i));
+        p.drawRoundedRect(r.adjusted(-i, -i, i, i), 14, 14);
+    }
 
-    int count = m_actions.size();
-    for (int i = 0; i < count; ++i) {
-        // Correcting angles to avoid overlap
-        double sectorSize = 360.0 / count;
-        double startAngle = i * sectorSize;
-        double spanAngle = sectorSize - 4; // 4 degree gap
-        
-        QPainterPath path;
-        // Outer arc (CW)
-        path.arcTo(QRectF(center.x()-outerR, center.y()-outerR, outerR*2, outerR*2), startAngle, spanAngle);
-        // Inner arc (CCW)
-        path.arcTo(QRectF(center.x()-innerR, center.y()-innerR, innerR*2, innerR*2), startAngle + spanAngle, -spanAngle);
-        path.closeSubpath();
-        
+    // Base card — dark frosted glass
+    QLinearGradient cardBg(r.topLeft(), r.bottomRight());
+    cardBg.setColorAt(0.0, QColor(22, 18, 14, 248));
+    cardBg.setColorAt(1.0, QColor(10, 8, 6, 252));
+    p.setBrush(cardBg);
+    p.setPen(QPen(QColor(193, 127, 62, 80), 1.5));
+    p.drawRoundedRect(r, 14, 14);
+
+    // Top accent line
+    QLinearGradient accentGrad(r.left() + 20, r.top(), r.right() - 20, r.top());
+    accentGrad.setColorAt(0.0, Qt::transparent);
+    accentGrad.setColorAt(0.3, QColor(212, 175, 55, 200));
+    accentGrad.setColorAt(0.7, QColor(193, 127, 62, 200));
+    accentGrad.setColorAt(1.0, Qt::transparent);
+    p.setPen(Qt::NoPen);
+    p.setBrush(accentGrad);
+    p.drawRect(QRectF(r.left() + 20, r.top() + 2, r.width() - 40, 2.5));
+
+    // Header text
+    p.setPen(QColor(245, 230, 211));
+    p.setFont(QFont("Outfit", 13, QFont::Bold));
+    p.drawText(QRect(16, 16, width() - 32, 22), Qt::AlignLeft | Qt::AlignVCenter, QString("ITEM #%1").arg(m_activeId));
+
+    // Subtle separator
+    QLinearGradient sepGrad(16, 0, width() - 16, 0);
+    sepGrad.setColorAt(0.0, Qt::transparent);
+    sepGrad.setColorAt(0.5, QColor(193, 127, 62, 60));
+    sepGrad.setColorAt(1.0, Qt::transparent);
+    p.setPen(QPen(sepGrad, 1));
+    p.drawLine(16, 48, width() - 16, 48);
+
+    // Quick actions subtitle
+    p.setPen(QColor(193, 127, 62, 120));
+    p.setFont(QFont("Segoe UI", 8, QFont::DemiBold));
+    p.drawText(QRect(16, 52, width() - 32, 14), Qt::AlignLeft, "QUICK ACTIONS");
+
+    // Draw action buttons — NO description text, just clean name + indicator
+    for (int i = 0; i < m_actions.size(); ++i) {
+        QRect itemBox = getItemRect(i);
         QColor col = m_actions[i].color;
-        if (i == m_hoverIdx) {
-            col = col.lighter(130);
-            // Shadow/Glow
+        
+        bool hover = (i == m_hoverIdx);
+        
+        if (hover) {
+            // Glow behind the button
+            QRadialGradient glow(itemBox.center(), itemBox.width() * 0.6);
+            glow.setColorAt(0.0, QColor(col.red(), col.green(), col.blue(), 25));
+            glow.setColorAt(1.0, Qt::transparent);
             p.setPen(Qt::NoPen);
-            p.setBrush(QColor(m_actions[i].color.red(), m_actions[i].color.green(), m_actions[i].color.blue(), 40));
-            p.drawEllipse(center, outerR+5, outerR+5);
+            p.setBrush(glow);
+            p.drawRoundedRect(itemBox.adjusted(-8, -4, 8, 4), 12, 12);
+
+            // Hover card background
+            QLinearGradient hoverBg(itemBox.topLeft(), itemBox.bottomRight());
+            hoverBg.setColorAt(0.0, QColor(col.red(), col.green(), col.blue(), 50));
+            hoverBg.setColorAt(1.0, QColor(col.red(), col.green(), col.blue(), 20));
+            p.setBrush(hoverBg);
+            p.setPen(QPen(col, 1.5));
+            p.drawRoundedRect(itemBox, 8, 8);
         } else {
-            col.setAlpha(160);
+            // Normal state
+            p.setBrush(QColor(25, 20, 16, 200));
+            p.setPen(QPen(QColor(60, 48, 35), 1));
+            p.drawRoundedRect(itemBox, 8, 8);
         }
         
-        p.setPen(QPen(m_actions[i].color, 2));
+        // Color indicator dot
         p.setBrush(col);
-        p.drawPath(path);
-        
-        // Draw Text/Label
-        double midAngle = qDegreesToRadians(startAngle + spanAngle/2.0);
-        double labelR = (innerR + outerR) / 2.0;
-        QPointF labelPos(center.x() + labelR * cos(midAngle), center.y() - labelR * sin(midAngle));
-        
-        p.setPen(Qt::white);
-        p.setFont(QFont("Segoe UI", 8, QFont::Black));
-        p.drawText(QRectF(labelPos.x()-30, labelPos.y()-15, 60, 30), Qt::AlignCenter, m_actions[i].name);
+        p.setPen(Qt::NoPen);
+        int dotSize = hover ? 12 : 10;
+        p.drawEllipse(QPoint(itemBox.left() + 18, itemBox.center().y()), dotSize / 2, dotSize / 2);
+
+        // Glow around dot on hover
+        if (hover) {
+            QRadialGradient dotGlow(QPointF(itemBox.left() + 18, itemBox.center().y()), 14);
+            dotGlow.setColorAt(0.0, QColor(col.red(), col.green(), col.blue(), 60));
+            dotGlow.setColorAt(1.0, Qt::transparent);
+            p.setBrush(dotGlow);
+            p.drawEllipse(QPoint(itemBox.left() + 18, itemBox.center().y()), 14, 14);
+        }
+
+        // Action name — single line, clean
+        p.setPen(hover ? Qt::white : QColor(210, 200, 190));
+        p.setFont(QFont("Outfit", 11, hover ? QFont::Bold : QFont::DemiBold));
+        p.drawText(itemBox.adjusted(34, 0, -14, 0), Qt::AlignLeft | Qt::AlignVCenter, m_actions[i].name);
+
+        // Arrow indicator on hover
+        if (hover) {
+            p.setPen(QPen(col, 2, Qt::SolidLine, Qt::RoundCap));
+            int arrowX = itemBox.right() - 16;
+            int arrowY = itemBox.center().y();
+            p.drawLine(arrowX - 6, arrowY - 4, arrowX, arrowY);
+            p.drawLine(arrowX - 6, arrowY + 4, arrowX, arrowY);
+        }
     }
+
+    // Footer close hint
+    p.setPen(QColor(120, 100, 80, 100));
+    p.setFont(QFont("Segoe UI", 7));
+    p.drawText(QRect(0, height() - 22, width(), 16), Qt::AlignCenter, "ESC TO CLOSE");
 }
 
 void RadialCommandMenu::mouseMoveEvent(QMouseEvent *e) {
-    QPointF center(140, 140);
-    QPointF delta = e->position() - center;
-    double dist = qSqrt(delta.x()*delta.x() + delta.y()*delta.y());
-    
-    if (dist < 45 || dist > 130) { m_hoverIdx = -1; }
-    else {
-        double angle = qAtan2(-delta.y(), delta.x());
-        double deg = qRadiansToDegrees(angle);
-        if (deg < 0) deg += 360;
-        m_hoverIdx = int(deg / (360.0 / m_actions.size()));
+    QPoint pos = e->pos();
+    int oldIdx = m_hoverIdx;
+    m_hoverIdx = -1;
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (getItemRect(i).contains(pos)) {
+            m_hoverIdx = i;
+            break;
+        }
     }
-    update();
+    if (oldIdx != m_hoverIdx) {
+        setCursor(m_hoverIdx >= 0 ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        update();
+    }
 }
 
 void RadialCommandMenu::mousePressEvent(QMouseEvent *e) {
-    Q_UNUSED(e);
-    if (m_hoverIdx != -1) {
+    if (m_hoverIdx != -1 && e->button() == Qt::LeftButton) {
         emit actionSelected(m_actions[m_hoverIdx].name, m_activeId);
-        hide();
-    } else {
-        hide();
+        animateClose();
+    } else if (e->button() == Qt::LeftButton) {
+        animateClose();
     }
 }
 
@@ -174,6 +300,7 @@ void IdentityCard::keyPressEvent(QKeyEvent *e) {
 }
 
 void IdentityCard::mousePressEvent(QMouseEvent *e) {
+    Q_UNUSED(e);
     // Close on any click outside the main rounded rect if needed, 
     // but here we close on any click to fulfill "Click anywhere to dismiss"
     animateClose();
@@ -326,4 +453,245 @@ void IdentityCard::drawQRCode(QPainter &p, const QRect &r, int id) {
             }
         }
     }
+}
+// ============================================================================
+// CHAT BUBBLE IMPLEMENTATION
+// ============================================================================
+ChatBubble::ChatBubble(const QString &msg, const QString &time, bool isMe, const QString &senderName, int index, QWidget *parent)
+    : QWidget(parent), m_message(msg), m_time(time), m_sender(senderName), m_isMe(isMe), m_index(index) {
+    setMouseTracking(true);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+}
+
+void ChatBubble::enterEvent(QEnterEvent *event) {
+    Q_UNUSED(event);
+    m_hover = true;
+    update();
+}
+
+void ChatBubble::setImage(const QByteArray &data) {
+    m_image.loadFromData(data);
+    if (!m_image.isNull()) {
+        m_hasImage = true;
+        m_image = m_image.scaled(200, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    }
+    updateGeometry();
+    update();
+}
+
+void ChatBubble::setGif(const QString &url) {
+    if (url.isEmpty()) return;
+    m_gifUrl = url;
+    m_hasGif = true;
+
+    QNetworkAccessManager *mgr = new QNetworkAccessManager(this);
+    QNetworkReply *reply = mgr->get(QNetworkRequest(QUrl(url)));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray data = reply->readAll();
+            QBuffer *buffer = new QBuffer(this);
+            buffer->setData(data);
+            buffer->open(QIODevice::ReadOnly);
+
+            m_gifMovie = new QMovie(buffer, QByteArray(), this);
+            if (m_gifMovie->isValid()) {
+                m_gifMovie->setScaledSize(QSize(200, 150));
+                connect(m_gifMovie, &QMovie::frameChanged, this, [this](){ update(); });
+                m_gifMovie->start();
+                updateGeometry();
+                emit gif_loaded();
+            }
+        }
+        reply->deleteLater();
+    });
+    updateGeometry();
+}
+
+void ChatBubble::setVoiceNote(bool isVoice) {
+    m_isVoiceNote = isVoice;
+    updateGeometry();
+    update();
+}
+
+void ChatBubble::animateEntrance() {
+    auto *group = new QParallelAnimationGroup(this);
+    
+    auto *fade = new QPropertyAnimation(this, "opacity");
+    fade->setDuration(450);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    fade->setEasingCurve(QEasingCurve::OutQuad);
+    
+    auto *slide = new QPropertyAnimation(this, "offset");
+    slide->setDuration(550);
+    slide->setStartValue(25.0);
+    slide->setEndValue(0.0);
+    slide->setEasingCurve(QEasingCurve::OutBack);
+    
+    group->addAnimation(fade);
+    group->addAnimation(slide);
+    group->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void ChatBubble::mousePressEvent(QMouseEvent *e) {
+    if (m_isMe && m_hover && m_deleteRect.contains(e->pos())) {
+        emit deleteRequested(m_index);
+    }
+}
+
+void ChatBubble::paintEvent(QPaintEvent *) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setOpacity(m_opacity);
+    p.translate(0, m_offset);
+
+    // Dynamic sizes based on content
+    QFont msgFont("Segoe UI", 10);
+    QFontMetrics fm(msgFont);
+    int maxW = width() * 0.75;
+    if (maxW < 200) maxW = 350;
+    
+    QRect textRect = fm.boundingRect(0, 0, maxW - 30, 2000, Qt::TextWordWrap, m_message);
+    
+    int contentH = textRect.height();
+    int contentW = textRect.width();
+    
+    if (m_hasImage) { contentH += 210; contentW = qMax(contentW, 200); }
+    if (m_hasGif) { contentH += 160; contentW = qMax(contentW, 200); }
+    if (m_isVoiceNote) { contentH += 40; contentW = qMax(contentW, 180); }
+
+    int bubbleW = contentW + 30;
+    int bubbleH = contentH + 40;
+    
+    int x = m_isMe ? (width() - bubbleW - 10) : 10;
+    QRect bubbleRect(x, 5, bubbleW, bubbleH);
+
+    // Glassmorphism Bubble
+    QColor baseCol = m_isMe ? QColor(45, 35, 25, 220) : QColor(25, 30, 35, 220);
+    if (m_hover) baseCol = baseCol.lighter(130);
+    
+    p.setPen(QPen(m_isMe ? QColor(212, 175, 55, 100) : QColor(59, 130, 246, 100), 1.2));
+    p.setBrush(baseCol);
+    p.drawRoundedRect(bubbleRect, 16, 16);
+
+    // Hover Shiny Glint
+    if (m_hover) {
+        qreal glintX = std::fmod(QDateTime::currentMSecsSinceEpoch() * 0.3, bubbleRect.width() * 4.0) - bubbleRect.width();
+        QLinearGradient g(bubbleRect.left() + glintX, 0, bubbleRect.left() + glintX + 50, 0);
+        g.setColorAt(0, Qt::transparent);
+        g.setColorAt(0.5, QColor(255, 255, 255, 30));
+        g.setColorAt(1, Qt::transparent);
+        p.fillRect(bubbleRect, g);
+        
+        if (m_isMe) {
+            m_deleteRect = QRect(bubbleRect.right() - 25, bubbleRect.top() + 5, 20, 20);
+            p.setPen(QColor(255, 100, 100, 200));
+            p.setFont(QFont("Arial", 10, QFont::Bold));
+            p.drawText(m_deleteRect, Qt::AlignCenter, "×");
+        }
+    } else {
+        m_deleteRect = QRect();
+    }
+
+    // Sender & Time
+    p.setPen(QColor(180, 170, 160, 180));
+    p.setFont(QFont("Outfit", 7, QFont::Bold));
+    p.drawText(bubbleRect.adjusted(12, 8, -12, 0), Qt::AlignLeft | Qt::AlignTop, m_sender.toUpper());
+    p.drawText(bubbleRect.adjusted(12, 8, -12, 0), Qt::AlignRight | Qt::AlignTop, m_time);
+
+    int currentY = bubbleRect.top() + 25;
+
+    // Render Media Content
+    if (m_hasImage) {
+        p.drawPixmap(bubbleRect.left() + 15, currentY, m_image);
+        currentY += 210;
+    }
+    
+    if (m_hasGif && m_gifMovie && m_gifMovie->isValid()) {
+        p.drawPixmap(bubbleRect.left() + 15, currentY, m_gifMovie->currentPixmap());
+        currentY += 160;
+    }
+
+    if (m_isVoiceNote) {
+        // Draw Waveform
+        p.setPen(QPen(QColor(212, 175, 55, 180), 1.5));
+        for(int i=0; i<20; ++i) {
+            int h = 5 + qAbs(qSin(QDateTime::currentMSecsSinceEpoch()*0.01 + i)*15);
+            p.drawLine(bubbleRect.left() + 15 + i*8, currentY + 15 - h/2, bubbleRect.left() + 15 + i*8, currentY + 15 + h/2);
+        }
+        p.setPen(QColor(212, 175, 55));
+        p.setFont(QFont("Outfit", 8, QFont::Bold));
+        p.drawText(bubbleRect.left() + 15, currentY + 32, "VOICE MESSAGE - 0:08");
+        currentY += 45;
+    }
+
+    // Message Text (if not special placeholder)
+    if (!m_message.isEmpty() && m_message != "[Image]" && m_message != "[GIF]" && !m_message.contains("Voice Note")) {
+        p.setPen(Qt::white);
+        p.setFont(msgFont);
+        p.drawText(bubbleRect.left() + 15, currentY, bubbleRect.width() - 30, 2000, Qt::TextWordWrap, m_message);
+    }
+}
+
+QSize ChatBubble::sizeHint() const {
+    QFont msgFont("Segoe UI", 10);
+    QFontMetrics fm(msgFont);
+    int maxW = 400;
+    QRect textRect = fm.boundingRect(0, 0, maxW - 30, 2000, Qt::TextWordWrap, m_message);
+    
+    int h = textRect.height();
+    if (m_hasImage) h += 210;
+    if (m_hasGif) h += 170; // Increased
+    if (m_isVoiceNote) h += 50; // Increased
+    
+    return QSize(qMax(240, width()), h + 80); // Increased padding
+}
+
+// ============================================================================
+// CHAT EMPLOYEE DELEGATE IMPLEMENTATION
+// ============================================================================
+void ChatEmployeeDelegate::paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    p->save();
+    p->setRenderHint(QPainter::Antialiasing);
+
+    QRect r = option.rect.adjusted(6, 4, -6, -4);
+    bool selected = option.state & QStyle::State_Selected;
+    bool hover = option.state & QStyle::State_MouseOver;
+
+    // Background Card
+    QColor bg = selected ? QColor(60, 50, 40, 240) : (hover ? QColor(40, 35, 30, 200) : QColor(25, 22, 20, 180));
+    p->setPen(QPen(selected ? QColor(212, 175, 55, 150) : QColor(193, 127, 62, 40), 1));
+    p->setBrush(bg);
+    p->drawRoundedRect(r, 12, 12);
+
+    if (selected) {
+        // Golden accent line
+        p->setBrush(QColor(212, 175, 55));
+        p->setPen(Qt::NoPen);
+        p->drawRect(r.left(), r.top() + 10, 3, r.height() - 20);
+    }
+
+    // Text Content
+    QString fullText = index.data().toString();
+    QString name = fullText.section(" (ID:", 0, 0);
+    QString id = "ID: " + fullText.section("(ID: ", 1, 1).replace(")", "");
+    QString title = index.data(Qt::ToolTipRole).toString();
+
+    p->setPen(selected ? Qt::white : QColor(220, 210, 200));
+    p->setFont(QFont("Outfit", 10, QFont::Bold));
+    p->drawText(r.adjusted(15, 8, -10, -25), Qt::AlignLeft | Qt::AlignTop, name.toUpper());
+
+    p->setPen(QColor(193, 127, 62, 180));
+    p->setFont(QFont("Consolas", 8));
+    p->drawText(r.adjusted(15, 28, -10, -5), Qt::AlignLeft | Qt::AlignTop, id);
+
+    p->setPen(QColor(150, 140, 130, 150));
+    p->setFont(QFont("Segoe UI", 7, QFont::DemiBold));
+    p->drawText(r.adjusted(15, 0, -10, -8), Qt::AlignLeft | Qt::AlignBottom, title.toUpper());
+
+    p->restore();
+}
+
+QSize ChatEmployeeDelegate::sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const {
+    return QSize(200, 70);
 }

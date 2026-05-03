@@ -1,4 +1,5 @@
 #include "equipment.h"
+#include "creative_components.h"
 
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
@@ -58,6 +59,12 @@
 
 #include <QStandardItemModel>
 
+#include <QStyledItemDelegate>
+#include <QStyle>
+#include <QFontMetrics>
+#include <QHeaderView>
+#include <QItemSelectionModel>
+
 #include <QtMath>
 
 #include <algorithm>
@@ -77,6 +84,229 @@ QString trKey(const QString &key)
     return QCoreApplication::translate("QObject", key.toUtf8().constData());
 
 }
+
+class TimelineCardDelegate final : public QStyledItemDelegate {
+public:
+    explicit TimelineCardDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        Q_UNUSED(index);
+        return QSize(option.rect.width(), 90);
+    }
+
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        if (!index.isValid() || index.column() != 0) {
+            return;
+        }
+
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+
+        const QRect base = opt.rect.adjusted(12, 6, -12, -6);
+        const int lineX = base.left() + 12;
+        const int dotY = base.center().y();
+        const int dotBaseR = 4;
+
+        const auto *view = qobject_cast<const QAbstractItemView*>(opt.widget);
+        const int activeRow = view ? view->property("timelineSelectedRow").toInt() : -1;
+        double pulse = view ? view->property("timelinePulse").toDouble() : 0.0;
+        double expand = view ? view->property("timelineExpand").toDouble() : 0.0;
+        if (pulse < 0.0) pulse = 0.0;
+        if (pulse > 1.0) pulse = 1.0;
+        if (expand < 0.0) expand = 0.0;
+        if (expand > 1.0) expand = 1.0;
+        const double pulseEase = (pulse <= 0.5) ? (pulse * 2.0) : (2.0 - pulse * 2.0);
+        const bool isActive = (activeRow == index.row());
+        const double expandFactor = isActive ? expand : 0.0;
+        const int lift = isActive ? static_cast<int>(3 * pulseEase + 2 * expandFactor) : 0;
+
+        QColor accent(212, 175, 55);
+
+        QColor lineColor(139, 111, 71, 180);
+        if (isActive) {
+            lineColor = QColor(accent.red(), accent.green(), accent.blue(), 200);
+        }
+        QColor cardFill(255, 255, 255, 245);
+        QColor cardBorder(210, 180, 140, 200);
+        if (opt.state & QStyle::State_Selected) {
+            cardBorder = QColor(139, 111, 71, 255);
+            cardFill = QColor(255, 248, 235, 255);
+        }
+
+        if (isActive && pulseEase > 0.0) {
+            const int glowAlpha = static_cast<int>(90 * pulseEase);
+            QRect glowRect = base.adjusted(20, -lift - 2, -2, -lift + 2);
+            QPainterPath glowPath;
+            glowPath.addRoundedRect(glowRect, 12, 12);
+            p->setPen(Qt::NoPen);
+            QColor glowColor = accent;
+            glowColor.setAlpha(glowAlpha);
+            p->setBrush(glowColor);
+            p->drawPath(glowPath);
+
+            const int borderAlpha = qMin(255, static_cast<int>(200 + 55 * pulseEase));
+            cardBorder = QColor(accent.red(), accent.green(), accent.blue(), borderAlpha);
+        }
+
+        p->setPen(QPen(lineColor, 2));
+        p->drawLine(QPoint(lineX, base.top() + 4), QPoint(lineX, base.bottom() - 4));
+
+        p->setBrush(lineColor);
+        p->setPen(Qt::NoPen);
+        const int dotR = dotBaseR + (isActive ? static_cast<int>(2 * pulseEase + 1 * expandFactor) : 0);
+        p->drawEllipse(QPoint(lineX, dotY), dotR, dotR);
+
+        QRect cardRect = base.adjusted(24, -lift, 0, -lift);
+        QPainterPath cardPath;
+        cardPath.addRoundedRect(cardRect, 10, 10);
+        p->setBrush(cardFill);
+        p->setPen(QPen(cardBorder, 1));
+        p->drawPath(cardPath);
+
+        const QAbstractItemModel *model = index.model();
+        const int row = index.row();
+        const QString id = model->data(model->index(row, 0)).toString();
+        const QString type = model->data(model->index(row, 1)).toString();
+        const QString desc = model->data(model->index(row, 2)).toString();
+        const QString status = model->data(model->index(row, 3)).toString();
+        const QString price = model->data(model->index(row, 4)).toString();
+        const QString date = model->data(model->index(row, 5)).toString();
+        const QString event = model->data(model->index(row, 6)).toString();
+        const QString eventLower = event.toLower();
+        if (eventLower.contains("delete")) {
+            accent = QColor(176, 60, 60);
+        } else if (eventLower.contains("modify")) {
+            accent = QColor(70, 120, 160);
+        } else if (eventLower.contains("add")) {
+            accent = QColor(60, 150, 95);
+        }
+
+        const QString title = QString("Equipment %1 - %2")
+                                  .arg(id.isEmpty() ? "-" : id, type.isEmpty() ? "-" : type);
+        const QString meta = QString("Status: %1 | Price: %2")
+                                 .arg(status.isEmpty() ? "-" : status, price.isEmpty() ? "-" : price);
+        const QString descLine = desc.isEmpty() ? "-" : desc;
+
+        QFont titleFont = opt.font;
+        titleFont.setBold(true);
+        titleFont.setPointSize(qMax(8, titleFont.pointSize() + 1));
+        QFont metaFont = opt.font;
+        metaFont.setPointSize(qMax(8, metaFont.pointSize() - 1));
+
+        const int textLeft = cardRect.left() + 12;
+        const int textRight = cardRect.right() - 12;
+        QRect titleRect(textLeft, cardRect.top() + 10, textRight - textLeft, 18);
+        QRect metaRect(textLeft, cardRect.top() + 30, textRight - textLeft, 16);
+        const int descHeight = 16 + static_cast<int>(24 * expandFactor);
+        QRect descRect(textLeft, cardRect.top() + 48, textRight - textLeft, descHeight);
+
+        p->setFont(titleFont);
+        p->setPen(QColor(42, 30, 16));
+        QFontMetrics titleMetrics(titleFont);
+        p->drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter,
+                    titleMetrics.elidedText(title, Qt::ElideRight, titleRect.width()));
+
+        p->setFont(metaFont);
+        p->setPen(QColor(90, 70, 50));
+        QFontMetrics metaMetrics(metaFont);
+        p->drawText(metaRect, Qt::AlignLeft | Qt::AlignVCenter,
+                    metaMetrics.elidedText(meta, Qt::ElideRight, metaRect.width()));
+        if (expandFactor < 0.35) {
+            p->drawText(descRect, Qt::AlignLeft | Qt::AlignVCenter,
+                        metaMetrics.elidedText(descLine, Qt::ElideRight, descRect.width()));
+        } else {
+            p->drawText(descRect, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, descLine);
+        }
+
+        p->setPen(QColor(125, 95, 70));
+        p->drawText(titleRect, Qt::AlignRight | Qt::AlignVCenter, date);
+
+        if (isActive && expandFactor > 0.2) {
+            double scan = view ? view->property("timelineScan").toDouble() : 0.0;
+            if (scan < 0.0) scan = 0.0;
+            if (scan > 1.0) scan = 1.0;
+            const int bandY = cardRect.top() + 8 + static_cast<int>((cardRect.height() - 16) * scan);
+            QRect bandRect(cardRect.left() + 8, bandY - 5, cardRect.width() - 16, 10);
+            QLinearGradient bandGrad(bandRect.left(), bandRect.top(), bandRect.right(), bandRect.top());
+            QColor edge = accent;
+            edge.setAlpha(0);
+            QColor center = accent;
+            center.setAlpha(90);
+            bandGrad.setColorAt(0.0, edge);
+            bandGrad.setColorAt(0.5, center);
+            bandGrad.setColorAt(1.0, edge);
+            p->setPen(Qt::NoPen);
+            p->setBrush(bandGrad);
+            p->drawRoundedRect(bandRect, 6, 6);
+
+            const QString badgeText = event.isEmpty() ? "EVENT" : event.toUpper();
+            const int badgeW = 90;
+            const int badgeH = 18;
+            QRect badgeRect(cardRect.right() - badgeW - 8, metaRect.top() - 2, badgeW, badgeH);
+            p->setBrush(accent);
+            p->setPen(Qt::NoPen);
+            p->drawRoundedRect(badgeRect, 8, 8);
+            QFont badgeFont = metaFont;
+            badgeFont.setBold(true);
+            badgeFont.setPointSize(qMax(8, badgeFont.pointSize() - 1));
+            p->setFont(badgeFont);
+            QColor badgeTextColor = (accent.lightness() > 140) ? QColor(30, 20, 12) : QColor(255, 255, 255);
+            p->setPen(badgeTextColor);
+            p->drawText(badgeRect, Qt::AlignCenter, badgeText);
+        }
+
+        if (expandFactor > 0.05) {
+            const int extraTop = descRect.bottom() + 6;
+            const int extraBottom = cardRect.bottom() - 8;
+            if (extraBottom > extraTop) {
+                QRect barRect(textLeft, extraTop, textRight - textLeft - 90, 10);
+                if (barRect.width() > 40) {
+                    const QString key = id + type + status;
+                    const int h = qAbs(static_cast<int>(qHash(key))) % 100;
+                    double score = qMax(0.18, h / 100.0);
+                    const double anim = 0.6 + 0.4 * expandFactor;
+                    int fillW = static_cast<int>(barRect.width() * score * anim);
+
+                    p->setPen(Qt::NoPen);
+                    p->setBrush(QColor(225, 215, 200, 200));
+                    p->drawRoundedRect(barRect, 4, 4);
+
+                    QLinearGradient grad(barRect.topLeft(), barRect.topRight());
+                    grad.setColorAt(0, QColor(212, 175, 55, 220));
+                    grad.setColorAt(1, QColor(139, 111, 71, 220));
+                    p->setBrush(grad);
+                    QRect fillRect = barRect;
+                    fillRect.setWidth(fillW);
+                    p->drawRoundedRect(fillRect, 4, 4);
+
+                    if (isActive) {
+                        const int orbX = barRect.left() + static_cast<int>(barRect.width() * (0.15 + 0.7 * pulseEase));
+                        const int orbR = 3 + static_cast<int>(2 * pulseEase);
+                        p->setBrush(QColor(255, 240, 200, 220));
+                        p->drawEllipse(QPoint(orbX, barRect.center().y()), orbR, orbR);
+                    }
+
+                    const QDate parsed = QDate::fromString(date, "yyyy-MM-dd");
+                    QString ageText = "Age: -";
+                    if (parsed.isValid()) {
+                        const int days = parsed.daysTo(QDate::currentDate());
+                        ageText = QString("Age: %1d").arg(days);
+                    }
+                    QRect ageRect(barRect.right() + 8, barRect.top() - 4,
+                                  cardRect.right() - barRect.right() - 12, 16);
+                    p->setFont(metaFont);
+                    p->setPen(QColor(110, 85, 65));
+                    p->drawText(ageRect, Qt::AlignRight | Qt::AlignVCenter, ageText);
+                }
+            }
+        }
+
+        p->restore();
+    }
+};
 
 
 
@@ -135,771 +365,401 @@ struct EquipmentStatsVisualData {
     QVector<double> radarScores;
 };
 
-static qreal clamp01(qreal v) {
-    return qBound<qreal>(0.0, v, 1.0);
-}
+static qreal clamp01(qreal v) { return qBound<qreal>(0.0, v, 1.0); }
+static qreal easeSin(qreal t) { return qSin(clamp01(t) * M_PI_2); }
 
-static qreal easeSin(qreal t) {
-    return qSin(clamp01(t) * M_PI_2);
-}
-
+// ─────────────────────────────────────────────────────────────────────────
+// NEW: Clean percentage-card based stats dashboard
+// ─────────────────────────────────────────────────────────────────────────
 class EquipmentStatsCanvas final : public QWidget {
 public:
     explicit EquipmentStatsCanvas(QWidget *parent = nullptr) : QWidget(parent) {
         setMouseTracking(true);
         m_frameTimer.setInterval(16);
-        connect(&m_frameTimer, &QTimer::timeout, this, [this]() {
-            m_globalTime += 0.016;
-            update();
-        });
+        connect(&m_frameTimer, &QTimer::timeout, this, [this]() { m_globalTime += 0.016; update(); });
         m_frameTimer.start();
-        restartAnimations();
+        m_bootMs = QDateTime::currentMSecsSinceEpoch();
+    }
+    void setData(const EquipmentStatsVisualData &data) { m_data = data; m_bootMs = QDateTime::currentMSecsSinceEpoch(); update(); }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setRenderHint(QPainter::TextAntialiasing);
+        const QRectF canvas = rect();
+        drawBg(p, canvas);
+        const qreal anim = easeSin(elapsed() / 1.2);
+        const int all = qMax(1, m_data.total + m_data.retired);
+
+        // ── Title bar ──
+        QRectF hdr(20, 16, canvas.width() - 40, 40);
+        p.setPen(QColor(193, 127, 62, 200));
+        p.setFont(QFont("Outfit", 12, QFont::Bold));
+        p.drawText(hdr, Qt::AlignRight | Qt::AlignVCenter, "EQUIPMENT ANALYTICS");
+
+        // ── Row 1: High-Density Metric Strips ──
+        const qreal cw = (canvas.width() - 54) / 3.0;
+        const qreal cy = 64;
+        const qreal ch = 100;
+        struct Metric { QString label; double pct; QColor col; QString val; };
+        double availPct = 100.0 * m_data.available / all;
+        double inUsePct = 100.0 * m_data.inUse / all;
+        double maintPct = 100.0 * m_data.maintenance / all;
+
+        QVector<Metric> metrics = {
+            {"AVAILABLE", availPct, QColor("#4CAF7D"), QString::number(m_data.available)},
+            {"IN USE",    inUsePct, QColor("#C17F3E"), QString::number(m_data.inUse)},
+            {"MAINTENANCE", maintPct, QColor("#F59E0B"), QString::number(m_data.maintenance)}
+        };
+        for (int i = 0; i < 3; ++i) {
+            QRectF card(20 + i * (cw + 7), cy, cw, ch);
+            qreal cardAnim = easeSin(qBound(0.0, (elapsed() - 0.1 - i * 0.1) / 0.6, 1.0));
+            p.save(); 
+            p.translate(0, (1.0 - cardAnim) * 15);
+            p.setOpacity(cardAnim);
+            drawGlassCard(p, card, QColor(20, 16, 12, 235));
+            
+            // Layout: Title (Top Left), Count (Middle), Percentage (Right)
+            p.setPen(QColor(193, 127, 62, 180));
+            p.setFont(QFont("Segoe UI", 8, QFont::Bold));
+            p.drawText(card.adjusted(14, 10, -14, 0), Qt::AlignLeft | Qt::AlignTop, metrics[i].label);
+            
+            p.setPen(Qt::white);
+            p.setFont(QFont("Outfit", 24, QFont::Black));
+            p.drawText(card.adjusted(14, 30, -14, 0), Qt::AlignLeft | Qt::AlignTop, metrics[i].val);
+            
+            p.setPen(metrics[i].col);
+            p.setFont(QFont("Outfit", 12, QFont::Bold));
+            p.drawText(card.adjusted(14, 30, -14, -14), Qt::AlignRight | Qt::AlignBottom, 
+                       QString::number((int)(metrics[i].pct * anim)) + "%");
+            
+            // Progress Bar
+            QRectF bar(card.left() + 14, card.bottom() - 12, card.width() - 28, 4);
+            p.setPen(Qt::NoPen); p.setBrush(QColor(60, 50, 40)); p.drawRect(bar);
+            p.setBrush(metrics[i].col); p.drawRect(QRectF(bar.left(), bar.top(), bar.width() * (metrics[i].pct/100.0) * anim, 4));
+            p.restore();
+        }
+
+        // ── Main Intelligence Matrix (Detailed Asset Ledger) ──
+        qreal matrixY = cy + ch + 14;
+        qreal footerH = 40;
+        qreal matrixH = canvas.height() - matrixY - footerH - 24;
+        QRectF matrixCard(20, matrixY, canvas.width() - 40, matrixH);
+        
+        qreal matA = easeSin(qBound(0.0, (elapsed() - 0.35) / 0.8, 1.0));
+        p.save();
+        p.translate(0, (1.0 - matA) * 25);
+        p.setOpacity(matA);
+        drawGlassCard(p, matrixCard, QColor(22, 19, 16, 252));
+        
+        p.setPen(QColor(193, 127, 62, 150));
+        p.setFont(QFont("Segoe UI", 9, QFont::Bold));
+        p.drawText(matrixCard.adjusted(16, 12, 0, 0), Qt::AlignLeft | Qt::AlignTop, "DETAILED ASSET PERFORMANCE LEDGER");
+
+        // Data Ledger Columns
+        qreal rowH = 34;
+        int listSize = qMin(5, m_data.ranking.size());
+        for (int i = 0; i < listSize; ++i) {
+            const auto &item = m_data.ranking[i];
+            qreal ry = matrixCard.top() + 44 + i * rowH;
+            QRectF rowRect(matrixCard.left() + 24, ry, matrixCard.width() - 44, rowH - 4);
+            
+            p.setPen(QPen(QColor("#FFD700"), 1.5));
+            p.drawLine(matrixCard.left() + 14, ry, matrixCard.left() + 14, ry + rowH - 6);
+            p.setBrush(QColor("#FFD700"));
+            p.drawEllipse(QPointF(matrixCard.left() + 14, ry + (rowH-6)/2.0), 3, 3);
+
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(193, 127, 62, 15));
+            p.drawRoundedRect(rowRect, 4, 4);
+            
+            p.setPen(Qt::white);
+            p.setFont(QFont("Segoe UI", 9, QFont::DemiBold));
+            p.drawText(rowRect.adjusted(12, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter, item.name);
+            
+            p.setPen(QColor("#FFD700"));
+            p.setFont(QFont("Consolas", 9, QFont::Bold));
+            p.drawText(rowRect.adjusted(0, 0, -12, 0), Qt::AlignRight | Qt::AlignVCenter, 
+                       QString::number(item.unitPrice, 'f', 0) + " dt");
+            
+            qreal scaleW = 80 * anim;
+            QRectF scaleRect(rowRect.right() - 200, rowRect.center().y() - 2, scaleW, 4);
+            p.setPen(Qt::NoPen); p.setBrush(QColor(60, 50, 40)); p.drawRect(scaleRect);
+            p.setBrush(QColor("#3B82F6")); 
+            p.drawRect(QRectF(scaleRect.left(), scaleRect.top(), scaleRect.width() * (0.5 + 0.1 * qSin(m_globalTime*2.0 + i)), 4));
+        }
+
+        // ── Row 3: Expandable Mini-Pulse Metrics (Shiny & Interactive) ──
+        qreal miniY = matrixCard.top() + 44 + listSize * rowH + 10;
+        qreal miniW = (matrixCard.width() - 40) / 3.0;
+        struct MiniStat { QString title; QColor col; QString detail; };
+        QVector<MiniStat> miniStats = {
+            {"SEC OPS", QColor("#F87171"), "FIREWALL: ACTIVE\nTHREATS: 0"},
+            {"NET LINK", QColor("#3B82F6"), "LATENCY: 12ms\nBANDWIDTH: 1.2G"},
+            {"CORE LOAD", QColor("#4CAF7D"), "CPU: 24%\nRAM: 4.8GB"}
+        };
+
+        m_miniRects.clear();
+        for(int i=0; i<3; ++i) {
+            // Animation handling for expansion
+            qreal target = (m_expandedIndex == i) ? 1.0 : 0.0;
+            m_expansionFactors[i] += (target - m_expansionFactors[i]) * 0.12;
+            
+            qreal currentH = 45 + m_expansionFactors[i] * 60;
+            QRectF mCard(matrixCard.left() + 14 + i*(miniW+6), miniY, miniW, currentH);
+            m_miniRects.append(mCard);
+            
+            // Hover Gold Effect
+            QColor cardBg = (m_hoveredMini == i) ? QColor(60, 50, 20, 220) : QColor(35, 30, 25, 200);
+            drawGlassCard(p, mCard, cardBg);
+            if(m_hoveredMini == i) { // Shine
+                p.setPen(QPen(QColor(255, 215, 0, 100), 1.5));
+                p.drawRoundedRect(mCard, 14, 14);
+            }
+            
+            // Pulse Animation
+            qreal pPulse = (qSin(m_globalTime * 4.0 + i) + 1.0) * 0.5;
+            p.setPen(Qt::NoPen); p.setBrush(QColor(miniStats[i].col.red(), miniStats[i].col.green(), miniStats[i].col.blue(), 40 + pPulse*100));
+            p.drawEllipse(mCard.left() + 12, miniY + 22.5, 6 + pPulse*6, 6 + pPulse*6);
+            p.setBrush(miniStats[i].col);
+            p.drawEllipse(mCard.left() + 12, miniY + 22.5, 3, 3);
+            
+            p.setPen(QColor(200, 190, 180));
+            p.setFont(QFont("Segoe UI", 7, QFont::Bold));
+            p.drawText(QRectF(mCard.left() + 24, miniY, mCard.width()-24, 45), Qt::AlignLeft | Qt::AlignVCenter, miniStats[i].title);
+            
+            // Expanded Content
+            if(m_expansionFactors[i] > 0.1) {
+                p.save();
+                p.setOpacity(m_expansionFactors[i]);
+                p.setPen(QColor(200, 190, 180, 150));
+                p.setFont(QFont("Consolas", 7));
+                p.drawText(mCard.adjusted(12, 45, -12, -10), Qt::AlignLeft | Qt::AlignTop, miniStats[i].detail);
+                
+                // Close 'X'
+                p.setPen(QColor(255, 100, 100, 200));
+                p.setFont(QFont("Arial", 8, QFont::Bold));
+                p.drawText(mCard.adjusted(0, 5, -10, 0), Qt::AlignRight | Qt::AlignTop, "×");
+                p.restore();
+            } else {
+                // Closed State: Neural Sparks
+                for(int s=0; s<3; ++s) {
+                    qreal sparkX = mCard.left() + 40 + s*20 + qSin(m_globalTime*2.0 + s)*5;
+                    p.setBrush(QColor(193, 127, 62, 50));
+                    p.drawEllipse(QPointF(sparkX, mCard.bottom() - 10), 1, 1);
+                }
+            }
+            
+            // Shiny Decoration
+            qreal sweepX = std::fmod(m_globalTime * 350.0, mCard.width() * 6.0) - mCard.width();
+            if(sweepX > -20 && sweepX < mCard.width() + 20) {
+                QLinearGradient sweep(mCard.left() + sweepX, 0, mCard.left() + sweepX + 40, 0);
+                sweep.setColorAt(0, Qt::transparent); 
+                sweep.setColorAt(0.5, (m_hoveredMini == i) ? QColor(255, 215, 0, 40) : QColor(255, 255, 255, 20)); 
+                sweep.setColorAt(1, Qt::transparent);
+                p.fillRect(mCard, sweep);
+            }
+        }
+        p.restore();
+
+        // ── Row 4: Tactical Node Activity & Fleet Vitality (New Animated Section) ──
+        qreal nodeY = miniY + 55; // Base position below mini-stats
+        qreal nodeH = matrixCard.bottom() - nodeY - 10;
+        if (nodeH > 20) { // Only draw if there's enough space
+            QRectF nodeArea(matrixCard.left() + 14, nodeY, matrixCard.width() - 28, nodeH);
+            qreal nodeA = easeSin(qBound(0.0, (elapsed() - 0.7) / 0.6, 1.0));
+            p.save();
+            p.setOpacity(nodeA * (1.0 - m_expansionFactors[0]*0.5 - m_expansionFactors[1]*0.5 - m_expansionFactors[2]*0.5)); // Fade slightly on expansion
+            
+            p.setPen(QPen(QColor(193, 127, 62, 40), 1, Qt::DashLine));
+            p.drawLine(nodeArea.left(), nodeArea.top() + 5, nodeArea.right(), nodeArea.top() + 5);
+
+            // Fleet Vitality Scan (Wavy "Heartbeat" Line)
+            p.setRenderHint(QPainter::Antialiasing);
+            QPainterPath wave;
+            wave.moveTo(nodeArea.left(), nodeArea.center().y());
+            for(int x=0; x<nodeArea.width(); x += 5) {
+                qreal phase = (x * 0.05) - (m_globalTime * 3.0);
+                qreal y = nodeArea.center().y() + qSin(phase) * 8.0 * qCos(phase * 0.5);
+                wave.lineTo(nodeArea.left() + x, y);
+            }
+            p.setPen(QPen(QColor(59, 130, 246, 80), 1.5));
+            p.drawPath(wave);
+
+            // Glowing Status Nodes
+            for(int i=0; i<8; ++i) {
+                qreal nx = nodeArea.left() + 20 + i * (nodeArea.width()/8.0);
+                qreal ny = nodeArea.center().y();
+                qreal nPulse = (qSin(m_globalTime * 2.0 + i) + 1.0) * 0.5;
+                
+                // Outer Glow
+                p.setBrush(QColor(193, 127, 62, 20 * nPulse));
+                p.setPen(Qt::NoPen);
+                p.drawEllipse(QPointF(nx, ny), 6, 6);
+                
+                // Core
+                p.setBrush(nPulse > 0.8 ? QColor("#FFD700") : QColor(193, 127, 62, 150));
+                p.drawEllipse(QPointF(nx, ny), 2, 2);
+                
+                // Holographic ID (Mini shiny text - dynamic hex)
+                p.setPen(QColor(255, 215, 0, 100 + nPulse * 155));
+                p.setFont(QFont("Consolas", 6, QFont::Bold));
+                QString hexId = QString("0x%1%2").arg(i+1).arg((int)qAbs(qSin(m_globalTime*5.0 + i)*255), 2, 16, QChar('0')).toUpper();
+                p.drawText(QRectF(nx - 20, ny - 15, 40, 10), Qt::AlignCenter, hexId);
+
+                if (nPulse > 0.95) { // Occasional "Spark"
+                    p.setPen(QColor(255, 215, 0, 150));
+                    p.drawLine(nx-4, ny-4, nx+4, ny+4);
+                    p.drawLine(nx+4, ny-4, nx-4, ny+4);
+                }
+            }
+
+            p.setPen(QColor(193, 127, 62, 100));
+            p.setFont(QFont("Segoe UI", 6, QFont::Bold));
+            p.drawText(nodeArea.adjusted(0, 0, 0, -2), Qt::AlignLeft | Qt::AlignBottom, "LIVE NODE TELEMETRY");
+            p.drawText(nodeArea.adjusted(0, 0, 0, -2), Qt::AlignRight | Qt::AlignBottom, "VITALITY: NOMINAL");
+
+            // Regional Hub Capacity (Small Vertical Bars)
+            for(int i=0; i<12; ++i) {
+                qreal bx = nodeArea.right() - 120 + i*8;
+                qreal bh = 10 + qAbs(qSin(m_globalTime*3.0 + i*0.5)) * 15;
+                QRectF bar(bx, nodeArea.bottom() - bh - 15, 4, bh);
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(193, 127, 62, 30));
+                p.drawRect(QRectF(bx, nodeArea.bottom()-40, 4, 25)); // Background track
+                p.setBrush(QColor("#3B82F6"));
+                p.drawRect(bar);
+                // Glowing Top
+                p.setBrush(QColor(255, 215, 0, 150));
+                p.drawRect(QRectF(bx, bar.top(), 4, 2));
+            }
+            p.restore();
+
+            // Global Holographic Sweep (Occasional)
+            qreal globalSweepX = std::fmod(m_globalTime * 200.0, matrixCard.width() * 8.0) - matrixCard.width();
+            if(globalSweepX > -100 && globalSweepX < matrixCard.width() + 100) {
+                QLinearGradient g(matrixCard.left() + globalSweepX, 0, matrixCard.left() + globalSweepX + 60, 0);
+                g.setColorAt(0, Qt::transparent);
+                g.setColorAt(0.5, QColor(193, 127, 62, 8));
+                g.setColorAt(1, Qt::transparent);
+                p.fillRect(matrixCard, g);
+            }
+        }
+
+        // ── Compact Footer (Bottom Right Only) ──
+        qreal footW = 160;
+        QRectF footer(canvas.width() - footW - 20, canvas.height() - footerH - 12, footW, footerH);
+        qreal footA = easeSin(qBound(0.0, (elapsed() - 0.85) / 0.6, 1.0));
+        p.save();
+        p.setOpacity(footA);
+        drawGlassCard(p, footer, QColor(18, 15, 12, 255));
+        
+        QFont fLabel("Segoe UI", 7, QFont::Bold);
+        fLabel.setLetterSpacing(QFont::AbsoluteSpacing, 1.0);
+        p.setFont(fLabel);
+        p.setPen(QColor(193, 127, 62, 180));
+        p.drawText(footer.adjusted(14, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter, "TOTAL ASSETS:");
+        
+        p.setPen(Qt::white);
+        p.setFont(QFont("Outfit", 11, QFont::Black));
+        p.drawText(footer.adjusted(0, 0, -14, 0), Qt::AlignRight | Qt::AlignVCenter, QString::number(all));
+        p.restore();
     }
 
-    void setData(const EquipmentStatsVisualData &data) {
-        m_data = data;
-        restartAnimations();
+private:
+    qreal elapsed() const { return (QDateTime::currentMSecsSinceEpoch() - m_bootMs) / 1000.0; }
+
+    void drawBg(QPainter &p, const QRectF &r) {
+        p.fillRect(r, QColor("#0A0806"));
+        
+        // High-Tech Grid
+        p.setPen(QPen(QColor(193, 127, 62, 15), 1));
+        int spacing = 40;
+        for (int x = 0; x <= r.width(); x += spacing) p.drawLine(x, 0, x, r.height());
+        for (int y = 0; y <= r.height(); y += spacing) p.drawLine(0, y, r.width(), y);
+
+        // Animated Scanline
+        qreal scanY = std::fmod(m_globalTime * 80.0, r.height());
+        QLinearGradient sg(0, scanY, 0, scanY + 60);
+        sg.setColorAt(0, Qt::transparent);
+        sg.setColorAt(0.5, QColor(193, 127, 62, 10));
+        sg.setColorAt(1, Qt::transparent);
+        p.fillRect(QRectF(0, scanY, r.width(), 60), sg);
+
+        // Dynamic Floating Particles
+        for (int i = 0; i < 50; ++i) {
+            qreal seed = i * 137.5;
+            qreal speed = 10.0 + (i % 7) * 4.0;
+            qreal t = m_globalTime * speed * 0.1;
+            qreal x = std::fmod(seed + t * 50, r.width());
+            qreal y = std::fmod(seed * 0.8 + t * 30, r.height());
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(193, 127, 62, 15 + (i % 20)));
+            p.drawEllipse(QPointF(x, y), 1.0, 1.0);
+        }
+
+        // Vignette
+        QRadialGradient vig(r.center(), r.width() * 0.8);
+        vig.setColorAt(0, Qt::transparent);
+        vig.setColorAt(1, QColor(0, 0, 0, 180));
+        p.fillRect(r, vig);
+    }
+
+    void mousePressEvent(QMouseEvent *e) override {
+        for(int i=0; i<m_miniRects.size(); ++i) {
+            if(m_miniRects[i].contains(e->pos())) {
+                if(m_expandedIndex == i) m_expandedIndex = -1;
+                else m_expandedIndex = i;
+                update();
+                return;
+            }
+        }
+        m_expandedIndex = -1;
         update();
     }
 
-    void restartAnimations() {
-        m_bootMs = QDateTime::currentMSecsSinceEpoch();
-    }
-
-protected:
-    void mouseMoveEvent(QMouseEvent *event) override {
-        const QPointF pos = event->position();
-        m_hoveredPanel = -1;
-        for (int i = 0; i < m_panelRects.size(); ++i) {
-            if (m_panelRects[i].contains(pos)) {
-                m_hoveredPanel = i;
+    void mouseMoveEvent(QMouseEvent *e) override {
+        int oldHover = m_hoveredMini;
+        m_hoveredMini = -1;
+        for(int i=0; i<m_miniRects.size(); ++i) {
+            if(m_miniRects[i].contains(e->pos())) {
+                m_hoveredMini = i;
                 break;
             }
         }
-
-        int oldSeg = m_hoveredSegment;
-        m_hoveredSegment = -1;
-        if (m_donutOuter > 1.0 && m_donutInner > 1.0) {
-            const qreal d = QLineF(m_donutCenter, pos).length();
-            if (d >= m_donutInner && d <= m_donutOuter + 16.0) {
-                qreal angle = QLineF(m_donutCenter, pos).angle();
-                qreal fromTopCW = 90.0 - angle;
-                if (fromTopCW < 0) fromTopCW += 360.0;
-                for (int i = 0; i < m_segmentRanges.size(); ++i) {
-                    const qreal s = m_segmentRanges[i].first;
-                    const qreal e = m_segmentRanges[i].second;
-                    if (fromTopCW >= s && fromTopCW < e) {
-                        m_hoveredSegment = i;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (m_hoveredSegment >= 0 && m_hoveredSegment < 4) {
-            const int total = qMax(1, m_data.total + m_data.retired);
-            const int value = (m_hoveredSegment == 0) ? m_data.available
-                            : (m_hoveredSegment == 1) ? m_data.inUse
-                            : (m_hoveredSegment == 2) ? m_data.maintenance
-                            : m_data.retired;
-            const QString name = (m_hoveredSegment == 0) ? "Available"
-                               : (m_hoveredSegment == 1) ? "In Use"
-                               : (m_hoveredSegment == 2) ? "Maintenance"
-                               : "Retired";
-            const qreal pct = 100.0 * value / total;
-            QToolTip::showText(event->globalPosition().toPoint(), QString("%1: %2 (%3%)").arg(name).arg(value).arg(QString::number(pct, 'f', 1)), this);
-        } else {
-            QToolTip::hideText();
-        }
-
-        if (oldSeg != m_hoveredSegment) {
-            update();
-        }
-        QWidget::mouseMoveEvent(event);
+        if(oldHover != m_hoveredMini) update();
     }
 
-    void leaveEvent(QEvent *event) override {
-        m_hoveredPanel = -1;
-        m_hoveredSegment = -1;
-        QToolTip::hideText();
+    void leaveEvent(QEvent *) override {
+        m_hoveredMini = -1;
         update();
-        QWidget::leaveEvent(event);
     }
 
-    void paintEvent(QPaintEvent *) override {
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        p.setRenderHint(QPainter::TextAntialiasing, true);
-        p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-
-        const QRectF canvas = rect();
-        drawBackground(p, canvas);
-
-        const QRectF content = canvas.adjusted(16, 46, -16, -14);
-        const QRectF header(content.left(), content.top(), content.width(), 112.0);
-        drawHeader(p, header);
-
-        const qreal gap = 8.0;
-        const qreal cardsH = 90.0;
-        const qreal topY = header.bottom() + 10.0;
-        const qreal usableH = content.bottom() - topY;
-        const qreal gridH = qMax<qreal>(240.0, usableH - cardsH - 12.0);
-        const qreal panelW = (content.width() - gap) * 0.5;
-        const qreal panelH = (gridH - gap) * 0.5;
-
-        m_panelRects.clear();
-        m_panelRects << QRectF(content.left(), topY, panelW, panelH)
-                     << QRectF(content.left() + panelW + gap, topY, panelW, panelH)
-                     << QRectF(content.left(), topY + panelH + gap, panelW, panelH)
-                     << QRectF(content.left() + panelW + gap, topY + panelH + gap, panelW, panelH);
-
-        drawPanelDonut(p, m_panelRects[0]);
-        drawPanelRanking(p, m_panelRects[1]);
-        drawPanelTimeline(p, m_panelRects[2]);
-        drawPanelRadar(p, m_panelRects[3]);
-
-        const qreal cardY = topY + gridH + 12.0;
-        const qreal cardW = (content.width() - 2.0 * gap) / 3.0;
-        drawBottomCards(p,
-                        QRectF(content.left(), cardY, cardW, cardsH),
-                        QRectF(content.left() + cardW + gap, cardY, cardW, cardsH),
-                        QRectF(content.left() + 2.0 * (cardW + gap), cardY, cardW, cardsH));
+    void drawGlassCard(QPainter &p, const QRectF &r, const QColor &bg) {
+        // Shadow
+        p.setPen(Qt::NoPen); p.setBrush(QColor(0, 0, 0, 100));
+        p.drawRoundedRect(r.translated(3, 4), 14, 14);
+        // Card
+        QLinearGradient g(r.topLeft(), r.bottomRight());
+        g.setColorAt(0, bg); g.setColorAt(1, bg.darker(120));
+        p.setBrush(g); p.setPen(QPen(QColor(193, 127, 62, 50), 1));
+        p.drawRoundedRect(r, 14, 14);
+        // Top accent
+        QLinearGradient ag(r.left() + 10, 0, r.right() - 10, 0);
+        ag.setColorAt(0, Qt::transparent); ag.setColorAt(0.5, QColor(193, 127, 62, 80)); ag.setColorAt(1, Qt::transparent);
+        p.fillRect(QRectF(r.left() + 10, r.top() + 2, r.width() - 20, 2), ag);
     }
 
-private:
-    qreal elapsedSec() const {
-        return (QDateTime::currentMSecsSinceEpoch() - m_bootMs) / 1000.0;
-    }
-
-    void drawBackground(QPainter &p, const QRectF &r) {
-        QRadialGradient deep(r.center(), qMax(r.width(), r.height()) * 0.62);
-        deep.setColorAt(0.0, QColor("#1A0E06"));
-        deep.setColorAt(0.40, QColor("#0F0804"));
-        deep.setColorAt(1.0, QColor("#000000"));
-        p.fillRect(r, deep);
-
-        p.setPen(QPen(QColor(139, 90, 43, 8), 1));
-        const int lines = 55;
-        for (int i = 0; i < lines; ++i) {
-            const qreal yy = r.top() + (r.height() * i) / (lines - 1.0);
-            QPainterPath path;
-            path.moveTo(r.left(), yy);
-            for (qreal x = r.left(); x <= r.right(); x += 14.0) {
-                const qreal y = yy + qSin(x * 0.012 + i * 0.25) * 2.0;
-                path.lineTo(x, y);
-            }
-            p.drawPath(path);
-        }
-
-        for (int i = 0; i < 180; ++i) {
-            const qreal seed = i * 27.0;
-            const qreal speed = 10.0 + (i % 7) * 3.0;
-            qreal y = r.bottom() - std::fmod(m_globalTime * speed + seed, r.height() + 40.0);
-            qreal x = r.left() + (i * 43 % int(r.width())) + qSin(m_globalTime * 0.18 + i * 0.85) * 1.2;
-            const qreal sz = 1.0 + (i % 2);
-            p.setPen(Qt::NoPen);
-            p.setBrush(QColor(193, 127, 62, 13));
-            p.drawEllipse(QPointF(x, y), sz, sz);
-        }
-
-        const qreal b = 0.5 + 0.5 * qSin(m_globalTime * 0.22);
-        auto drawGlow = [&](const QPointF &c, qreal radius, const QColor &col, qreal alphaScale) {
-            QColor cc = col;
-            cc.setAlphaF(alphaScale * (0.65 + 0.35 * b));
-            QRadialGradient g(c, radius);
-            g.setColorAt(0.0, cc);
-            QColor t = cc;
-            t.setAlpha(0);
-            g.setColorAt(1.0, t);
-            p.setBrush(g);
-            p.setPen(Qt::NoPen);
-            p.drawEllipse(c, radius, radius);
-        };
-
-        drawGlow(QPointF(r.right() - r.width() * 0.18, r.top() + r.height() * 0.18), r.width() * 0.40, QColor("#C17F3E"), 0.05);
-        drawGlow(QPointF(r.left() + r.width() * 0.22, r.bottom() - r.height() * 0.18), r.width() * 0.32, QColor("#8B5A2B"), 0.03);
-        drawGlow(r.center(), r.width() * 0.50, QColor("#C17F3E"), 0.03);
-    }
-
-    void drawHeader(QPainter &p, const QRectF &rect) {
-        QLinearGradient g(rect.topLeft(), rect.bottomRight());
-        g.setColorAt(0.0, QColor("#1E1108"));
-        g.setColorAt(1.0, QColor("#0D0805"));
-        p.setPen(Qt::NoPen);
-        p.setBrush(g);
-        p.drawRoundedRect(rect, 12, 12);
-
-        QLinearGradient border(rect.left(), rect.bottom(), rect.right(), rect.bottom());
-        border.setColorAt(0.0, QColor(0, 0, 0, 0));
-        border.setColorAt(0.35, QColor("#C17F3E"));
-        border.setColorAt(0.55, QColor("#FF6600"));
-        border.setColorAt(1.0, QColor(0, 0, 0, 0));
-        p.setPen(QPen(border, 1.5));
-        p.drawLine(QPointF(rect.left() + 14, rect.bottom() - 1), QPointF(rect.right() - 14, rect.bottom() - 1));
-
-        const QPointF symCenter(rect.left() + 26, rect.top() + 32);
-        QPainterPath oct;
-        const qreal rr = 10.0;
-        const qreal rot = m_globalTime * 15.0;
-        for (int i = 0; i < 8; ++i) {
-            qreal a = qDegreesToRadians(rot + i * 45.0 - 90.0);
-            QPointF pt(symCenter.x() + rr * qCos(a), symCenter.y() + rr * qSin(a));
-            if (i == 0) oct.moveTo(pt); else oct.lineTo(pt);
-        }
-        oct.closeSubpath();
-        QRadialGradient og(symCenter, 18);
-        og.setColorAt(0.0, QColor("#FFD700"));
-        og.setColorAt(1.0, QColor("#C17F3E"));
-        p.setBrush(og);
-        p.setPen(QPen(QColor(255, 215, 0, 130), 1));
-        p.drawPath(oct);
-
-        QRadialGradient glow(symCenter, 18);
-        glow.setColorAt(0.0, QColor(193, 127, 62, 52));
-        glow.setColorAt(1.0, QColor(193, 127, 62, 0));
-        p.setPen(Qt::NoPen);
-        p.setBrush(glow);
-        p.drawEllipse(symCenter, 18, 18);
-
-        const QString title = "OPERATIONAL ANALYTICS";
-        const QPointF tpos(rect.left() + 20, rect.top() + 48);
-        QFont tf("Outfit", 24, QFont::Black);
-        p.setFont(tf);
-        p.setPen(QColor("#C17F3E"));
-        p.drawText(tpos, title);
-
-        QFontMetrics fm(tf);
-        QRect tr = fm.boundingRect(title);
-        QRectF clipRect(tpos.x(), tpos.y() - tr.height() + 2, tr.width(), tr.height() * 0.38);
-        p.save();
-        p.setClipRect(clipRect);
-        p.setPen(QColor(255, 212, 160, 102));
-        p.drawText(tpos, title);
-        p.restore();
-
-        QFont sf("Segoe UI", 10, QFont::DemiBold);
-        sf.setLetterSpacing(QFont::AbsoluteSpacing, 3.0);
-        p.setFont(sf);
-        QColor sc("#F5E6D3");
-        sc.setAlphaF(0.35 + 0.15 * (0.5 + 0.5 * qSin(m_globalTime * 0.4)));
-        p.setPen(sc);
-        p.drawText(QPointF(rect.left() + 48, rect.top() + 76), "REAL-TIME EQUIPMENT INTELLIGENCE");
-
-        const qreal uw = tr.width() * (0.5 + 0.5 * qSin(m_globalTime * 0.7));
-        const qreal ux = rect.left() + 48 + tr.width() * 0.5 - uw * 0.5;
-        QLinearGradient ug(ux, 0, ux + uw, 0);
-        ug.setColorAt(0.0, QColor(0, 0, 0, 0));
-        ug.setColorAt(0.45, QColor("#C17F3E"));
-        ug.setColorAt(0.75, QColor("#FFD700"));
-        ug.setColorAt(1.0, QColor(0, 0, 0, 0));
-        p.setPen(QPen(ug, 1.5));
-        p.drawLine(QPointF(ux, rect.top() + 84), QPointF(ux + uw, rect.top() + 84));
-
-        const QVector<QColor> kpiColors = {QColor("#C17F3E"), QColor("#4CAF7D"), QColor("#F59E0B"), QColor("#FFD700")};
-        const QVector<QString> labels = {"TOTAL EQUIPMENT", "AVAILABLE NOW", "IN MAINTENANCE", "TOTAL VALUE (dt)"};
-        const QVector<double> values = {
-            (double)(m_data.total + m_data.retired),
-            (double)m_data.available,
-            (double)m_data.maintenance,
-            m_data.totalValue
-        };
-
-        const qreal boxW = 150.0;
-        const qreal boxH = 50.0;
-        const qreal startX = rect.right() - (boxW * 4.0 + 30.0);
-        const qreal y = rect.top() + 25.0;
-        const qreal cnt = easeSin(elapsedSec() / 1.4);
-
-        for (int i = 0; i < 4; ++i) {
-            QRectF b(startX + i * (boxW + 10), y, boxW, boxH);
-            QColor c = kpiColors[i];
-            
-            // Subtle glass background
-            p.setBrush(QColor(25, 20, 15, 180));
-            p.setPen(QPen(QColor(139, 111, 71, 40), 1));
-            p.drawRoundedRect(b, 8, 8);
-            
-            // Left Accent Line
-            p.fillRect(QRectF(b.left(), b.top() + 10, 3, b.height() - 20), c);
-
-            QFont lf("Outfit", 8, QFont::Bold);
-            p.setFont(lf);
-            p.setPen(QColor(180, 170, 160));
-            p.drawText(b.adjusted(12, 8, -10, -30), Qt::AlignLeft | Qt::AlignTop, labels[i]);
-
-            const qreal shown = values[i] * cnt;
-            const QString txt = (i == 3) ? QString::number(shown, 'f', 0) : QString::number((int)qRound(shown));
-            p.setFont(QFont("Outfit", 18, QFont::Black));
-            p.setPen(Qt::white);
-            p.drawText(b.adjusted(12, 22, -10, -5), Qt::AlignLeft | Qt::AlignVCenter, txt);
-        }
-    }
-
-    void drawPanelFrame(QPainter &p, const QRectF &r, const QString &title, const QColor &accent, const QString &sub, int panelIndex) {
-        const qreal appear = easeSin((elapsedSec() - panelIndex * 0.08) / 0.4);
-        p.save();
-        p.setOpacity(appear);
-
-        const bool hovered = (panelIndex == m_hoveredPanel);
-        const QPointF sh = hovered ? QPointF(6, 9) : QPointF(4, 6);
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0, 0, 0, hovered ? 153 : 127));
-        p.drawRoundedRect(r.translated(sh), 16, 16);
-
-        QLinearGradient bg(r.topLeft(), r.bottomRight());
-        bg.setColorAt(0.0, QColor("#1A1208"));
-        bg.setColorAt(1.0, QColor("#0A0804"));
-        p.setBrush(bg);
-        p.setPen(QPen(QColor(193, 127, 62, hovered ? 115 : 64), 1));
-        p.drawRoundedRect(r, 16, 16);
-
-        QLinearGradient ag(r.left(), r.top(), r.right(), r.top());
-        ag.setColorAt(0.0, QColor(0, 0, 0, 0));
-        ag.setColorAt(0.5, accent);
-        ag.setColorAt(1.0, QColor(0, 0, 0, 0));
-        p.fillRect(QRectF(r.left() + 8, r.top() + 6, r.width() - 16, 2), ag);
-        QColor glow = accent; glow.setAlpha(40);
-        p.fillRect(QRectF(r.left() + 8, r.top() + 8, r.width() - 16, 12), glow);
-
-        p.setFont(QFont("Segoe UI", 12, QFont::Bold));
-        p.setPen(QColor("#F5E6D3"));
-        p.drawText(QRectF(r.left() + 14, r.top() + 12, r.width() - 130, 18), Qt::AlignLeft | Qt::AlignVCenter, title);
-        p.setPen(accent);
-        p.drawText(QRectF(r.right() - 120, r.top() + 12, 106, 18), Qt::AlignRight | Qt::AlignVCenter, sub);
-        p.setPen(QPen(QColor("#1E1508"), 1));
-        p.drawLine(QPointF(r.left() + 10, r.top() + 36), QPointF(r.right() - 10, r.top() + 36));
-        p.restore();
-    }
-
-    void drawPanelDonut(QPainter &p, const QRectF &panel) {
-        const int all = m_data.total + m_data.retired;
-        drawPanelFrame(p, panel, "STATUS DISTRIBUTION", QColor("#C17F3E"), QString::number(all), 0);
-
-        const QRectF body = panel.adjusted(12, 42, -12, -10);
-        const QRectF chartRect(body.left() + 6, body.top() + 6, body.width() * 0.62, body.height() - 12);
-        const QPointF c = chartRect.center();
-        const qreal r = qMin(chartRect.width(), chartRect.height()) * 0.42;
-        const qreal inner = r * 0.52;
-
-        m_donutCenter = c;
-        m_donutInner = inner;
-        m_donutOuter = r;
-        m_segmentRanges.clear();
-
-        const QVector<int> vals = {m_data.available, m_data.inUse, m_data.maintenance, m_data.retired};
-        const QVector<QString> names = {"Available", "In Use", "Maintenance", "Retired"};
-        const QVector<QColor> colors = {QColor("#4CAF7D"), QColor("#C17F3E"), QColor("#F59E0B"), QColor("#6B7280")};
-        const qreal total = qMax(1, all);
-
-        qreal consumed = 0.0;
-        for (int i = 0; i < vals.size(); ++i) {
-            const qreal span = 360.0 * vals[i] / total;
-            const qreal segProg = easeSin((elapsedSec() - i * 0.1) / 0.35);
-            const qreal visSpan = span * segProg;
-            const qreal start = consumed;
-            const qreal mid = start + visSpan * 0.5;
-            const qreal hoverOut = (i == m_hoveredSegment) ? 10.0 : 0.0;
-            const qreal dim = (m_hoveredSegment >= 0 && m_hoveredSegment != i) ? 0.65 : 1.0;
-
-            m_segmentRanges.push_back({consumed, consumed + span});
-
-            const qreal theta = qDegreesToRadians(-90.0 + mid);
-            const QPointF segC(c.x() + qCos(theta) * hoverOut, c.y() + qSin(theta) * hoverOut);
-
-            QRectF baseOuter(segC.x() - (r + 10), segC.y() - (r + 10), 2 * (r + 10), 2 * (r + 10));
-            QRectF baseInner(segC.x() - inner, segC.y() - inner, 2 * inner, 2 * inner);
-            QPainterPath baseRing;
-            baseRing.addEllipse(baseOuter.translated(5, 7));
-            baseRing.addEllipse(baseInner.translated(5, 7));
-            baseRing.setFillRule(Qt::OddEvenFill);
-            p.save();
-            p.setClipPath(baseRing);
-            QColor sh = colors[i];
-            sh.setAlphaF(0.30 * dim);
-            p.setBrush(sh);
-            p.setPen(Qt::NoPen);
-            p.drawPie(baseOuter.translated(5, 7), qRound((90 - start) * 16), -qRound(visSpan * 16));
-            p.restore();
-
-            QRectF o(segC.x() - r, segC.y() - r, 2 * r, 2 * r);
-            QRectF in(segC.x() - inner, segC.y() - inner, 2 * inner, 2 * inner);
-            QPainterPath ring;
-            ring.addEllipse(o);
-            ring.addEllipse(in);
-            ring.setFillRule(Qt::OddEvenFill);
-            p.save();
-            p.setClipPath(ring);
-            QConicalGradient cg(segC, 90 - start);
-            QColor c0 = colors[i]; c0.setAlphaF(dim);
-            QColor c1 = colors[i].darker(125); c1.setAlphaF(dim * 0.90);
-            cg.setColorAt(0.0, c0);
-            cg.setColorAt(1.0, c1);
-            p.setBrush(cg);
-            p.setPen(QPen(QColor(0, 0, 0, 80), 1));
-            p.drawPie(o, qRound((90 - start) * 16), -qRound(visSpan * 16));
-            p.restore();
-
-            p.setPen(QPen(colors[i].lighter(140), 4));
-            p.setBrush(Qt::NoBrush);
-            p.drawArc(o.adjusted(-1, -1, 1, 1), qRound((90 - start) * 16), -qRound(visSpan * 16));
-
-            if (span > 0) {
-                const qreal bd = qDegreesToRadians(-90.0 + consumed + span);
-                p.setPen(QPen(QColor(0, 0, 0), 2));
-                p.drawLine(QPointF(segC.x() + qCos(bd) * inner, segC.y() + qSin(bd) * inner), QPointF(segC.x() + qCos(bd) * r, segC.y() + qSin(bd) * r));
-            }
-
-            consumed += span;
-        }
-
-        QRadialGradient hole(c, inner);
-        hole.setColorAt(0.0, QColor("#1A0E06"));
-        hole.setColorAt(0.55, QColor("#0D0805"));
-        hole.setColorAt(1.0, QColor("#1A1208"));
-        p.setBrush(hole);
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(c, inner, inner);
-        p.setPen(QPen(QColor(0, 0, 0, 178), 6));
-        p.setBrush(Qt::NoBrush);
-        p.drawArc(QRectF(c.x() - inner, c.y() - inner, inner * 2, inner * 2), 0, 360 * 16);
-
-        const qreal centerCount = (m_data.total + m_data.retired) * easeSin(elapsedSec() / 1.4);
-        p.setFont(QFont("Segoe UI", 26, QFont::Bold));
-        p.setPen(QColor("#C17F3E"));
-        p.drawText(QRectF(c.x() - 70, c.y() - 18, 140, 36), Qt::AlignCenter, QString::number((int)qRound(centerCount)));
-        p.setFont(QFont("Segoe UI", 9, QFont::DemiBold));
-        p.setPen(QColor(245, 230, 211, 115));
-        p.drawText(QRectF(c.x() - 70, c.y() + 12, 140, 18), Qt::AlignCenter, "TOTAL");
-
-        const QRectF legend(body.left() + body.width() * 0.66, body.top() + 12, body.width() * 0.33, body.height() - 24);
-        qreal ly = legend.top();
-        for (int i = 0; i < names.size(); ++i) {
-            QColor col = colors[i];
-            qreal pct = 100.0 * vals[i] / total;
-            p.setPen(Qt::NoPen);
-            QColor glow = col; glow.setAlpha(80);
-            p.setBrush(glow);
-            p.drawRoundedRect(QRectF(legend.left(), ly + 2, 10, 10), 2, 2);
-            p.setBrush(col);
-            p.drawRoundedRect(QRectF(legend.left() + 1, ly + 3, 8, 8), 2, 2);
-
-            p.setFont(QFont("Segoe UI", 10));
-            p.setPen(QColor("#F5E6D3"));
-            p.drawText(QRectF(legend.left() + 16, ly, 82, 14), Qt::AlignLeft | Qt::AlignVCenter, names[i]);
-
-            p.setFont(QFont("Segoe UI", 10, QFont::Bold));
-            p.setPen(col);
-            p.drawText(QRectF(legend.left() + 98, ly, 40, 14), Qt::AlignLeft | Qt::AlignVCenter, QString::number(vals[i]));
-
-            p.setFont(QFont("Segoe UI", 9));
-            p.setPen(QColor(245, 230, 211, 128));
-            p.drawText(QRectF(legend.left() + 136, ly, 52, 14), Qt::AlignLeft | Qt::AlignVCenter, QString::number(pct, 'f', 1) + "%");
-            ly += 24;
-        }
-    }
-
-    void drawPanelRanking(QPainter &p, const QRectF &panel) {
-        drawPanelFrame(p, panel, "EQUIPMENT VALUE RANKING", QColor("#FFD700"), QString::number(m_data.ranking.size()), 1);
-        QRectF body = panel.adjusted(10, 44, -10, -10);
-
-        const int rows = qMin(8, m_data.ranking.size());
-        if (rows == 0) return;
-        qreal maxVal = 1.0;
-        for (int i = 0; i < rows; ++i) maxVal = qMax(maxVal, m_data.ranking[i].unitPrice);
-
-        const qreal rowH = qMin(42.0, body.height() / rows);
-        for (int i = 0; i < rows; ++i) {
-            QRectF row(body.left(), body.top() + i * rowH, body.width(), rowH - 2);
-            QColor rowBg = (i % 2 == 0) ? QColor("#0D0805") : QColor("#110A06");
-            if (m_hoveredPanel == 1 && row.contains(mapFromGlobal(QCursor::pos()))) rowBg = QColor("#1E1408");
-            p.fillRect(row, rowBg);
-
-            const EquipmentRankingEntry &e = m_data.ranking[i];
-            p.setFont(QFont("Segoe UI", 11, QFont::Bold));
-            p.setPen(QColor("#F5E6D3"));
-            p.drawText(QRectF(row.left() + 6, row.top() + 3, 160, 16), Qt::AlignLeft, e.name.left(20));
-            p.setFont(QFont("Segoe UI", 9));
-            p.setPen(QColor(245, 230, 211, 102));
-            p.drawText(QRectF(row.left() + 6, row.top() + 20, 160, 14), Qt::AlignLeft, e.status);
-
-            const qreal areaLeft = row.left() + 170;
-            const qreal areaW = row.width() - 250;
-            const qreal t = easeSin((elapsedSec() - i * 0.07) / 0.7);
-            const qreal bw = areaW * (e.unitPrice / maxVal) * t;
-
-            QRectF bar(areaLeft, row.center().y() - 2, bw, 4);
-            QColor barColor("#FFD700");
-            p.setBrush(QColor(barColor.red(), barColor.green(), barColor.blue(), 40));
-            p.drawRoundedRect(QRectF(areaLeft, bar.top(), areaW, 4), 2, 2);
-            
-            QLinearGradient bg(bar.topLeft(), bar.topRight());
-            bg.setColorAt(0.0, QColor("#FFD700"));
-            bg.setColorAt(1.0, QColor("#C17F3E"));
-            p.setBrush(bg);
-            p.drawRoundedRect(bar, 2, 2);
-
-            if (bw > 30) {
-                p.setPen(Qt::NoPen);
-                p.setBrush(QColor(255, 255, 255, 60));
-                p.drawEllipse(QPointF(bar.right(), bar.center().y()), 3, 3);
-            }
-
-            p.setPen(QPen(QColor(255, 224, 102, 150), 1.5));
-            p.drawLine(QPointF(bar.left() + 2, bar.top() + 1), QPointF(bar.right() - 2, bar.top() + 1));
-
-            if (bw > 30) {
-                qreal shimmerX = std::fmod(m_globalTime * 50.0 + i * 30.0, bw);
-                qreal op = qSin((shimmerX / qMax<qreal>(1.0, bw)) * M_PI) * 0.25;
-                QColor shc(255, 255, 255, int(op * 255));
-                p.fillRect(QRectF(bar.left() + shimmerX, bar.top() + 2, 20, bar.height() - 4), shc);
-            }
-
-            p.setFont(QFont("Segoe UI", 11, QFont::Bold));
-            p.setPen(QColor("#FFD700"));
-            p.drawText(QRectF(row.right() - 80, row.top(), 76, row.height()), Qt::AlignRight | Qt::AlignVCenter,
-                       QString::number(e.unitPrice, 'f', 0) + " dt");
-        }
-    }
-
-    void drawPanelTimeline(QPainter &p, const QRectF &panel) {
-        drawPanelFrame(p, panel, "WORKSHOP ACTIVITY TIMELINE", QColor("#3B82F6"), QString::number(m_data.months.size()), 2);
-
-        QRectF body = panel.adjusted(14, 46, -14, -14);
-        p.setPen(QPen(QColor("#1E1508"), 1));
-        p.setBrush(QColor("#080503"));
-        p.drawRoundedRect(body, 8, 8);
-
-        if (m_data.months.isEmpty()) return;
-
-        const int n = m_data.months.size();
-        int maxY = 1;
-        for (int v : m_data.monthlyAdded) maxY = qMax(maxY, v);
-        for (int v : m_data.monthlyMaintenance) maxY = qMax(maxY, v);
-
-        QRectF plot = body.adjusted(42, 16, -10, -28);
-        p.setPen(QPen(QColor(193, 127, 62, 20), 1));
-        for (int i = 0; i < 4; ++i) {
-            qreal y = plot.bottom() - i * (plot.height() / 3.0);
-            p.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
-            p.setFont(QFont("Segoe UI", 9));
-            p.setPen(QColor(193, 127, 62, 150));
-            p.drawText(QRectF(body.left(), y - 8, 34, 16), Qt::AlignRight | Qt::AlignVCenter, QString::number((maxY * i) / 3));
-            p.setPen(QPen(QColor(193, 127, 62, 20), 1));
-        }
-
-        QVector<QPointF> addPts;
-        QVector<QPointF> mntPts;
-        for (int i = 0; i < n; ++i) {
-            qreal x = plot.left() + (n == 1 ? 0.0 : (plot.width() * i / (n - 1.0)));
-            qreal y1 = plot.bottom() - (plot.height() * m_data.monthlyAdded.value(i) / maxY);
-            qreal y2 = plot.bottom() - (plot.height() * m_data.monthlyMaintenance.value(i) / maxY);
-            addPts << QPointF(x, y1);
-            mntPts << QPointF(x, y2);
-            p.setPen(QColor(245, 230, 211, 120));
-            p.setFont(QFont("Segoe UI", 9));
-            p.drawText(QRectF(x - 20, plot.bottom() + 6, 40, 14), Qt::AlignCenter, m_data.months[i]);
-        }
-
-        auto buildSmooth = [](const QVector<QPointF> &pts) {
-            QPainterPath path;
-            if (pts.isEmpty()) return path;
-            path.moveTo(pts.first());
-            for (int i = 1; i < pts.size(); ++i) {
-                QPointF p0 = pts[i - 1];
-                QPointF p1 = pts[i];
-                qreal dx = (p1.x() - p0.x()) * 0.5;
-                path.cubicTo(QPointF(p0.x() + dx, p0.y()), QPointF(p1.x() - dx, p1.y()), p1);
-            }
-            return path;
-        };
-
-        QPainterPath addPath = buildSmooth(addPts);
-        QPainterPath mntPath = buildSmooth(mntPts);
-
-        const qreal lineProg = easeSin(elapsedSec() / 1.2);
-        p.save();
-        p.setClipRect(QRectF(plot.left(), plot.top(), plot.width() * lineProg, plot.height()));
-
-        QPainterPath fill = addPath;
-        fill.lineTo(plot.bottomRight());
-        fill.lineTo(plot.bottomLeft());
-        fill.closeSubpath();
-        QLinearGradient fg(plot.left(), plot.top(), plot.left(), plot.bottom());
-        fg.setColorAt(0.0, QColor(59, 130, 246, 89));
-        fg.setColorAt(1.0, QColor(59, 130, 246, 0));
-        p.fillPath(fill, fg);
-
-        p.setPen(QPen(QColor("#3B82F6"), 2.5));
-        p.setBrush(Qt::NoBrush);
-        p.drawPath(addPath);
-        p.setPen(QPen(QColor("#F59E0B"), 2.0, Qt::DashLine));
-        p.drawPath(mntPath);
-        p.restore();
-
-        for (int i = 0; i < addPts.size(); ++i) {
-            p.setPen(QPen(Qt::white, 2));
-            p.setBrush(QColor("#3B82F6"));
-            p.drawEllipse(addPts[i], 3.5, 3.5);
-            p.setPen(QPen(QColor("#F59E0B"), 2));
-            p.setBrush(QColor("#F59E0B"));
-            p.drawEllipse(mntPts[i], 2.8, 2.8);
-        }
-
-        p.setPen(QColor("#3B82F6"));
-        p.setFont(QFont("Segoe UI", 9));
-        p.drawText(QRectF(plot.right() - 160, plot.top() + 2, 150, 12), "Blue  Equipment Added");
-        p.setPen(QColor("#F59E0B"));
-        p.drawText(QRectF(plot.right() - 160, plot.top() + 16, 150, 12), "Orange  Maintenance Events");
-    }
-
-    void drawPanelRadar(QPainter &p, const QRectF &panel) {
-        drawPanelFrame(p, panel, "WORKSHOP HEALTH RADAR", QColor("#4CAF7D"), QString::number(m_data.radarScores.size()), 3);
-        QRectF body = panel.adjusted(12, 44, -12, -10);
-
-        const QVector<QString> labels = {
-            "Equipment Health", "Maintenance Score", "Value Density",
-            "Activity Level", "Age Balance", "Documentation"
-        };
-        QVector<double> scores = m_data.radarScores;
-        if (scores.size() != 6) {
-            scores = {40, 40, 40, 40, 40, 40};
-        }
-
-        QPointF c(body.center().x(), body.center().y() + 2);
-        const qreal rr = qMin(body.width(), body.height()) * 0.33;
-        const int axes = 6;
-
-        p.setPen(QPen(QColor(193, 127, 62, 20), 1));
-        for (int ring = 1; ring <= 4; ++ring) {
-            qreal k = ring / 4.0;
-            QPolygonF poly;
-            for (int i = 0; i < axes; ++i) {
-                qreal a = qDegreesToRadians(-90.0 + i * (360.0 / axes));
-                poly << QPointF(c.x() + rr * k * qCos(a), c.y() + rr * k * qSin(a));
-            }
-            p.drawPolygon(poly);
-        }
-
-        for (int i = 0; i < axes; ++i) {
-            qreal a = qDegreesToRadians(-90.0 + i * (360.0 / axes));
-            p.setPen(QPen(QColor(193, 127, 62, 38), 1));
-            p.drawLine(c, QPointF(c.x() + rr * qCos(a), c.y() + rr * qSin(a)));
-        }
-
-        const qreal radarAnim = easeSin(elapsedSec() / 1.0);
-        QPolygonF dataPoly;
-        QVector<QPointF> points;
-        for (int i = 0; i < axes; ++i) {
-            qreal a = qDegreesToRadians(-90.0 + i * (360.0 / axes));
-            qreal k = clamp01(scores[i] / 100.0) * radarAnim;
-            QPointF pt(c.x() + rr * k * qCos(a), c.y() + rr * k * qSin(a));
-            points << pt;
-            dataPoly << pt;
-        }
-
-        QRadialGradient rg(c, rr);
-        rg.setColorAt(0.0, QColor(76, 175, 125, 64));
-        rg.setColorAt(1.0, QColor(76, 175, 125, 20));
-        p.setBrush(rg);
-        p.setPen(QPen(QColor(76, 175, 125, 204), 2));
-        p.drawPolygon(dataPoly);
-
-        for (int i = 0; i < points.size(); ++i) {
-            QRadialGradient g(points[i], 10);
-            g.setColorAt(0.0, QColor(76, 175, 125, 90));
-            g.setColorAt(1.0, QColor(76, 175, 125, 0));
-            p.setBrush(g);
-            p.setPen(Qt::NoPen);
-            p.drawEllipse(points[i], 10, 10);
-
-            p.setBrush(QColor("#4CAF7D"));
-            p.setPen(QPen(Qt::white, 2));
-            p.drawEllipse(points[i], 3, 3);
-        }
-
-        for (int i = 0; i < axes; ++i) {
-            qreal a = qDegreesToRadians(-90.0 + i * (360.0 / axes));
-            QPointF lp(c.x() + (rr + 18) * qCos(a), c.y() + (rr + 18) * qSin(a));
-            QRectF lr(lp.x() - 52, lp.y() - 10, 104, 32);
-            p.setFont(QFont("Segoe UI", 9, QFont::Bold));
-            p.setPen(QColor("#F5E6D3"));
-            p.drawText(QRectF(lr.left(), lr.top(), lr.width(), 14), Qt::AlignCenter, labels[i]);
-            p.setFont(QFont("Segoe UI", 12, QFont::Bold));
-            p.setPen(QColor("#4CAF7D"));
-            p.drawText(QRectF(lr.left(), lr.top() + 14, lr.width(), 16), Qt::AlignCenter, QString::number((int)qRound(scores[i])));
-        }
-    }
-
-    void drawBottomCards(QPainter &p, const QRectF &a, const QRectF &b, const QRectF &c) {
-        auto drawCardFrame = [&](const QRectF &r) {
-            p.setPen(Qt::NoPen);
-            p.setBrush(QColor(0, 0, 0, 120));
-            p.drawRoundedRect(r.translated(3, 5), 12, 12);
-            QLinearGradient bg(r.topLeft(), r.bottomRight());
-            bg.setColorAt(0.0, QColor("#1A1208"));
-            bg.setColorAt(1.0, QColor("#0A0804"));
-            p.setBrush(bg);
-            p.setPen(QPen(QColor(193, 127, 62, 64), 1));
-            p.drawRoundedRect(r, 12, 12);
-        };
-
-        drawCardFrame(a);
-        p.setPen(QColor("#C17F3E"));
-        p.setFont(QFont("Segoe UI", 9, QFont::Bold));
-        p.drawText(QRectF(a.left() + 10, a.top() + 10, a.width() - 20, 14), "MOST ACTIVE EQUIPMENT");
-        p.setPen(QColor("#F5E6D3"));
-        p.setFont(QFont("Segoe UI", 11, QFont::Bold));
-        p.drawText(QRectF(a.left() + 10, a.top() + 28, a.width() - 20, 16), m_data.mostActiveName.isEmpty() ? "No tracked activity" : m_data.mostActiveName);
-        p.setFont(QFont("Segoe UI", 9));
-        p.setPen(QColor(245, 230, 211, 150));
-        p.drawText(QRectF(a.left() + 10, a.top() + 46, a.width() - 20, 14), QString::number(m_data.mostActiveEvents) + " Most interactions");
-        qreal actw = (a.width() - 20) * clamp01(m_data.mostActiveEvents / 12.0);
-        p.fillRect(QRectF(a.left() + 10, a.bottom() - 16, actw, 6), QColor("#C17F3E"));
-
-        drawCardFrame(b);
-        p.setPen(QColor("#4CAF7D"));
-        p.setFont(QFont("Segoe UI", 9, QFont::Bold));
-        p.drawText(QRectF(b.left() + 10, b.top() + 10, b.width() - 20, 14), "NEWEST ACQUISITION");
-        p.setPen(QColor("#F5E6D3"));
-        p.setFont(QFont("Segoe UI", 11, QFont::Bold));
-        p.drawText(QRectF(b.left() + 10, b.top() + 28, b.width() - 20, 16), m_data.newestName.isEmpty() ? "SYSTEM READY" : m_data.newestName);
-        p.setFont(QFont("Segoe UI", 9));
-        p.setPen(QColor(245, 230, 211, 150));
-        const QString dateTxt = m_data.newestDate.isValid() ? m_data.newestDate.toString("yyyy-MM-dd") : "---";
-        p.drawText(QRectF(b.left() + 10, b.top() + 46, b.width() - 20, 14), dateTxt + "  |  " + (m_data.newestDays >= 0 ? QString::number(m_data.newestDays) + " days ago" : "STANDBY"));
-        p.setBrush(QColor("#4CAF7D"));
-        p.setPen(Qt::NoPen);
-        p.drawRoundedRect(QRectF(b.right() - 58, b.top() + 10, 48, 16), 8, 8);
-        p.setPen(Qt::white);
-        p.setFont(QFont("Segoe UI", 8, QFont::Bold));
-        p.drawText(QRectF(b.right() - 58, b.top() + 10, 48, 16), Qt::AlignCenter, "NEW");
-
-        drawCardFrame(c);
-        p.setPen(QColor("#C17F3E"));
-        p.setFont(QFont("Segoe UI", 9, QFont::Bold));
-        p.drawText(QRectF(c.left() + 10, c.top() + 10, c.width() - 20, 14), "WORKSHOP AGE SUMMARY");
-        p.setPen(QColor("#F5E6D3"));
-        p.setFont(QFont("Segoe UI", 10, QFont::Bold));
-        p.drawText(QRectF(c.left() + 10, c.top() + 26, c.width() - 20, 14), "Average: " + QString::number(m_data.avgAgeYears, 'f', 1) + " years");
-        p.setFont(QFont("Segoe UI", 9));
-        p.setPen(QColor(245, 230, 211, 150));
-        p.drawText(QRectF(c.left() + 10, c.top() + 42, c.width() - 20, 12), "Oldest: " + (m_data.oldestName.isEmpty() ? "n/a" : m_data.oldestName));
-        p.drawText(QRectF(c.left() + 10, c.top() + 56, c.width() - 20, 12), "Newest: " + (m_data.newestAgeName.isEmpty() ? "n/a" : m_data.newestAgeName));
-
-        qreal ageNorm = clamp01(m_data.avgAgeYears / 20.0);
-        QRectF tl(c.left() + 10, c.bottom() - 16, c.width() - 20, 6);
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(245, 230, 211, 30));
-        p.drawRoundedRect(tl, 3, 3);
-        p.setBrush(QColor("#C17F3E"));
-        p.drawRoundedRect(QRectF(tl.left(), tl.top(), tl.width() * ageNorm, tl.height()), 3, 3);
-    }
-
-private:
     EquipmentStatsVisualData m_data;
     QTimer m_frameTimer;
     qreal m_globalTime = 0.0;
     qint64 m_bootMs = 0;
+
+    int m_expandedIndex = -1;
+    qreal m_expansionFactors[3] = {0,0,0};
+    int m_hoveredMini = -1;
+    QVector<QRectF> m_miniRects;
 
     QVector<QRectF> m_panelRects;
     int m_hoveredPanel = -1;
@@ -1218,6 +1078,7 @@ void MainWindow::setupEquipmentModes()
     ui_equipment->sb_quantity->setFixedHeight(32);
     ui_equipment->te_desc->setFixedHeight(80);
 
+
     auto updateUI = [=](bool isAdd) {
 
         // Shift amount for other fields when ID is hidden
@@ -1357,23 +1218,13 @@ void MainWindow::setupEquipmentModes()
         } else if (selected == ui_equipment->tab_stats) {
             setupEquipmentStats();
         } else if (selected == ui_equipment->tab_chat) {
+            ui_equipment->list_employees->setItemDelegate(new ChatEmployeeDelegate(this));
+            ui_equipment->list_employees->setSpacing(2);
             onChatRefresh();
             onChatEmployeeListRefresh();
             chatRefreshTimer->start(3000); // 3 seconds refresh
         }
     });
-
-    // Voice chat removed as requested
-    if (ui_equipment->btn_chat_voice) {
-        ui_equipment->btn_chat_voice->hide();
-    }
-
-    // Connect Show Name button
-    if (auto *showNameBtn = equipmentPage->findChild<QPushButton*>("btn_show_name")) {
-        // Functionality removed as requested
-        showNameBtn->hide();
-    }
-
 
     // --- ContrÃƒÆ’Ã‚Â´le de Saisie (Input Validation) ---
     // Only letters and spaces for Type
@@ -1931,13 +1782,161 @@ void MainWindow::onEquipmentHistorySearch()
         return (id + " " + type + " " + description + " " + status + " " + price + " " + dateText).toUpper();
     };
 
+    auto applyTimelineView = [&](QTableView *view) {
+        if (!view) {
+            return;
+        }
+        const int baseHeight = 90;
+        const int expandedHeight = 150;
+
+        if (!dynamic_cast<TimelineCardDelegate*>(view->itemDelegate())) {
+            view->setItemDelegate(new TimelineCardDelegate(view));
+        }
+        if (!view->property("timelinePulse").isValid()) {
+            view->setProperty("timelinePulse", 0.0);
+            view->setProperty("timelineExpand", 0.0);
+            view->setProperty("timelineScan", 0.0);
+            view->setProperty("timelineSelectedRow", -1);
+            view->setProperty("timelineSelectedKey", QString());
+        }
+
+        auto *pulseAnim = view->findChild<QPropertyAnimation*>("timelinePulseAnim");
+        if (!pulseAnim) {
+            pulseAnim = new QPropertyAnimation(view, "timelinePulse", view);
+            pulseAnim->setObjectName("timelinePulseAnim");
+            pulseAnim->setDuration(520);
+            pulseAnim->setKeyValueAt(0.0, 0.0);
+            pulseAnim->setKeyValueAt(0.5, 1.0);
+            pulseAnim->setKeyValueAt(1.0, 0.0);
+            pulseAnim->setEasingCurve(QEasingCurve::OutCubic);
+            QObject::connect(pulseAnim, &QPropertyAnimation::valueChanged, view, [view]() {
+                view->viewport()->update();
+            });
+        }
+
+        auto *expandAnim = view->findChild<QPropertyAnimation*>("timelineExpandAnim");
+        if (!expandAnim) {
+            expandAnim = new QPropertyAnimation(view, "timelineExpand", view);
+            expandAnim->setObjectName("timelineExpandAnim");
+            expandAnim->setDuration(260);
+            expandAnim->setStartValue(0.0);
+            expandAnim->setEndValue(1.0);
+            expandAnim->setEasingCurve(QEasingCurve::OutCubic);
+            QObject::connect(expandAnim, &QPropertyAnimation::valueChanged, view, [view, baseHeight, expandedHeight]() {
+                const int row = view->property("timelineSelectedRow").toInt();
+                if (row < 0 || !view->model()) {
+                    return;
+                }
+                double factor = view->property("timelineExpand").toDouble();
+                if (factor < 0.0) factor = 0.0;
+                if (factor > 1.0) factor = 1.0;
+                const int height = baseHeight + static_cast<int>((expandedHeight - baseHeight) * factor);
+                view->setRowHeight(row, height);
+                view->viewport()->update();
+            });
+        }
+
+        auto *scanAnim = view->findChild<QPropertyAnimation*>("timelineScanAnim");
+        if (!scanAnim) {
+            scanAnim = new QPropertyAnimation(view, "timelineScan", view);
+            scanAnim->setObjectName("timelineScanAnim");
+            scanAnim->setDuration(900);
+            scanAnim->setStartValue(0.0);
+            scanAnim->setEndValue(1.0);
+            scanAnim->setEasingCurve(QEasingCurve::OutCubic);
+            scanAnim->setLoopCount(1);
+            QObject::connect(scanAnim, &QPropertyAnimation::valueChanged, view, [view]() {
+                view->viewport()->update();
+            });
+        }
+
+        view->setShowGrid(false);
+        view->setAlternatingRowColors(false);
+        view->setSelectionBehavior(QAbstractItemView::SelectRows);
+        view->setSelectionMode(QAbstractItemView::SingleSelection);
+        view->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        view->verticalHeader()->setVisible(false);
+        view->horizontalHeader()->setVisible(false);
+        view->setStyleSheet("QTableView { background: transparent; border: none; }");
+        view->verticalHeader()->setDefaultSectionSize(baseHeight);
+
+        if (view->model()) {
+            for (int r = 0; r < view->model()->rowCount(); ++r) {
+                view->setRowHeight(r, baseHeight);
+            }
+        }
+
+        if (view->selectionModel() && view->model()) {
+            const QString key = view->property("timelineSelectedKey").toString();
+            if (!key.isEmpty()) {
+                const QStringList parts = key.split('|');
+                const QString wantedId = parts.value(0);
+                const QString wantedEvent = parts.value(1);
+                const int rowCount = view->model()->rowCount();
+                for (int r = 0; r < rowCount; ++r) {
+                    const QString rowId = view->model()->index(r, 0).data().toString();
+                    const QString rowEvent = view->model()->index(r, 6).data().toString();
+                    if (rowId == wantedId && rowEvent == wantedEvent) {
+                        QSignalBlocker blocker(view->selectionModel());
+                        view->selectionModel()->setCurrentIndex(view->model()->index(r, 0),
+                                                                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+                        view->setProperty("timelineSelectedRow", r);
+                        view->setProperty("timelineExpand", 1.0);
+                        view->setRowHeight(r, expandedHeight);
+                        view->viewport()->update();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (view->selectionModel()) {
+            const quintptr selPtr = reinterpret_cast<quintptr>(view->selectionModel());
+            if (view->property("timelineSelModel").toULongLong() != selPtr) {
+                view->setProperty("timelineSelModel", QVariant::fromValue<qulonglong>(selPtr));
+                QObject::connect(view->selectionModel(), &QItemSelectionModel::currentRowChanged,
+                                 view, [view, pulseAnim, expandAnim, scanAnim, baseHeight](const QModelIndex &current, const QModelIndex &) {
+                    const int prevRow = view->property("timelineSelectedRow").toInt();
+                    if (prevRow >= 0) {
+                        view->setRowHeight(prevRow, baseHeight);
+                    }
+
+                    if (!current.isValid()) {
+                        view->setProperty("timelineSelectedRow", -1);
+                        view->setProperty("timelineExpand", 0.0);
+                        view->setProperty("timelineScan", 0.0);
+                        view->setProperty("timelineSelectedKey", QString());
+                        view->viewport()->update();
+                        return;
+                    }
+
+                    const QString selId = current.model()->index(current.row(), 0).data().toString();
+                    const QString selEvent = current.model()->index(current.row(), 6).data().toString();
+                    view->setProperty("timelineSelectedKey", selId + "|" + selEvent);
+
+                    view->setProperty("timelineSelectedRow", current.row());
+                    view->setProperty("timelineExpand", 0.0);
+                    view->setProperty("timelineScan", 0.0);
+                    view->setRowHeight(current.row(), baseHeight);
+
+                    expandAnim->stop();
+                    expandAnim->start();
+                    pulseAnim->stop();
+                    pulseAnim->start();
+                    scanAnim->stop();
+                    scanAnim->start();
+                });
+            }
+        }
+    };
+
     auto renderRows = [&](QTableView *view, const QJsonArray &rows, const QString &fallbackStatus, int minIdExclusive, bool iterateReversed) {
         if (!view) {
             return;
         }
 
         QStandardItemModel *model = new QStandardItemModel(this);
-        model->setHorizontalHeaderLabels({"ID", "Type", "Description", "Status", "Price", "Date"});
+        model->setHorizontalHeaderLabels({"ID", "Type", "Description", "Status", "Price", "Date", "Event"});
 
         constexpr int kMaxRowsPerSection = 300;
         int appended = 0;
@@ -1965,6 +1964,7 @@ void MainWindow::onEquipmentHistorySearch()
             QString status = getString(obj, "status", "equipment_status");
             QString price = getString(obj, "price", "equipment_price");
             QString dateText = getString(obj, "date");
+            const QString eventType = fallbackStatus;
 
             if (status.isEmpty()) status = fallbackStatus;
             if (type.isEmpty()) type = "-";
@@ -1985,7 +1985,8 @@ void MainWindow::onEquipmentHistorySearch()
                 << new QStandardItem(description)
                 << new QStandardItem(status)
                 << new QStandardItem(price)
-                << new QStandardItem(dateText);
+                << new QStandardItem(dateText)
+                << new QStandardItem(eventType);
             model->appendRow(row);
             ++appended;
         };
@@ -2007,10 +2008,15 @@ void MainWindow::onEquipmentHistorySearch()
         }
 
         view->setModel(model);
-        view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
         view->setSortingEnabled(true);
         if (model->rowCount() > 0) {
             view->sortByColumn(5, Qt::DescendingOrder);
+        }
+
+        applyTimelineView(view);
+        view->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+        for (int c = 1; c < model->columnCount(); ++c) {
+            view->setColumnHidden(c, true);
         }
     };
 
@@ -2942,10 +2948,15 @@ void MainWindow::setupEquipmentConnections()
         double  price   = m->data(m->index(idx.row(), 5)).toDouble();
         QString desc    = m->data(m->index(idx.row(), 8)).toString();
 
-        // Show Identity Card
+        // Show Identity Card only in animation mode
         if (m_identityCard) {
-            m_identityCard->setup(desc, type, cond, price, id.toInt());
-            m_identityCard->animateOpen();
+            const bool animMode = (homeWindow && homeWindow->isAnimationMode());
+            if (animMode) {
+                m_identityCard->setup(desc, type, cond, price, id.toInt());
+                m_identityCard->animateOpen();
+            } else {
+                m_identityCard->hide();
+            }
         }
 
         if (idx.column() == 0) { // Edit Action
@@ -2980,14 +2991,22 @@ void MainWindow::setupEquipmentConnections()
     connect(ui_equipment->table_equipments, &QTableView::customContextMenuRequested, this, [this](const QPoint &pos){
         QModelIndex idx = ui_equipment->table_equipments->indexAt(pos);
         if (idx.isValid()) {
-            QSqlQueryModel *m = qobject_cast<QSqlQueryModel*>(ui_equipment->table_equipments->model());
-            int id = m->data(m->index(idx.row(), 2)).toInt();
-            m_radialMenu->showMenu(ui_equipment->table_equipments->viewport()->mapToGlobal(pos), id);
+            bool animMode = (homeWindow && homeWindow->isAnimationMode());
+            if (animMode) {
+                QSqlQueryModel *m = qobject_cast<QSqlQueryModel*>(ui_equipment->table_equipments->model());
+                int id = m->data(m->index(idx.row(), 2)).toInt();
+                // Map to a fixed position like right side.
+                // We let the menu position itself by passing a dummy pos or global geometry.
+                m_radialMenu->showMenu(ui_equipment->tab_view->mapToGlobal(QPoint(ui_equipment->tab_view->width() - 320, 50)), id);
+            }
         }
     });
 
     // Auto-refresh equipment views/stats when switching tabs
     connect(ui_equipment->tabWidget, &QTabWidget::currentChanged, this, [this](int idx){
+        if (m_radialMenu) m_radialMenu->hide();
+        if (m_identityCard) m_identityCard->hide();
+
         if (ui_equipment->tabWidget->widget(idx) == ui_equipment->tab_view) {
             onEquipmentRefreshView();
         } else if (ui_equipment->tabWidget->widget(idx) == ui_equipment->tab_history) {
@@ -3115,8 +3134,7 @@ void MainWindow::setupEquipmentConnections()
     });
 
     if (ui_equipment->btn_chat_voice) {
-        ui_equipment->btn_chat_voice->setVisible(true);
-        ui_equipment->btn_chat_voice->setStyleSheet("QPushButton { background: rgba(139,111,71,0.15); border: 2.2px solid #5A4A32; border-radius: 22px; color: #B8925A; font-size: 20px; }");
+        ui_equipment->btn_chat_voice->setVisible(false);
     }
     
     QShortcut *chatSearchShortcut = new QShortcut(QKeySequence("Ctrl+F"), equipmentPage);
@@ -3154,20 +3172,6 @@ void MainWindow::setupEquipmentConnections()
     connect3DView("btn_view_3", "engine+assembly");
     
     connect(ui_equipment->btn_return_home, &QPushButton::clicked, this, &MainWindow::on_btn_home_clicked);
-
-    // --- Audio & Recording Initialization ---
-    chatAudioOutput = new QAudioOutput(this);
-    chatAudioPlayer = new QMediaPlayer(this);
-    chatAudioPlayer->setAudioOutput(chatAudioOutput);
-    chatAudioPlayer->setSource(QUrl("qrc:/assets/ost2.mp3"));
-    chatAudioPlayer->setLoops(QMediaPlayer::Infinite);
-    chatAudioOutput->setVolume(1.0);
-
-    m_recorder = new QMediaRecorder(this);
-    m_captureSession = new QMediaCaptureSession(this);
-    m_audioInput = new QAudioInput(this);
-    m_captureSession->setAudioInput(m_audioInput);
-    m_captureSession->setRecorder(m_recorder);
 }
 void MainWindow::onChatEnsureTable()
 {
@@ -3220,7 +3224,11 @@ void MainWindow::onChatSendMessage()
     QJsonObject msgObj;
     msgObj["sender_id"] = currentEmployeeId;
     msgObj["receiver_id"] = currentChatPartnerId;
-    msgObj["message"] = msg.isEmpty() ? QString("[Image]") : msg;
+    
+    QString typeTag = "[Message]";
+    if (hasImage) typeTag = "[Image]";
+    
+    msgObj["message"] = msg.isEmpty() ? typeTag : msg;
     msgObj["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
     
     if (hasImage) {
@@ -3250,23 +3258,23 @@ void MainWindow::onChatRefresh()
     // --- Apply Global Theme to Chat Container ---
     if (m_isChatModernTheme) {
         ui_equipment->frame_chat_panel->setStyleSheet(
-            "QFrame#frame_chat_panel { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1A1208, stop:1 #0A0804); border-radius: 0px 16px 16px 0px; border: 1.5px solid #5A4A32; border-left: none; }"
+            "QFrame#frame_chat_panel { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1A1208, stop:1 #0A0804); border-radius: 16px; border: 1.5px solid #5A4A32; }"
         );
         ui_equipment->frame_chat_header->setStyleSheet(
-            "QFrame#frame_chat_header { background: rgba(30, 20, 10, 0.7); border-bottom: 1px solid #8B6F47; border-radius: 0px 14px 0px 0px; }"
+            "QFrame#frame_chat_header { background: rgba(30, 20, 10, 0.85); border-bottom: 2px solid #D4AF37; border-radius: 14px 14px 0px 0px; }"
         );
         ui_equipment->frame_input_bar->setStyleSheet(
-            "QFrame#frame_input_bar { background: rgba(30, 20, 10, 0.7); border-top: 1px solid #5A4A32; border-radius: 0 0 14px 0; }"
+            "QFrame#frame_input_bar { background: rgba(25, 20, 15, 0.9); border-top: 1px solid #D4AF37; border-radius: 0 0 14px 14px; }"
         );
     } else {
         ui_equipment->frame_chat_panel->setStyleSheet(
-            "QFrame#frame_chat_panel { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2D2416, stop:1 #1A1208); border-radius: 0px 16px 16px 0px; border: 1.5px solid #5A4A32; border-left: none; }"
+            "QFrame#frame_chat_panel { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2D2416, stop:1 #1A1208); border-radius: 16px; border: 1.5px solid #5A4A32; }"
         );
         ui_equipment->frame_chat_header->setStyleSheet(
-            "QFrame#frame_chat_header { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #3A2D1A,stop:1 #4A3820); border-bottom: 2px solid #8B6F47; border-radius: 0px 14px 0px 0px; }"
+            "QFrame#frame_chat_header { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #3A2D1A,stop:1 #4A3820); border-bottom: 2px solid #8B6F47; border-radius: 14px 14px 0px 0px; }"
         );
         ui_equipment->frame_input_bar->setStyleSheet(
-            "QFrame#frame_input_bar { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #2A2010,stop:1 #1E1608); border-top: 2px solid #5A4A32; border-radius: 0 0 14px 0; }"
+            "QFrame#frame_input_bar { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #2A2010,stop:1 #1E1608); border-top: 2px solid #5A4A32; border-radius: 0 0 14px 14px; }"
         );
     }
 
@@ -3306,6 +3314,9 @@ void MainWindow::onChatRefresh()
         delete item;
     }
     ui_equipment->verticalLayout_chat_contents->addStretch();
+    ui_equipment->verticalLayout_chat_contents->setSpacing(15);
+    ui_equipment->verticalLayout_chat_contents->setContentsMargins(10, 10, 10, 10);
+    ui_equipment->scrollArea_chat->setWidgetResizable(true);
 
     // Map to quickly get employee names
     static QMap<int, QPair<QString, QString>> employeeInfo;
@@ -3313,15 +3324,12 @@ void MainWindow::onChatRefresh()
     
     // Check for notification badge
     if (s_lastMessageCount != -1 && allMessages.size() > s_lastMessageCount && ui_equipment->tabWidget->currentIndex() != 4) {
-        // Someone sent a message and we're not on the chat tab
         QJsonObject lastM = allMessages.last().toObject();
-        if (lastM["sender_id"].toInt() != currentEmployeeId) { // We didn't send it
-            ui_equipment->tabWidget->setTabText(4, QString::fromUtf8("Chat \xF0\x9F\x94\xB4"));
+        if (lastM["sender_id"].toInt() != currentEmployeeId) { 
+             ui_equipment->tabWidget->setTabText(4, QString::fromUtf8("Chat \xF0\x9F\x94\xB4"));
         }
     }
-    s_lastMessageCount = allMessages.size();
     
-    // Clear badge if on chat tab
     if (ui_equipment->tabWidget->currentIndex() == 4) {
         ui_equipment->tabWidget->setTabText(4, "Chat");
     }
@@ -3339,275 +3347,147 @@ void MainWindow::onChatRefresh()
         "#7B6B9E", "#9E8B6B", "#6B8B9E", "#9E7B6B"
     };
 
-    // --- Message Loop ---
+    // Filter first to determine relevant history size
+    QJsonArray filteredMessages;
     for (int i = 0; i < allMessages.size(); ++i) {
         QJsonObject m = allMessages[i].toObject();
         int s_id = m["sender_id"].toInt();
         int r_id = m["receiver_id"].toInt();
-
-        // Filter messages for current conversation
-        if (!((s_id == currentEmployeeId && r_id == currentChatPartnerId) ||
-              (s_id == currentChatPartnerId && r_id == currentEmployeeId))) {
-            continue;
+        if ((s_id == currentEmployeeId && r_id == currentChatPartnerId) ||
+            (s_id == currentChatPartnerId && r_id == currentEmployeeId)) {
+            filteredMessages.append(m);
         }
+    }
 
+    // --- Optimization: Render only the last 40 messages to prevent crash/resource exhaustion ---
+    int startIdx = qMax(0, filteredMessages.size() - 40);
+    if (startIdx > 0) {
+        QLabel *limitHint = new QLabel("--- Older messages hidden for performance ---");
+        limitHint->setAlignment(Qt::AlignCenter);
+        limitHint->setStyleSheet("color: rgba(255,255,255,0.3); font-style: italic; font-size: 10px; padding: 10px;");
+        ui_equipment->verticalLayout_chat_contents->addWidget(limitHint);
+    }
+
+    for (int i = startIdx; i < filteredMessages.size(); ++i) {
+        QJsonObject m = filteredMessages[i].toObject();
+        int s_id = m["sender_id"].toInt();
+        
         QString msg = m["message"].toString();
         QDateTime dt = QDateTime::fromString(m["timestamp"].toString(), Qt::ISODate);
         bool isMe = (s_id == currentEmployeeId);
         
         QPair<QString, QString> names = employeeInfo.value(s_id, qMakePair(QString("Emp"), QString::number(s_id)));
-        QString firstName = names.first;
-        QString lastName = names.second;
+        QString senderName = names.first + " " + names.second;
 
-        QByteArray imgData;
-        if (m.contains("image_data")) {
-            imgData = QByteArray::fromBase64(m["image_data"].toString().toLatin1());
-        }
+        QWidget *msgContainer = new QWidget();
+        QHBoxLayout *msgHBox = new QHBoxLayout(msgContainer);
+        msgHBox->setContentsMargins(5, 2, 5, 2);
+        msgHBox->setSpacing(10);
 
-        // --- Build avatar label ---
+        // Avatar
         QLabel *avatarLbl = new QLabel();
         avatarLbl->setFixedSize(36, 36);
         avatarLbl->setAlignment(Qt::AlignCenter);
-        QString initials = (firstName.isEmpty() ? "?" : firstName.left(1).toUpper())
-                         + (lastName.isEmpty()  ? ""  : lastName.left(1).toUpper());
-        avatarLbl->setText(initials);
+        avatarLbl->setStyleSheet(QString("background: %1; color: white; border-radius: 18px; font-weight: bold; border: 1.5px solid rgba(255,255,255,0.2);")
+                                 .arg(avatarColors[s_id % avatarColors.size()]));
+        avatarLbl->setText(senderName.at(0).toUpper());
+
+        // Bubble
+        QFrame *bubble = new QFrame();
+        bubble->setObjectName("chat_bubble");
+        QString bubbleStyle = isMe ? 
+            "QFrame#chat_bubble { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3A2D1A, stop:1 #2A2010); border: 1.2px solid #D4AF37; border-radius: 14px; }" :
+            "QFrame#chat_bubble { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1A222A, stop:1 #0A1218); border: 1.2px solid #3B82F6; border-radius: 14px; }";
+        bubble->setStyleSheet(bubbleStyle);
         
-        QString avatarStyle;
-        if (m_isChatModernTheme) {
-            avatarStyle = QString(
-                "QLabel { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #D4AF37,stop:1 #8B6F47);"
-                " color: white; font-size: 13px; font-weight: bold; border-radius: 18px;"
-                " border: 2px solid rgba(255,255,255,0.4); box-shadow: 0 4px 8px rgba(0,0,0,0.3); }"
-            );
-        } else {
-            QString avatarColor = avatarColors[s_id % avatarColors.size()];
-            avatarStyle = QString(
-                "QLabel { background: %1; color: white; font-size: 12px; font-weight: bold;"
-                " border-radius: 18px; border: 1.5px solid rgba(255,255,255,0.2); }"
-            ).arg(avatarColor);
-        }
-        avatarLbl->setStyleSheet(avatarStyle);
+        QVBoxLayout *bubbleLayout = new QVBoxLayout(bubble);
+        bubbleLayout->setContentsMargins(12, 8, 12, 8);
+        bubbleLayout->setSpacing(4);
 
-        // --- Build bubble content ---
-        QVBoxLayout *bubbleLayout = new QVBoxLayout();
-        bubbleLayout->setSpacing(m_isChatModernTheme ? 4 : 3);
-        bubbleLayout->setContentsMargins(0, 0, 0, 0);
+        QLabel *nameLbl = new QLabel(senderName.toUpper());
+        nameLbl->setStyleSheet("font-size: 9px; font-weight: bold; color: rgba(255,255,255,0.6);");
+        bubbleLayout->addWidget(nameLbl);
 
-        // Sender name label
-        if (!isMe) {
-            QLabel *nameLabel = new QLabel(firstName + " " + lastName);
-            nameLabel->setStyleSheet(m_isChatModernTheme ? 
-                "color: #D4AF37; font-size: 11px; font-weight: 800; background: transparent;" :
-                "color: #D4AF37; font-size: 10px; font-weight: bold; background: transparent;");
-            bubbleLayout->addWidget(nameLabel, 0, isMe ? Qt::AlignRight : Qt::AlignLeft);
+        // Media Content (Images)
+        if (m.contains("image_data")) {
+            QLabel *imgLbl = new QLabel();
+            QPixmap pix;
+            pix.loadFromData(QByteArray::fromBase64(m["image_data"].toString().toLatin1()));
+            imgLbl->setPixmap(pix.scaled(250, 250, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            bubbleLayout->addWidget(imgLbl);
         }
 
-        // Image (if attached)
-        if (!imgData.isEmpty()) {
-            QImage img;
-            if (img.loadFromData(imgData)) {
-                QLabel *imgLabel = new QLabel();
-                QPixmap pix = QPixmap::fromImage(img).scaled(320, 240, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                imgLabel->setPixmap(pix);
-                imgLabel->setStyleSheet(m_isChatModernTheme ?
-                    "border-radius: 14px; border: 2px solid rgba(139,111,71,0.5); padding: 2px; background: rgba(0,0,0,0.2);" :
-                    "border-radius: 10px; padding: 2px;");
-                bubbleLayout->addWidget(imgLabel, 0, isMe ? Qt::AlignRight : Qt::AlignLeft);
-            }
-        }
-
-        // GIF (if sent via GIPHY)
+        // Media Content (GIFs - Fixed Playback & Stability)
         if (m.contains("gif_url")) {
-            QString gifUrl = m["gif_url"].toString();
-            QString gifTitle = m["gif_title"].toString();
+            QLabel *gifLbl = new QLabel();
+            gifLbl->setMinimumSize(200, 150);
             
-            QLabel *gifLabel = new QLabel();
-            gifLabel->setFixedSize(280, 200);
-            gifLabel->setAlignment(Qt::AlignCenter);
-            gifLabel->setStyleSheet(m_isChatModernTheme ?
-                "border-radius: 14px; border: 2px solid rgba(139,111,71,0.5); padding: 2px;"
-                " background: transparent; " :
-                "border-radius: 10px; padding: 2px; background: transparent; ");
-            if (!gifTitle.isEmpty())
-                gifLabel->setToolTip(gifTitle);
-            bubbleLayout->addWidget(gifLabel, 0, isMe ? Qt::AlignRight : Qt::AlignLeft);
+            // Use existing manager or create one if null
+            if (!aiNetworkManager) aiNetworkManager = new QNetworkAccessManager(this);
             
-            // Download the GIF and display as animation using QMovie
-            QNetworkAccessManager *gifNetMgr = new QNetworkAccessManager(gifLabel);
-            QUrl gifDisplayUrl(gifUrl);
-            QNetworkReply *gifReply = gifNetMgr->get(QNetworkRequest(gifDisplayUrl));
-            connect(gifReply, &QNetworkReply::finished, gifLabel, [gifLabel, gifReply]() {
-                if (gifReply->error() == QNetworkReply::NoError) {
-                    QByteArray data = gifReply->readAll();
-                    
-                    QBuffer *buffer = new QBuffer(gifLabel);
-                    buffer->setData(data);
-                    buffer->open(QIODevice::ReadOnly);
-                    
-                    QMovie *movie = new QMovie(buffer, QByteArray(), gifLabel);
-                    if (movie->isValid()) {
-                        gifLabel->setMovie(movie);
-                        gifLabel->setText("");
-                        movie->setScaledSize(QSize(276, 196));
+            QNetworkReply *rep = giphyNetworkManager->get(QNetworkRequest(QUrl(m["gif_url"].toString())));
+            connect(rep, &QNetworkReply::finished, gifLbl, [gifLbl, rep]() {
+                if (rep->error() == QNetworkReply::NoError) {
+                    QByteArray data = rep->readAll();
+                    if (!data.isEmpty()) {
+                        QBuffer *buffer = new QBuffer(gifLbl);
+                        buffer->setData(data);
+                        buffer->open(QIODevice::ReadOnly);
+                        
+                        QMovie *movie = new QMovie(buffer, QByteArray(), gifLbl);
+                        gifLbl->setMovie(movie);
+                        movie->setScaledSize(QSize(200, 150));
                         movie->start();
-                        gifLabel->show(); // Explicitly show label
-                    } else {
-                        gifLabel->setText("Invalid GIF");
-                        delete movie;
-                        delete buffer;
                     }
-                } else {
-                    gifLabel->setText("Could not load GIF");
                 }
-                gifReply->deleteLater();
+                rep->deleteLater();
             });
+            bubbleLayout->addWidget(gifLbl);
         }
 
-        // Text bubble
-        if (!msg.isEmpty() && msg != "[Image]" && msg != "[GIF]") {
-            QWidget *bubbleContainer = new QWidget();
-            QVBoxLayout *bubbleV = new QVBoxLayout(bubbleContainer);
-            bubbleV->setContentsMargins(0, 0, 0, 0);
-            bubbleV->setSpacing(4);
-
-            if (msg.contains(QString::fromUtf8("\xF0\x9F\x8E\x99 Voice Note"))) {
-                VoiceWaveformWidget *waveform = new VoiceWaveformWidget(bubbleContainer);
-                bubbleV->addWidget(waveform);
-                waveform->startAnim();
-                
-                QLabel *voiceLabel = new QLabel(QString::fromUtf8("\xF0\x9F\x8E\x99 Voice Message - 0:08"));
-                voiceLabel->setStyleSheet(m_isChatModernTheme ? "color: #D4AF37; font-weight: 800; font-size: 13px;" : "color: #8B6F47; font-weight: bold;");
-                bubbleV->addWidget(voiceLabel);
-            } else {
-                QLabel *bubble = new QLabel(msg);
-                bubble->setWordWrap(true);
-                bubble->setMaximumWidth(520);
-                bubble->setTextInteractionFlags(Qt::TextSelectableByMouse);
-                
-                if (m_isChatModernTheme) {
-                    if (isMe) {
-                        bubble->setStyleSheet(
-                            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #D4AF37,stop:1 #A0825A);"
-                            " color: #1A1208; border-radius: 18px; border-bottom-right-radius: 4px;"
-                            " padding: 10px 16px; font-size: 14px; font-weight: 600;"
-                            " border: 1px solid rgba(255,255,255,0.3); ");
-                    } else {
-                        bubble->setStyleSheet(
-                            "background: rgba(139, 111, 71, 0.2); border: 1.5px solid #8B6F47;"
-                            " color: #F0E0C0; border-radius: 18px; border-bottom-left-radius: 4px;"
-                            " padding: 10px 16px; font-size: 14px; ");
-                    }
-                } else {
-                    if (isMe) {
-                        bubble->setStyleSheet(
-                            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #C4973A,stop:1 #D4AF37);"
-                            " color: #1A1000; border-radius: 14px; border-bottom-right-radius: 3px;"
-                            " padding: 9px 13px; font-size: 13px; font-weight: 500;");
-                    } else {
-                        bubble->setStyleSheet(
-                            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #3A2D1A,stop:1 #4A3A22);"
-                            " color: #EDD9B0; border-radius: 14px; border-bottom-left-radius: 3px;"
-                            " padding: 9px 13px; font-size: 13px;");
-                    }
-                }
-                bubbleV->addWidget(bubble);
-            }
-            bubbleLayout->addWidget(bubbleContainer, 0, isMe ? Qt::AlignRight : Qt::AlignLeft);
+        if (msg.contains(QString::fromUtf8("\xF0\x9F\x8E\x99 Voice Note"))) {
+            VoiceWaveformWidget *wave = new VoiceWaveformWidget();
+            wave->startAnim();
+            bubbleLayout->addWidget(wave);
+        } else if (msg != "[Image]" && msg != "[GIF]") {
+            QLabel *contentLbl = new QLabel(msg);
+            contentLbl->setWordWrap(true);
+            contentLbl->setStyleSheet("color: white; font-size: 13px;");
+            bubbleLayout->addWidget(contentLbl);
         }
 
-        // --- Delete Button (Trash Icon) ---
-        if (isMe) {
-            QPushButton *delBtn = new QPushButton("ÃƒÂ°Ã…Â¸Ã¢â‚¬â€Ã¢â‚¬Ëœ"); 
-            delBtn->setFixedSize(24, 24);
-            delBtn->setCursor(Qt::PointingHandCursor);
-            delBtn->setStyleSheet(m_isChatModernTheme ?
-                "QPushButton { background: rgba(200,50,50,0.1); border: 1px solid rgba(200,50,50,0.3); color: #FF7070; font-size: 14px; border-radius: 12px; }"
-                "QPushButton:hover { background: #CC3333; color: white; border-color: white; }" :
-                "QPushButton { background: rgba(255,0,0,0.1); border: none; color: #cc4444; font-size: 14px; border-radius: 11px; }"
-                "QPushButton:hover { background: #aa3333; color: white; }");
-            delBtn->setToolTip("Delete message");
-            connect(delBtn, &QPushButton::clicked, this, [this, i]() { onChatDeleteMessage(i); });
-            bubbleLayout->addWidget(delBtn, 0, Qt::AlignRight);
-        }
-
-        // Nicely formatted timestamp
-        QDateTime now = QDateTime::currentDateTime();
-        QString timeStr;
-        if (dt.date() == now.date()) {
-            timeStr = "Today at " + dt.toString("HH:mm");
-        } else if (dt.date() == now.date().addDays(-1)) {
-            timeStr = "Yesterday at " + dt.toString("HH:mm");
-        } else {
-            timeStr = dt.toString("dd/MM/yyyy") + " at " + dt.toString("HH:mm");
-        }
-
-        QLabel *infoLabel = new QLabel(timeStr);
-        infoLabel->setStyleSheet(m_isChatModernTheme ?
-            "color: rgba(212,175,55,0.8); font-size: 10px; font-weight: bold; background: transparent;" :
-            "color: rgba(180,160,120,0.7); font-size: 10px; background: transparent;");
-        bubbleLayout->addWidget(infoLabel, 0, isMe ? Qt::AlignRight : Qt::AlignLeft);
-
-        // --- Assemble row ---
-        QWidget *row = new QWidget();
-        QHBoxLayout *rowLayout = new QHBoxLayout(row);
-        rowLayout->setContentsMargins(8, 4, 8, 4);
-        rowLayout->setSpacing(10);
+        QLabel *timeLbl = new QLabel(dt.toString("HH:mm"));
+        timeLbl->setAlignment(Qt::AlignRight);
+        timeLbl->setStyleSheet("font-size: 8px; color: rgba(255,255,255,0.4);");
+        bubbleLayout->addWidget(timeLbl);
 
         if (isMe) {
-            rowLayout->addStretch();
-            rowLayout->addLayout(bubbleLayout);
-            rowLayout->addWidget(avatarLbl, 0, Qt::AlignBottom);
+            msgHBox->addStretch();
+            msgHBox->addWidget(bubble);
+            msgHBox->addWidget(avatarLbl);
         } else {
-            rowLayout->addWidget(avatarLbl, 0, Qt::AlignBottom);
-            rowLayout->addLayout(bubbleLayout);
-            rowLayout->addStretch();
+            msgHBox->addWidget(avatarLbl);
+            msgHBox->addWidget(bubble);
+            msgHBox->addStretch();
         }
 
-        ui_equipment->verticalLayout_chat_contents->addWidget(row);
+        ui_equipment->verticalLayout_chat_contents->insertWidget(ui_equipment->verticalLayout_chat_contents->count() - 1, msgContainer);
+    }
 
-        // --- Modern Staggered Animation ---
-        if (m_isChatModernTheme) {
-            QGraphicsOpacityEffect *opacity = new QGraphicsOpacityEffect(row);
-            row->setGraphicsEffect(opacity);
-            
-            QPropertyAnimation *anim = new QPropertyAnimation(opacity, "opacity");
+    // Smooth Scroll to bottom
+    QTimer::singleShot(50, this, [this](){
+        if(ui_equipment->scrollArea_chat->verticalScrollBar()) {
+            QScrollBar *sb = ui_equipment->scrollArea_chat->verticalScrollBar();
+            QPropertyAnimation *anim = new QPropertyAnimation(sb, "value");
             anim->setDuration(400);
-            anim->setStartValue(0.0);
-            anim->setEndValue(1.0);
+            anim->setStartValue(sb->value());
+            anim->setEndValue(sb->maximum());
             anim->setEasingCurve(QEasingCurve::OutCubic);
-            
-            QPropertyAnimation *posAnim = new QPropertyAnimation(row, "pos");
-            posAnim->setDuration(500);
-            posAnim->setStartValue(QPoint(row->pos().x(), row->pos().y() + 30));
-            posAnim->setEndValue(row->pos());
-            posAnim->setEasingCurve(QEasingCurve::OutBack);
-
-            // Use a relative index for animations so that older messages aren't delayed indefinitely
-            // We'll use the last 20 messages or so for animations, or just limit the max delay.
-            int animIdx = qMax(0, i - (allMessages.size() - 15)); 
-            QTimer::singleShot(animIdx * 60, [anim, posAnim](){
-                anim->start(QAbstractAnimation::DeleteWhenStopped);
-                posAnim->start(QAbstractAnimation::DeleteWhenStopped);
-            });
-        } else {
-            row->show();
+            anim->start(QAbstractAnimation::DeleteWhenStopped);
         }
-    }
+    });
     
-    // AI Summarization button removed due to stability issues.
-    
-    // Final scroll to bottom - only if user was near the bottom or new message came in
-    QScrollBar *vBar = ui_equipment->scrollArea_chat->verticalScrollBar();
-    bool wasNearBottom = vBar->value() > (vBar->maximum() - 100);
-    
-    if (wasNearBottom || allMessages.size() > s_lastMessageCount) {
-        QTimer::singleShot(100, this, [this](){
-            if (ui_equipment && ui_equipment->scrollArea_chat) {
-                QScrollBar *bar = ui_equipment->scrollArea_chat->verticalScrollBar();
-                bar->setValue(bar->maximum());
-            }
-        });
-    }
+    s_lastMessageCount = allMessages.size();
 }
 
 
@@ -4096,7 +3976,7 @@ void MainWindow::onChatSettingsClicked()
     dialog->setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
     dialog->setModal(true);
     dialog->setAttribute(Qt::WA_TranslucentBackground);
-    dialog->setFixedSize(320, 360); // Adjusted height
+    dialog->setFixedSize(320, 360);
 
     QFrame *card = new QFrame(dialog);
     card->setObjectName("settingsCard");
@@ -4117,28 +3997,8 @@ void MainWindow::onChatSettingsClicked()
     title->setAlignment(Qt::AlignCenter);
     layout->addWidget(title);
 
-    // --- Classical Music Volume ---
-    QLabel *volLbl = new QLabel("Ambient Volume", card);
-    volLbl->setStyleSheet("color: #B8925A; font-size: 13px; font-weight: bold;");
-    layout->addWidget(volLbl);
-
-    QSlider *volSlider = new QSlider(Qt::Horizontal, card);
-    volSlider->setRange(0, 100);
-    volSlider->setValue(chatAudioOutput->volume() * 100); 
-    volSlider->setStyleSheet(
-        "QSlider::groove:horizontal { height: 6px; background: #3A2D1A; border-radius: 3px; }"
-        "QSlider::handle:horizontal { width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; background: #D4AF37; }"
-    );
-    layout->addWidget(volSlider);
-    connect(volSlider, &QSlider::valueChanged, this, [this](int val) {
-        chatAudioOutput->setVolume(val / 100.0); 
-    });
-
-    // --- Theme Selection Section Removed ---
-    // (Modern theme is hidden, Classic is active)
-
     // --- Clear Chat ---
-    QPushButton *btnClear = new QPushButton("ÃƒÂ°Ã…Â¸Ã¢â‚¬â€Ã¢â‚¬Ëœ Clear Conversation", card);
+    QPushButton *btnClear = new QPushButton("Clear Conversation", card);
     btnClear->setStyleSheet(
         "QPushButton { background: rgba(200,50,50,0.15); border: 2px solid #662222; border-radius: 14px; height: 40px; color: #FF9999; font-weight: bold; }"
         "QPushButton:hover { background: #882222; color: white; }"
@@ -4146,7 +4006,6 @@ void MainWindow::onChatSettingsClicked()
     layout->addWidget(btnClear);
     connect(btnClear, &QPushButton::clicked, this, [this, dialog]() {
         if (QMessageBox::question(dialog, "Clear", "Wipe all messages for this chat?") == QMessageBox::Yes) {
-            // Simple logic: remove all entries where sender or receiver is this conversation pair
             QString chatFilePath = "hammerdown_chat.json";
             QFile file(chatFilePath);
             if (file.open(QIODevice::ReadOnly)) {
@@ -4173,7 +4032,7 @@ void MainWindow::onChatSettingsClicked()
     });
 
     // --- Restore Deleted Messages ---
-    QPushButton *btnRestore = new QPushButton("ÃƒÂ¢Ã¢â€žÂ¢Ã‚Â» Restore Deleted Messages", card);
+    QPushButton *btnRestore = new QPushButton("Restore Deleted Messages", card);
     btnRestore->setStyleSheet(
         "QPushButton { background: rgba(50,200,50,0.15); border: 2px solid #226622; border-radius: 14px; height: 40px; color: #99FF99; font-weight: bold; }"
         "QPushButton:hover { background: #228822; color: white; }"
@@ -4187,9 +4046,9 @@ void MainWindow::onChatSettingsClicked()
             "QDialog { background: #1A140A; border: 2px solid #8B6F47; border-radius: 12px; }");
         
         QVBoxLayout *rLay = new QVBoxLayout(restoreDialog);
-        QLabel *title = new QLabel("Select messages to restore:", restoreDialog);
-        title->setStyleSheet("color: #D4AF37; font-weight: bold; font-size: 14px;");
-        rLay->addWidget(title);
+        QLabel *rTitle = new QLabel("Select messages to restore:", restoreDialog);
+        rTitle->setStyleSheet("color: #D4AF37; font-weight: bold; font-size: 14px;");
+        rLay->addWidget(rTitle);
         
         QListWidget *list = new QListWidget(restoreDialog);
         list->setStyleSheet("QListWidget { background: rgba(0,0,0,0.3); color: #F0E0C0; border: 1px solid #5A4A32; border-radius: 8px; }"
@@ -4224,7 +4083,6 @@ void MainWindow::onChatSettingsClicked()
             QJsonObject toRestore = trashArray[idxInTrash].toObject();
             toRestore.remove("deleted_at");
             
-            // Move back to main chat
             QString chatFilePath = "hammerdown_chat.json";
             QFile file(chatFilePath);
             QJsonArray chatArray;
@@ -4233,13 +4091,11 @@ void MainWindow::onChatSettingsClicked()
                 file.close();
             }
             chatArray.append(toRestore);
-            // Sort by timestamp if possible, but for now just append
             if (file.open(QIODevice::WriteOnly)) {
                 file.write(QJsonDocument(chatArray).toJson());
                 file.close();
             }
             
-            // Remove from trash
             QJsonArray newTrash = trashArray;
             newTrash.removeAt(idxInTrash);
             QFile tf("hammerdown_chat_trash.json");
@@ -4267,7 +4123,6 @@ void MainWindow::onChatSettingsClicked()
     connect(closeBtn, &QPushButton::clicked, dialog, &QDialog::accept);
 
     // --- Animation ---
-    card->setGraphicsEffect(nullptr);
     QPropertyAnimation *anim = new QPropertyAnimation(dialog, "windowOpacity");
     anim->setDuration(350);
     anim->setStartValue(0.0);
@@ -4318,6 +4173,9 @@ void MainWindow::onWeatherAssistantClicked()
             return;
         }
         
+        // --- Audio Sync: Pause home music ---
+        pauseHomeAudioForWeather();
+
         // --- Full Screen Weather Report Video Intro ---
         QFrame *introFrame = new QFrame(equipmentPage);
         introFrame->setGeometry(equipmentPage->rect());
@@ -4383,6 +4241,7 @@ void MainWindow::onWeatherAssistantClicked()
 
                 connect(fadeOutAnim, &QPropertyAnimation::finished, this, [=]() {
                     introFrame->deleteLater();
+                    resumeHomeAudioAfterWeather();
                     showAssistantAndResumeMusic();
                 });
                 fadeOutAnim->start(QAbstractAnimation::DeleteWhenStopped);
@@ -4836,38 +4695,6 @@ void MainWindow::shakeWidget(QWidget *w) {
     anim->setKeyValueAt(0.75, op - QPoint(6, 0));
     anim->setEndValue(op);
     anim->start(QAbstractAnimation::DeleteWhenStopped);
-}
-
-void MainWindow::onChatVoiceToggled() {
-    auto *btn = equipmentPage->findChild<QPushButton*>("btn_chat_voice");
-    if (!btn) return;
-    if (btn->isChecked()) {
-        onChatStartRecord();
-    } else {
-        onChatStopRecord();
-    }
-}
-
-void MainWindow::onChatStartRecord() {
-    QString voiceDir = QDir::currentPath() + "/voice_notes";
-    QDir().mkpath(voiceDir);
-    QString fileName = QString("voice_%1.wav").arg(QDateTime::currentMSecsSinceEpoch());
-    m_recorder->setOutputLocation(QUrl::fromLocalFile(voiceDir + "/" + fileName));
-    m_recorder->record();
-    m_isRecording = true;
-    ui_equipment->le_chat_input->setPlaceholderText("Recording voice note...");
-}
-
-void MainWindow::onChatStopRecord() {
-    m_recorder->stop();
-    m_isRecording = false;
-    ui_equipment->le_chat_input->setPlaceholderText("Type a message...");
-    
-    // Auto-send the voice note
-    QTimer::singleShot(200, this, [this](){
-        ui_equipment->le_chat_input->setText(QString::fromUtf8("\xF0\x9F\x8E\x99 Voice Note"));
-        onChatSendMessage();
-    });
 }
 
 

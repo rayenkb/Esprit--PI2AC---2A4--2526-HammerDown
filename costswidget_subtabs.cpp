@@ -262,7 +262,7 @@ void ForecastWidget::mouseMoveEvent(QMouseEvent *event) {
         for (int i = 0; i < m_months.size(); i++) {
             double bx = chartX + (chartW / m_months.size()) * i;
             double bw = chartW / m_months.size();
-            if (event->x() >= bx && event->x() < bx + bw && event->y() > 56) {
+            if (event->position().x() >= bx && event->position().x() < bx + bw && event->position().y() > 56) {
                 m_hoveredBar = i;
                 break;
             }
@@ -481,7 +481,7 @@ void ROIWidget::mousePressEvent(QMouseEvent *event) {
     int cy = 120;
     for (int i = 0; i < m_data.size(); i++) {
         int cardH = (i == m_expandedCard) ? 160 : 72;
-        if (event->y() >= cy && event->y() < cy + cardH) {
+        if (event->position().y() >= cy && event->position().y() < cy + cardH) {
             m_expandedCard = (m_expandedCard == i) ? -1 : i;
             update();
             return;
@@ -496,7 +496,7 @@ void ROIWidget::mouseMoveEvent(QMouseEvent *event) {
     int cy = 120;
     for (int i = 0; i < m_data.size(); i++) {
         int cardH = (i == m_expandedCard) ? 160 : 72;
-        if (event->y() >= cy && event->y() < cy + cardH) {
+        if (event->position().y() >= cy && event->position().y() < cy + cardH) {
             m_hoveredCard = i;
             break;
         }
@@ -568,7 +568,6 @@ void TimelineWidget::drawSummaryBanner(QPainter &p, const QRectF &area) {
 }
 
 void TimelineWidget::drawTimeline(QPainter &p, const QRectF &area) {
-    float ease = 1.0f - powf(1.0f - m_animProgress, 3.0f);
 
     int infoW = 180;
     double timelineX = area.x() + infoW;

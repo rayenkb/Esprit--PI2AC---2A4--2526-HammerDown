@@ -1064,9 +1064,6 @@ void MainWindow::setAudioVolume(qreal volume)
     if (tutorialLoopAudioOutput) {
         tutorialLoopAudioOutput->setVolume(currentVolume);
     }
-    if (chatAudioOutput) {
-        chatAudioOutput->setVolume(currentVolume);
-    }
 }
 
 void MainWindow::pauseHomeAudioForSettings()
@@ -1133,6 +1130,33 @@ void MainWindow::resumeHomeAudioAfterTutorial()
     m_homeAudioPausedByTutorial = false;
 }
 
+void MainWindow::pauseHomeAudioForWeather()
+{
+    if (!homeAudioPlayer) return;
+    if (m_audioSuspendedForOstp) return;
+    if (homeAudioPlayer->playbackState() != QMediaPlayer::PlayingState) return;
+
+    m_homeAudioWeatherResumePos = homeAudioPlayer->position();
+    m_homeAudioPausedByWeather = true;
+    homeAudioPlayer->pause();
+}
+
+void MainWindow::resumeHomeAudioAfterWeather()
+{
+    if (!m_homeAudioPausedByWeather || !homeAudioPlayer) {
+        m_homeAudioPausedByWeather = false;
+        return;
+    }
+    if (m_audioSuspendedForOstp) {
+        return;
+    }
+
+    if (homeAudioOutput) homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
+    homeAudioPlayer->setPosition(m_homeAudioWeatherResumePos);
+    homeAudioPlayer->play();
+    m_homeAudioPausedByWeather = false;
+}
+
 void MainWindow::suspendAudioForOstp()
 {
     if (m_audioSuspendedForOstp) return;
@@ -1151,7 +1175,6 @@ void MainWindow::suspendAudioForOstp()
     suspendPlayer(loginAudioPlayer, m_resumeLoginAfterOstp, m_loginResumePosAfterOstp);
     suspendPlayer(homeAudioPlayer, m_resumeHomeAfterOstp, m_homeResumePosAfterOstp);
     suspendPlayer(tutorialLoopAudioPlayer, m_resumeTutorialAfterOstp, m_tutorialResumePosAfterOstp);
-    suspendPlayer(chatAudioPlayer, m_resumeChatAfterOstp, m_chatResumePosAfterOstp);
 
     if (homeWindow) {
         homeWindow->suspendActiveAudioForOverlay();
@@ -1175,12 +1198,10 @@ void MainWindow::restoreAudioAfterOstp()
     if (homeAudioOutput) homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
     if (loginAudioOutput) loginAudioOutput->setVolume(currentVolume);
     if (tutorialLoopAudioOutput) tutorialLoopAudioOutput->setVolume(currentVolume);
-    if (chatAudioOutput) chatAudioOutput->setVolume(currentVolume);
 
     resumePlayer(loginAudioPlayer, m_resumeLoginAfterOstp, m_loginResumePosAfterOstp);
     resumePlayer(homeAudioPlayer, m_resumeHomeAfterOstp, m_homeResumePosAfterOstp);
     resumePlayer(tutorialLoopAudioPlayer, m_resumeTutorialAfterOstp, m_tutorialResumePosAfterOstp);
-    resumePlayer(chatAudioPlayer, m_resumeChatAfterOstp, m_chatResumePosAfterOstp);
 
     if (homeWindow) {
         homeWindow->resumeSuspendedAudioAfterOverlay();
@@ -2019,9 +2040,28 @@ void MainWindow::onPageChanged(int index)
                 fadeIn(loginAudioOutput);
             }
         } else {
-            // Login (0): no music
-            if (loginAudioPlayer && loginAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
-                fadeOut(loginAudioOutput, [this](){ loginAudioPlayer->stop(); });
+            // All other pages: stop home-page audio (OST2 + animation track)
+            homeWindow->stopHomeAudio();
+            if (homeAudioPlayer && homeAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
+                fadeOut(homeAudioOutput, [this](){
+                    if (ui && ui->stackedWidget && ui->stackedWidget->currentIndex() != 1) {
+                        homeAudioPlayer->stop();
+                    }
+                });
+            }
+
+            // Management pages (2-6): play OST1 (including chat tab — music continues uninterrupted)
+            if (index >= 2 && index <= 6) {
+                if (loginAudioPlayer && loginAudioPlayer->playbackState() != QMediaPlayer::PlayingState) {
+                    loginAudioPlayer->setPosition(0);
+                    loginAudioPlayer->play();
+                    fadeIn(loginAudioOutput);
+                }
+            } else {
+                // Login (0): no music
+                if (loginAudioPlayer && loginAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
+                    fadeOut(loginAudioOutput, [this](){ loginAudioPlayer->stop(); });
+                }
             }
         }
     }

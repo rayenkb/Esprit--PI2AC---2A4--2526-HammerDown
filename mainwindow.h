@@ -419,6 +419,8 @@ private:
     qint64 m_homeAudioSettingsResumePos = 0;
     bool m_homeAudioPausedByTutorial = false;
     qint64 m_homeAudioTutorialResumePos = 0;
+    bool m_homeAudioPausedByWeather = false;
+    qint64 m_homeAudioWeatherResumePos = 0;
     bool m_audioSuspendedForOstp = false;
     bool m_resumeLoginAfterOstp = false;
     bool m_resumeHomeAfterOstp = false;
@@ -436,6 +438,8 @@ private:
     void resumeHomeAudioAfterSettings();
     void pauseHomeAudioForTutorial();
     void resumeHomeAudioAfterTutorial();
+    void pauseHomeAudioForWeather();
+    void resumeHomeAudioAfterWeather();
     void suspendAudioForOstp();
     void restoreAudioAfterOstp();
     

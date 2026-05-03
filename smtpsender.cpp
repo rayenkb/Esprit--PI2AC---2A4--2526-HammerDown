@@ -58,6 +58,7 @@ static QByteArray buildMimeMessage(const QString &from, const QString &to,
                                    const QString &subject, const QString &body,
                                    const QString &attachmentPath)
 {
+    Q_UNUSED(from);
     QByteArray msg;
     const bool hasAttachment = !attachmentPath.isEmpty() && QFile::exists(attachmentPath);
 
