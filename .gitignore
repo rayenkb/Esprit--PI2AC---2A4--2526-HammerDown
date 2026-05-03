@@ -1,0 +1,15 @@
+build/
+.qtcreator/
+*.user
+*.pro.user
+*.pro.user.*
+debug/
+release/
+*.o
+*.obj
+*.exe
+*.dll
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+Makefile*
