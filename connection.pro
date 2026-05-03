@@ -63,6 +63,7 @@ SOURCES += \
     equipment.cpp \
     supplier.cpp \
     order.cpp \
+    employee.cpp \
     clientmanagement.cpp \
     creative_components.cpp
 
@@ -87,6 +88,7 @@ HEADERS += \
     equipment.h \
     supplier.h \
     order.h \
+    employee.h \
     clientmanagement.h \
     creative_components.h
 
