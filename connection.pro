@@ -63,7 +63,8 @@ SOURCES += \
     equipment.cpp \
     supplier.cpp \
     order.cpp \
-    clientmanagement.cpp
+    clientmanagement.cpp \
+    creative_components.cpp
 
 # Header files
 HEADERS += \
@@ -86,7 +87,8 @@ HEADERS += \
     equipment.h \
     supplier.h \
     order.h \
-    clientmanagement.h
+    clientmanagement.h \
+    creative_components.h
 
 # UI files
 FORMS += \
