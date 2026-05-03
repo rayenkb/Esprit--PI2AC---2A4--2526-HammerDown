@@ -2935,7 +2935,7 @@ Consistency Index: high</string>
            </rect>
           </property>
           <property name="styleSheet">
-           <string notr="true">font-size: 20px; font-weight: bold; color: #333; background: white; border-radius: 5px; padding: 5px;
+           <string notr="true">font-size: 20px; font-weight: bold; color: #333; background: transparent; border-radius: 5px; padding: 5px;
 </string>
           </property>
           <property name="text">
@@ -3009,9 +3009,9 @@ Consistency Index: high</string>
          <widget class="QLabel" name="lbl_reviews_title">
           <property name="geometry">
            <rect>
-            <x>20</x>
+            <x>780</x>
             <y>15</y>
-            <width>300</width>
+            <width>330</width>
             <height>40</height>
            </rect>
           </property>
