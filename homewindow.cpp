@@ -1083,9 +1083,31 @@ void HomeWindow::handleCredits()
     };
 
     finalLayout->addWidget(finalHint);
-    finalLayout->addWidget(makePersonWidget(":/assets/K.png", "Rayen Kaabar", "https://www.linkedin.com/in/rayen-kaabar-07a7a7349/"));
-    finalLayout->addWidget(makePersonWidget(":/assets/Y.png", "Yassine Ben Mustapha", "https://www.linkedin.com/in/yassine-ben-mustapha-35081b367/"));
-    finalLayout->addWidget(makePersonWidget(":/assets/R.png", "Rami Aouini", "https://www.linkedin.com/in/rami-laouini-63192b363/"));
+
+    auto *peopleContainer = new QWidget(finalCredits);
+    auto *peopleLayout = new QVBoxLayout(peopleContainer);
+    peopleLayout->setContentsMargins(0, 0, 0, 0);
+    peopleLayout->setSpacing(18);
+    peopleLayout->setAlignment(Qt::AlignCenter);
+
+    auto *topRow = new QHBoxLayout();
+    topRow->setSpacing(40);
+    topRow->setAlignment(Qt::AlignCenter);
+
+    auto *bottomRow = new QHBoxLayout();
+    bottomRow->setSpacing(40);
+    bottomRow->setAlignment(Qt::AlignCenter);
+
+    topRow->addWidget(makePersonWidget(":/assets/K.png", "Rayen Kaabar", "https://www.linkedin.com/in/rayen-kaabar-07a7a7349/"));
+    topRow->addWidget(makePersonWidget(":/assets/Y.png", "Yassine Ben Mustapha", "https://www.linkedin.com/in/yassine-ben-mustapha-35081b367/"));
+
+    bottomRow->addWidget(makePersonWidget(":/assets/R.png", "Rami Aouini", "https://www.linkedin.com/in/rami-laouini-63192b363/"));
+    bottomRow->addWidget(makePersonWidget(":/assets/G.png", "Mohamed Amine Gaalish", "https://www.linkedin.com/in/amine-gaaliche/"));
+    bottomRow->addWidget(makePersonWidget(":/assets/C.png", "Mohamed Amine Challouf", "https://www.linkedin.com/in/amine-challouf-721aaa23/"));
+
+    peopleLayout->addLayout(topRow);
+    peopleLayout->addLayout(bottomRow);
+    finalLayout->addWidget(peopleContainer, 0, Qt::AlignCenter);
 
     auto *finalCreditsEffect = new QGraphicsOpacityEffect(finalCredits);
     finalCredits->setGraphicsEffect(finalCreditsEffect);

@@ -1817,6 +1817,13 @@ void GLViewport::mouseMoveEvent(QMouseEvent *e)
 void GLViewport::mouseReleaseEvent(QMouseEvent *)
 {
     if (m_walkMode) {
+        const bool hadTransform = (m_dragging || m_gizmoDragging);
+        m_dragging = false;
+        m_gizmoDragging = false;
+        m_activeGizmoAxis = GizmoAxis::None;
+        if (hadTransform)
+            emit transformFinished();
+
         m_rightMouseLook = false;
         m_mouseLook = m_ctrlLookLock;
         if (m_mouseLook)
