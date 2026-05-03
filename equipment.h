@@ -19,8 +19,6 @@
 #include "creative_components.h"
 
 class QProgressBar;
-class QMediaRecorder;
-class QAudioOutput;
 class QNetworkAccessManager;
 class QWidget;
 class NexusWidget;
@@ -64,9 +62,6 @@ class EquipmentHoverCard;
     void onChatEmojiClicked(); \
     void onChatGifClicked(); \
     void onChatSearchToggle(); \
-    void onChatStartRecord(); \
-    void onChatStopRecord(); \
-    void onChatVoiceToggled(); \
     void onWeatherAssistantClicked(); \
     void setupChatForgeVisuals(); \
     void enforceChatTabTopOffset();
@@ -80,12 +75,6 @@ class EquipmentHoverCard;
     CostsWidget *m_costsWidget = nullptr; \
     EquipmentHoverCard *m_hoverCard = nullptr; \
     QTimer *equipmentSyncTimer = nullptr; \
-    QMediaRecorder *m_recorder = nullptr; \
-    bool m_isRecording = false; \
-    QAudioOutput *chatAudioOutput = nullptr; \
-    QMediaPlayer *chatAudioPlayer = nullptr; \
-    QMediaCaptureSession *m_captureSession = nullptr; \
-    QAudioInput *m_audioInput = nullptr; \
     QCompleter *m_chatCompleter = nullptr; \
     QStringListModel *m_completerModel = nullptr; \
     QWidget *m_chatAmbientLayer = nullptr; \

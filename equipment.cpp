@@ -1226,13 +1226,6 @@ void MainWindow::setupEquipmentModes()
         }
     });
 
-    // --- Modernize Recording Controls ---
-    // Video/Voice recording removed as requested
-    if (ui_equipment->btn_chat_voice) {
-        ui_equipment->btn_chat_voice->hide();
-    }
-
-
     // --- ContrÃƒÆ’Ã‚Â´le de Saisie (Input Validation) ---
     // Only letters and spaces for Type
     QRegularExpression typeRegex("^[a-zA-Z\\s]*$");
@@ -3141,8 +3134,7 @@ void MainWindow::setupEquipmentConnections()
     });
 
     if (ui_equipment->btn_chat_voice) {
-        ui_equipment->btn_chat_voice->setVisible(true);
-        ui_equipment->btn_chat_voice->setStyleSheet("QPushButton { background: rgba(139,111,71,0.15); border: 2.2px solid #5A4A32; border-radius: 22px; color: #B8925A; font-size: 20px; }");
+        ui_equipment->btn_chat_voice->setVisible(false);
     }
     
     QShortcut *chatSearchShortcut = new QShortcut(QKeySequence("Ctrl+F"), equipmentPage);
@@ -3180,20 +3172,6 @@ void MainWindow::setupEquipmentConnections()
     connect3DView("btn_view_3", "engine+assembly");
     
     connect(ui_equipment->btn_return_home, &QPushButton::clicked, this, &MainWindow::on_btn_home_clicked);
-
-    // --- Audio & Recording Initialization ---
-    chatAudioOutput = new QAudioOutput(this);
-    chatAudioPlayer = new QMediaPlayer(this);
-    chatAudioPlayer->setAudioOutput(chatAudioOutput);
-    chatAudioPlayer->setSource(QUrl("qrc:/assets/ost2.mp3"));
-    chatAudioPlayer->setLoops(QMediaPlayer::Infinite);
-    chatAudioOutput->setVolume(1.0);
-
-    m_recorder = new QMediaRecorder(this);
-    m_captureSession = new QMediaCaptureSession(this);
-    m_audioInput = new QAudioInput(this);
-    m_captureSession->setAudioInput(m_audioInput);
-    m_captureSession->setRecorder(m_recorder);
 }
 void MainWindow::onChatEnsureTable()
 {
@@ -3211,9 +3189,8 @@ void MainWindow::onChatSendMessage()
     }
     QString msg = ui_equipment->le_chat_input->text().trimmed();
     bool hasImage = !pendingChatImage.isEmpty();
-    bool hasVideo = !pendingChatVideo.isEmpty();
 
-    if (msg.isEmpty() && !hasImage && !hasVideo) {
+    if (msg.isEmpty() && !hasImage) {
         shakeWidget(ui_equipment->le_chat_input);
         return;
     }
@@ -3370,17 +3347,31 @@ void MainWindow::onChatRefresh()
         "#7B6B9E", "#9E8B6B", "#6B8B9E", "#9E7B6B"
     };
 
-    // --- Message Loop (Legacy Style Restored) ---
+    // Filter first to determine relevant history size
+    QJsonArray filteredMessages;
     for (int i = 0; i < allMessages.size(); ++i) {
         QJsonObject m = allMessages[i].toObject();
         int s_id = m["sender_id"].toInt();
         int r_id = m["receiver_id"].toInt();
-
-        if (!((s_id == currentEmployeeId && r_id == currentChatPartnerId) ||
-              (s_id == currentChatPartnerId && r_id == currentEmployeeId))) {
-            continue;
+        if ((s_id == currentEmployeeId && r_id == currentChatPartnerId) ||
+            (s_id == currentChatPartnerId && r_id == currentEmployeeId)) {
+            filteredMessages.append(m);
         }
+    }
 
+    // --- Optimization: Render only the last 40 messages to prevent crash/resource exhaustion ---
+    int startIdx = qMax(0, filteredMessages.size() - 40);
+    if (startIdx > 0) {
+        QLabel *limitHint = new QLabel("--- Older messages hidden for performance ---");
+        limitHint->setAlignment(Qt::AlignCenter);
+        limitHint->setStyleSheet("color: rgba(255,255,255,0.3); font-style: italic; font-size: 10px; padding: 10px;");
+        ui_equipment->verticalLayout_chat_contents->addWidget(limitHint);
+    }
+
+    for (int i = startIdx; i < filteredMessages.size(); ++i) {
+        QJsonObject m = filteredMessages[i].toObject();
+        int s_id = m["sender_id"].toInt();
+        
         QString msg = m["message"].toString();
         QDateTime dt = QDateTime::fromString(m["timestamp"].toString(), Qt::ISODate);
         bool isMe = (s_id == currentEmployeeId);
@@ -3426,23 +3417,28 @@ void MainWindow::onChatRefresh()
             bubbleLayout->addWidget(imgLbl);
         }
 
-        // Media Content (GIFs - Fixed Playback)
+        // Media Content (GIFs - Fixed Playback & Stability)
         if (m.contains("gif_url")) {
             QLabel *gifLbl = new QLabel();
             gifLbl->setMinimumSize(200, 150);
-            QNetworkAccessManager *mgr = new QNetworkAccessManager(this);
-            QNetworkReply *rep = mgr->get(QNetworkRequest(QUrl(m["gif_url"].toString())));
-            connect(rep, &QNetworkReply::finished, [this, gifLbl, rep]() {
+            
+            // Use existing manager or create one if null
+            if (!aiNetworkManager) aiNetworkManager = new QNetworkAccessManager(this);
+            
+            QNetworkReply *rep = giphyNetworkManager->get(QNetworkRequest(QUrl(m["gif_url"].toString())));
+            connect(rep, &QNetworkReply::finished, gifLbl, [gifLbl, rep]() {
                 if (rep->error() == QNetworkReply::NoError) {
-                    QByteArray *data = new QByteArray(rep->readAll());
-                    QBuffer *buffer = new QBuffer(data, this);
-                    buffer->open(QIODevice::ReadOnly);
-                    QMovie *movie = new QMovie(buffer, QByteArray(), this);
-                    gifLbl->setMovie(movie);
-                    movie->setScaledSize(QSize(200, 150));
-                    movie->start();
-                    // Cleanup when label destroyed
-                    connect(gifLbl, &QLabel::destroyed, [data](){ delete data; });
+                    QByteArray data = rep->readAll();
+                    if (!data.isEmpty()) {
+                        QBuffer *buffer = new QBuffer(gifLbl);
+                        buffer->setData(data);
+                        buffer->open(QIODevice::ReadOnly);
+                        
+                        QMovie *movie = new QMovie(buffer, QByteArray(), gifLbl);
+                        gifLbl->setMovie(movie);
+                        movie->setScaledSize(QSize(200, 150));
+                        movie->start();
+                    }
                 }
                 rep->deleteLater();
             });
@@ -3980,7 +3976,7 @@ void MainWindow::onChatSettingsClicked()
     dialog->setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
     dialog->setModal(true);
     dialog->setAttribute(Qt::WA_TranslucentBackground);
-    dialog->setFixedSize(320, 360); // Adjusted height
+    dialog->setFixedSize(320, 360);
 
     QFrame *card = new QFrame(dialog);
     card->setObjectName("settingsCard");
@@ -4001,28 +3997,8 @@ void MainWindow::onChatSettingsClicked()
     title->setAlignment(Qt::AlignCenter);
     layout->addWidget(title);
 
-    // --- Classical Music Volume ---
-    QLabel *volLbl = new QLabel("Ambient Volume", card);
-    volLbl->setStyleSheet("color: #B8925A; font-size: 13px; font-weight: bold;");
-    layout->addWidget(volLbl);
-
-    QSlider *volSlider = new QSlider(Qt::Horizontal, card);
-    volSlider->setRange(0, 100);
-    volSlider->setValue(chatAudioOutput->volume() * 100); 
-    volSlider->setStyleSheet(
-        "QSlider::groove:horizontal { height: 6px; background: #3A2D1A; border-radius: 3px; }"
-        "QSlider::handle:horizontal { width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; background: #D4AF37; }"
-    );
-    layout->addWidget(volSlider);
-    connect(volSlider, &QSlider::valueChanged, this, [this](int val) {
-        chatAudioOutput->setVolume(val / 100.0); 
-    });
-
-    // --- Theme Selection Section Removed ---
-    // (Modern theme is hidden, Classic is active)
-
     // --- Clear Chat ---
-    QPushButton *btnClear = new QPushButton("ÃƒÂ°Ã…Â¸Ã¢â‚¬â€Ã¢â‚¬Ëœ Clear Conversation", card);
+    QPushButton *btnClear = new QPushButton("Clear Conversation", card);
     btnClear->setStyleSheet(
         "QPushButton { background: rgba(200,50,50,0.15); border: 2px solid #662222; border-radius: 14px; height: 40px; color: #FF9999; font-weight: bold; }"
         "QPushButton:hover { background: #882222; color: white; }"
@@ -4030,7 +4006,6 @@ void MainWindow::onChatSettingsClicked()
     layout->addWidget(btnClear);
     connect(btnClear, &QPushButton::clicked, this, [this, dialog]() {
         if (QMessageBox::question(dialog, "Clear", "Wipe all messages for this chat?") == QMessageBox::Yes) {
-            // Simple logic: remove all entries where sender or receiver is this conversation pair
             QString chatFilePath = "hammerdown_chat.json";
             QFile file(chatFilePath);
             if (file.open(QIODevice::ReadOnly)) {
@@ -4057,7 +4032,7 @@ void MainWindow::onChatSettingsClicked()
     });
 
     // --- Restore Deleted Messages ---
-    QPushButton *btnRestore = new QPushButton("ÃƒÂ¢Ã¢â€žÂ¢Ã‚Â» Restore Deleted Messages", card);
+    QPushButton *btnRestore = new QPushButton("Restore Deleted Messages", card);
     btnRestore->setStyleSheet(
         "QPushButton { background: rgba(50,200,50,0.15); border: 2px solid #226622; border-radius: 14px; height: 40px; color: #99FF99; font-weight: bold; }"
         "QPushButton:hover { background: #228822; color: white; }"
@@ -4071,9 +4046,9 @@ void MainWindow::onChatSettingsClicked()
             "QDialog { background: #1A140A; border: 2px solid #8B6F47; border-radius: 12px; }");
         
         QVBoxLayout *rLay = new QVBoxLayout(restoreDialog);
-        QLabel *title = new QLabel("Select messages to restore:", restoreDialog);
-        title->setStyleSheet("color: #D4AF37; font-weight: bold; font-size: 14px;");
-        rLay->addWidget(title);
+        QLabel *rTitle = new QLabel("Select messages to restore:", restoreDialog);
+        rTitle->setStyleSheet("color: #D4AF37; font-weight: bold; font-size: 14px;");
+        rLay->addWidget(rTitle);
         
         QListWidget *list = new QListWidget(restoreDialog);
         list->setStyleSheet("QListWidget { background: rgba(0,0,0,0.3); color: #F0E0C0; border: 1px solid #5A4A32; border-radius: 8px; }"
@@ -4108,7 +4083,6 @@ void MainWindow::onChatSettingsClicked()
             QJsonObject toRestore = trashArray[idxInTrash].toObject();
             toRestore.remove("deleted_at");
             
-            // Move back to main chat
             QString chatFilePath = "hammerdown_chat.json";
             QFile file(chatFilePath);
             QJsonArray chatArray;
@@ -4117,13 +4091,11 @@ void MainWindow::onChatSettingsClicked()
                 file.close();
             }
             chatArray.append(toRestore);
-            // Sort by timestamp if possible, but for now just append
             if (file.open(QIODevice::WriteOnly)) {
                 file.write(QJsonDocument(chatArray).toJson());
                 file.close();
             }
             
-            // Remove from trash
             QJsonArray newTrash = trashArray;
             newTrash.removeAt(idxInTrash);
             QFile tf("hammerdown_chat_trash.json");
@@ -4151,7 +4123,6 @@ void MainWindow::onChatSettingsClicked()
     connect(closeBtn, &QPushButton::clicked, dialog, &QDialog::accept);
 
     // --- Animation ---
-    card->setGraphicsEffect(nullptr);
     QPropertyAnimation *anim = new QPropertyAnimation(dialog, "windowOpacity");
     anim->setDuration(350);
     anim->setStartValue(0.0);
@@ -4724,37 +4695,6 @@ void MainWindow::shakeWidget(QWidget *w) {
     anim->setKeyValueAt(0.75, op - QPoint(6, 0));
     anim->setEndValue(op);
     anim->start(QAbstractAnimation::DeleteWhenStopped);
-}
-
-#include <QCamera>
-#include <QVideoSink>
-#include <QImageCapture>
-#include <QMediaDevices>
-
-void MainWindow::onChatVoiceToggled() {
-    // Voice recording disabled as requested.
-}
-
-void MainWindow::onChatStartRecord() {
-    QString voiceDir = QDir::currentPath() + "/voice_notes";
-    QDir().mkpath(voiceDir);
-    QString fileName = QString("voice_%1.wav").arg(QDateTime::currentMSecsSinceEpoch());
-    m_recorder->setOutputLocation(QUrl::fromLocalFile(voiceDir + "/" + fileName));
-    m_recorder->record();
-    m_isRecording = true;
-    ui_equipment->le_chat_input->setPlaceholderText("Recording voice note...");
-}
-
-void MainWindow::onChatStopRecord() {
-    m_recorder->stop();
-    m_isRecording = false;
-    ui_equipment->le_chat_input->setPlaceholderText("Type a message...");
-    
-    // Auto-send the voice note
-    QTimer::singleShot(200, this, [this](){
-        ui_equipment->le_chat_input->setText(QString::fromUtf8("\xF0\x9F\x8E\x99 Voice Note"));
-        onChatSendMessage();
-    });
 }
 
 

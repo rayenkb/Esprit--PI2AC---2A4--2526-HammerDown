@@ -1225,9 +1225,6 @@ void MainWindow::setAudioVolume(qreal volume)
     if (tutorialLoopAudioOutput) {
         tutorialLoopAudioOutput->setVolume(currentVolume);
     }
-    if (chatAudioOutput) {
-        chatAudioOutput->setVolume(currentVolume);
-    }
 }
 
 void MainWindow::pauseHomeAudioForSettings()
@@ -1339,7 +1336,6 @@ void MainWindow::suspendAudioForOstp()
     suspendPlayer(loginAudioPlayer, m_resumeLoginAfterOstp, m_loginResumePosAfterOstp);
     suspendPlayer(homeAudioPlayer, m_resumeHomeAfterOstp, m_homeResumePosAfterOstp);
     suspendPlayer(tutorialLoopAudioPlayer, m_resumeTutorialAfterOstp, m_tutorialResumePosAfterOstp);
-    suspendPlayer(chatAudioPlayer, m_resumeChatAfterOstp, m_chatResumePosAfterOstp);
 
     if (homeWindow) {
         homeWindow->suspendActiveAudioForOverlay();
@@ -1363,12 +1359,10 @@ void MainWindow::restoreAudioAfterOstp()
     if (homeAudioOutput) homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
     if (loginAudioOutput) loginAudioOutput->setVolume(currentVolume);
     if (tutorialLoopAudioOutput) tutorialLoopAudioOutput->setVolume(currentVolume);
-    if (chatAudioOutput) chatAudioOutput->setVolume(currentVolume);
 
     resumePlayer(loginAudioPlayer, m_resumeLoginAfterOstp, m_loginResumePosAfterOstp);
     resumePlayer(homeAudioPlayer, m_resumeHomeAfterOstp, m_homeResumePosAfterOstp);
     resumePlayer(tutorialLoopAudioPlayer, m_resumeTutorialAfterOstp, m_tutorialResumePosAfterOstp);
-    resumePlayer(chatAudioPlayer, m_resumeChatAfterOstp, m_chatResumePosAfterOstp);
 
     if (homeWindow) {
         homeWindow->resumeSuspendedAudioAfterOverlay();
@@ -2641,9 +2635,6 @@ void MainWindow::onPageChanged(int index)
                         homeAudioPlayer->stop();
                     }
                 });
-            }
-            if (chatAudioPlayer && chatAudioPlayer->playbackState() == QMediaPlayer::PlayingState) {
-                fadeOut(chatAudioOutput, [this](){ chatAudioPlayer->stop(); });
             }
 
             // Management pages (2-6): play OST1 (including chat tab — music continues uninterrupted)

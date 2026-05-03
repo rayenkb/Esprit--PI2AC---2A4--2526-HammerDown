@@ -305,6 +305,7 @@ void TCOWidget::drawCostStack(QPainter &p, const QRectF &area, const EquipmentFi
 
 void TCOWidget::drawMetricBox(QPainter &p, const QRectF &rect, const QString &label,
                                 const QString &value, const QColor &color, float progress) {
+    Q_UNUSED(progress);
     // 3D card
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(13, 8, 5));
@@ -427,10 +428,10 @@ void TCOWidget::drawVerdictBox(QPainter &p, const QRectF &rect, const EquipmentF
 }
 
 void TCOWidget::mousePressEvent(QMouseEvent *event) {
-    if (event->x() < 260) {
+    if (event->position().x() < 260) {
         int y = 36;
         for (int i = 0; i < m_data.size(); i++) {
-            if (event->y() >= y && event->y() < y + m_listItemHeight) {
+            if (event->position().y() >= y && event->position().y() < y + m_listItemHeight) {
                 m_selectedIndex = i;
                 m_detailAnimProgress = 0.0f;
                 update();
@@ -444,10 +445,10 @@ void TCOWidget::mousePressEvent(QMouseEvent *event) {
 void TCOWidget::mouseMoveEvent(QMouseEvent *event) {
     int oldHover = m_hoveredIndex;
     m_hoveredIndex = -1;
-    if (event->x() < 260) {
+    if (event->position().x() < 260) {
         int y = 36;
         for (int i = 0; i < m_data.size(); i++) {
-            if (event->y() >= y && event->y() < y + m_listItemHeight) {
+            if (event->position().y() >= y && event->position().y() < y + m_listItemHeight) {
                 m_hoveredIndex = i;
                 break;
             }
@@ -516,8 +517,6 @@ void RepairReplaceWidget::paintEvent(QPaintEvent *) {
     }
 
     const auto &eq = m_data[m_selectedIndex];
-    bool rWins = repairWins(eq);
-    float ease = 1.0f - powf(1.0f - m_animProgress, 3.0f);
 
     int panelY = 56;
     int panelH = height() - panelY - 130;
@@ -537,7 +536,6 @@ void RepairReplaceWidget::paintEvent(QPaintEvent *) {
 }
 
 void RepairReplaceWidget::drawRepairPanel(QPainter &p, const QRectF &rect, const EquipmentFinancials &eq) {
-    bool winner = repairWins(eq);
     float ease = 1.0f - powf(1.0f - m_animProgress, 3.0f);
 
     // Shadow
