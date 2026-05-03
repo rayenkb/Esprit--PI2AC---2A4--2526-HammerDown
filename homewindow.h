@@ -9,6 +9,7 @@
 
 class QVariantAnimation;
 class QPropertyAnimation;
+class QPushButton;
 
 class ChatBotDialog;
 
@@ -64,6 +65,7 @@ private slots:
     void handleDisconnect();
     void handleChatBot();
     void handleHelp();
+    void handleCredits();
     void handleProfileMenu();
 
 protected:
@@ -89,6 +91,7 @@ private:
     bool m_settingsHoverActive = false;
     bool m_animationAudioSuspended = false;
     qint64 m_animationAudioResumePosition = 0;
+    QPushButton *m_creditsButton = nullptr;
     
     void setupHomeButtons();
     void stopAnimationAudio();

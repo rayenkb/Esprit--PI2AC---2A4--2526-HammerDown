@@ -61,6 +61,10 @@
 #include <QtMath>
 
 #include <algorithm>
+#include <QEasingCurve>
+#include <QRandomGenerator>
+
+// AiSuggestPanel implementation moved to aisuggestpanel.cpp
 
 
 
@@ -357,14 +361,10 @@ private:
         p.setBrush(glow);
         p.drawEllipse(symCenter, 18, 18);
 
-        const QString title = QString::fromUtf8("â—ˆ WORKSHOP STATISTICS");
-        const QPointF tpos(rect.left() + 46, rect.top() + 48);
-        QFont tf("Segoe UI", 22, QFont::Bold);
+        const QString title = "OPERATIONAL ANALYTICS";
+        const QPointF tpos(rect.left() + 20, rect.top() + 48);
+        QFont tf("Outfit", 24, QFont::Black);
         p.setFont(tf);
-        p.setPen(QColor(0, 0, 0, 217));
-        p.drawText(tpos + QPointF(3, 4), title);
-        p.setPen(QColor(107, 58, 26, 153));
-        p.drawText(tpos + QPointF(1, 2), title);
         p.setPen(QColor("#C17F3E"));
         p.drawText(tpos, title);
 
@@ -404,82 +404,34 @@ private:
             m_data.totalValue
         };
 
-        const qreal boxW = 160.0;
-        const qreal boxH = 64.0;
-        const qreal startX = rect.right() - (boxW * 4.0 + 24.0);
-        const qreal y = rect.bottom() - boxH - 10.0;
-        const qreal t = elapsedSec();
-        const qreal cnt = easeSin(t / 1.4);
+        const qreal boxW = 150.0;
+        const qreal boxH = 50.0;
+        const qreal startX = rect.right() - (boxW * 4.0 + 30.0);
+        const qreal y = rect.top() + 25.0;
+        const qreal cnt = easeSin(elapsedSec() / 1.4);
 
         for (int i = 0; i < 4; ++i) {
-            QRectF b(startX + i * boxW + i * 8, y, boxW, boxH);
+            QRectF b(startX + i * (boxW + 10), y, boxW, boxH);
             QColor c = kpiColors[i];
-            p.setPen(Qt::NoPen);
-            p.setBrush(QColor(0, 0, 0, 153));
-            p.drawRoundedRect(b.translated(2, 3), 10, 10);
+            
+            // Subtle glass background
+            p.setBrush(QColor(25, 20, 15, 180));
+            p.setPen(QPen(QColor(139, 111, 71, 40), 1));
+            p.drawRoundedRect(b, 8, 8);
+            
+            // Left Accent Line
+            p.fillRect(QRectF(b.left(), b.top() + 10, 3, b.height() - 20), c);
 
-            QLinearGradient bg(b.topLeft(), b.bottomRight());
-            bg.setColorAt(0.0, QColor("#1E1510"));
-            bg.setColorAt(1.0, QColor("#0D0805"));
-            p.setBrush(bg);
-            p.setPen(QPen(QColor(193, 127, 62, 130), 1));
-            p.drawRoundedRect(b, 10, 10);
-
-            p.fillRect(QRectF(b.left() + 1, b.top() + 1, b.width() - 2, 2), c);
-            p.fillRect(QRectF(b.left() + 1, b.bottom() - 3, b.width() - 2, 3), QColor(0, 0, 0, 130));
-            p.fillRect(QRectF(b.right() - 2, b.top() + 2, 2, b.height() - 4), QColor(0, 0, 0, 120));
-            p.fillRect(QRectF(b.left() + 1, b.top() + 1, b.width() * 0.55, 1), QColor(245, 230, 211, 35));
-
-            if (i < 3) {
-                QLinearGradient sep(b.right() + 4, b.top(), b.right() + 4, b.bottom());
-                sep.setColorAt(0.0, QColor(0, 0, 0, 0));
-                sep.setColorAt(0.5, QColor(193, 127, 62, 50));
-                sep.setColorAt(1.0, QColor(0, 0, 0, 0));
-                p.setPen(QPen(sep, 1));
-                p.drawLine(QPointF(b.right() + 4, b.top() + 8), QPointF(b.right() + 4, b.bottom() - 8));
-            }
-
-            QFont lf("Segoe UI", 8, QFont::DemiBold);
-            lf.setLetterSpacing(QFont::AbsoluteSpacing, 1.0);
+            QFont lf("Outfit", 8, QFont::Bold);
             p.setFont(lf);
-            p.setPen(QColor(245, 230, 211, 170));
-            p.drawText(QRectF(b.left() + 28, b.top() + 8, b.width() - 34, 14), Qt::AlignLeft | Qt::AlignVCenter, labels[i]);
+            p.setPen(QColor(180, 170, 160));
+            p.drawText(b.adjusted(12, 8, -10, -30), Qt::AlignLeft | Qt::AlignTop, labels[i]);
 
-            const qreal breath = 1.0 + 0.015 * qSin(m_globalTime * 1.2 + i);
-            QFont nf("Segoe UI", int(22 * breath), QFont::Bold);
-            p.setFont(nf);
-            p.setPen(c);
             const qreal shown = values[i] * cnt;
             const QString txt = (i == 3) ? QString::number(shown, 'f', 0) : QString::number((int)qRound(shown));
-            p.drawText(QRectF(b.left() + 26, b.top() + 22, b.width() - 30, 34), Qt::AlignLeft | Qt::AlignVCenter, txt);
-
-            p.setPen(c);
-            p.setBrush(Qt::NoBrush);
-            if (i == 0) {
-                QPainterPath hammer;
-                hammer.moveTo(b.left() + 10, b.top() + 43);
-                hammer.lineTo(b.left() + 15, b.top() + 36);
-                hammer.lineTo(b.left() + 18, b.top() + 38);
-                hammer.lineTo(b.left() + 13, b.top() + 45);
-                hammer.addRect(QRectF(b.left() + 9, b.top() + 32, 9, 3));
-                p.drawPath(hammer);
-            } else if (i == 1) {
-                p.drawEllipse(QPointF(b.left() + 14, b.top() + 40), 6, 6);
-                p.drawLine(QPointF(b.left() + 11, b.top() + 40), QPointF(b.left() + 13, b.top() + 42));
-                p.drawLine(QPointF(b.left() + 13, b.top() + 42), QPointF(b.left() + 17, b.top() + 38));
-            } else if (i == 2) {
-                p.drawLine(QPointF(b.left() + 9, b.top() + 44), QPointF(b.left() + 18, b.top() + 35));
-                p.drawEllipse(QPointF(b.left() + 19, b.top() + 34), 2, 2);
-                p.drawLine(QPointF(b.left() + 11, b.top() + 41), QPointF(b.left() + 14, b.top() + 44));
-            } else {
-                QPainterPath d;
-                d.moveTo(b.left() + 14, b.top() + 31);
-                d.lineTo(b.left() + 19, b.top() + 36);
-                d.lineTo(b.left() + 14, b.top() + 41);
-                d.lineTo(b.left() + 9, b.top() + 36);
-                d.closeSubpath();
-                p.drawPath(d);
-            }
+            p.setFont(QFont("Outfit", 18, QFont::Black));
+            p.setPen(Qt::white);
+            p.drawText(b.adjusted(12, 22, -10, -5), Qt::AlignLeft | Qt::AlignVCenter, txt);
         }
     }
 
@@ -675,18 +627,22 @@ private:
             const qreal t = easeSin((elapsedSec() - i * 0.07) / 0.7);
             const qreal bw = areaW * (e.unitPrice / maxVal) * t;
 
-            QRectF sh(areaLeft + 4, row.center().y() - 5, bw, 14);
-            p.setPen(Qt::NoPen);
-            p.setBrush(QColor(193, 127, 62, 51));
-            p.drawRoundedRect(sh, 7, 7);
-
-            QRectF bar(areaLeft, row.center().y() - 9, bw, 18);
+            QRectF bar(areaLeft, row.center().y() - 2, bw, 4);
+            QColor barColor("#FFD700");
+            p.setBrush(QColor(barColor.red(), barColor.green(), barColor.blue(), 40));
+            p.drawRoundedRect(QRectF(areaLeft, bar.top(), areaW, 4), 2, 2);
+            
             QLinearGradient bg(bar.topLeft(), bar.topRight());
             bg.setColorAt(0.0, QColor("#FFD700"));
-            bg.setColorAt(0.5, QColor("#C17F3E"));
-            bg.setColorAt(1.0, QColor("#8B4A1E"));
+            bg.setColorAt(1.0, QColor("#C17F3E"));
             p.setBrush(bg);
-            p.drawRoundedRect(bar, 9, 9);
+            p.drawRoundedRect(bar, 2, 2);
+
+            if (bw > 30) {
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(255, 255, 255, 60));
+                p.drawEllipse(QPointF(bar.right(), bar.center().y()), 3, 3);
+            }
 
             p.setPen(QPen(QColor(255, 224, 102, 150), 1.5));
             p.drawLine(QPointF(bar.left() + 2, bar.top() + 1), QPointF(bar.right() - 2, bar.top() + 1));
@@ -906,11 +862,11 @@ private:
         p.drawText(QRectF(b.left() + 10, b.top() + 10, b.width() - 20, 14), "NEWEST ACQUISITION");
         p.setPen(QColor("#F5E6D3"));
         p.setFont(QFont("Segoe UI", 11, QFont::Bold));
-        p.drawText(QRectF(b.left() + 10, b.top() + 28, b.width() - 20, 16), m_data.newestName.isEmpty() ? "No purchase date" : m_data.newestName);
+        p.drawText(QRectF(b.left() + 10, b.top() + 28, b.width() - 20, 16), m_data.newestName.isEmpty() ? "SYSTEM READY" : m_data.newestName);
         p.setFont(QFont("Segoe UI", 9));
         p.setPen(QColor(245, 230, 211, 150));
-        const QString dateTxt = m_data.newestDate.isValid() ? m_data.newestDate.toString("yyyy-MM-dd") : "n/a";
-        p.drawText(QRectF(b.left() + 10, b.top() + 46, b.width() - 20, 14), dateTxt + "  |  " + QString::number(m_data.newestDays) + " days ago");
+        const QString dateTxt = m_data.newestDate.isValid() ? m_data.newestDate.toString("yyyy-MM-dd") : "---";
+        p.drawText(QRectF(b.left() + 10, b.top() + 46, b.width() - 20, 14), dateTxt + "  |  " + (m_data.newestDays >= 0 ? QString::number(m_data.newestDays) + " days ago" : "STANDBY"));
         p.setBrush(QColor("#4CAF7D"));
         p.setPen(Qt::NoPen);
         p.drawRoundedRect(QRectF(b.right() - 58, b.top() + 10, 48, 16), 8, 8);
@@ -1228,10 +1184,10 @@ void MainWindow::setupEquipmentModes()
         l->setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px; font-weight: bold;");
         return l;
     };
-    m_eqTypeInd = makeInd("[ðŸ”¨ Type â¬œ]", "ind_type"); 
-    m_eqDateInd = makeInd("[ðŸ“… Date â¬œ]", "ind_date"); 
-    m_eqPriceInd= makeInd("[ðŸ’° Price â¬œ]", "ind_price"); 
-    m_eqDescInd = makeInd("[ðŸ“ Desc â¬œ]", "ind_desc");
+    m_eqTypeInd = makeInd("[ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â¨ Type ÃƒÂ¢Ã‚Â¬Ã…â€œ]", "ind_type"); 
+    m_eqDateInd = makeInd("[ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¦ Date ÃƒÂ¢Ã‚Â¬Ã…â€œ]", "ind_date"); 
+    m_eqPriceInd= makeInd("[ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â° Price ÃƒÂ¢Ã‚Â¬Ã…â€œ]", "ind_price"); 
+    m_eqDescInd = makeInd("[ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â Desc ÃƒÂ¢Ã‚Â¬Ã…â€œ]", "ind_desc");
 
     ui_equipment->label_type->setText(QString::fromUtf8("\xF0\x9F\x94\xA7 Type:"));
     ui_equipment->label_date_achat->setText(QString::fromUtf8("\xF0\x9F\x93\x85 Purchase Date:"));
@@ -1239,6 +1195,12 @@ void MainWindow::setupEquipmentModes()
     ui_equipment->label_etat->setText(QString::fromUtf8("\xF0\x9F\x93\x8A Status:"));
     ui_equipment->label_quantity->setText(QString::fromUtf8("\xF0\x9F\x93\xA6 Quantity:"));
     ui_equipment->label_desc->setText(QString::fromUtf8("\xF0\x9F\x93\x9D Description:"));
+
+    // --- APPLY FORGE DESIGN SYSTEM (FINAL BOSS PROMPT) ---
+    ui_equipment->groupBox_gestion->setStyleSheet(
+        "QGroupBox#groupBox_gestion { background-color: rgba(60, 45, 30, 0.7); border: 2px solid #8B6F47; border-radius: 12px; margin-top: 18px; color: white; }"
+        "QGroupBox#groupBox_gestion::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 2px 12px; background-color: #8B6F47; font-weight: bold; color: white; border-radius: 4px; }"
+    );
 
     const QString compactLabelStyle = "color: white; font-size: 11px; font-weight: bold; background: transparent;";
     ui_equipment->label_type->setStyleSheet(compactLabelStyle);
@@ -1257,6 +1219,7 @@ void MainWindow::setupEquipmentModes()
     ui_equipment->te_desc->setFixedHeight(80);
 
     auto updateUI = [=](bool isAdd) {
+
         // Shift amount for other fields when ID is hidden
         int yOffset = isAdd ? 22 : 0;
         
@@ -1272,6 +1235,7 @@ void MainWindow::setupEquipmentModes()
             ui_equipment->btn_add->setVisible(true);
             ui_equipment->btn_modify->setVisible(false);
             ui_equipment->btn_delete->setVisible(false);
+
             
             ui_equipment->le_id->setVisible(false);
             ui_equipment->label_id->setVisible(false);
@@ -1289,6 +1253,7 @@ void MainWindow::setupEquipmentModes()
             ui_equipment->btn_add->setVisible(false);
             ui_equipment->btn_modify->setVisible(true);
             ui_equipment->btn_delete->setVisible(true);
+
             
             ui_equipment->le_id->setVisible(true);
             ui_equipment->label_id->setVisible(true);
@@ -1410,7 +1375,7 @@ void MainWindow::setupEquipmentModes()
     }
 
 
-    // --- ContrÃ´le de Saisie (Input Validation) ---
+    // --- ContrÃƒÆ’Ã‚Â´le de Saisie (Input Validation) ---
     // Only letters and spaces for Type
     QRegularExpression typeRegex("^[a-zA-Z\\s]*$");
     QRegularExpressionValidator *typeVal = new QRegularExpressionValidator(typeRegex, this);
@@ -1459,7 +1424,17 @@ void MainWindow::setupEquipmentModes()
 
     ui_equipment->tableView_historique->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(ui_equipment->tableView_historique, &QTableView::customContextMenuRequested, this, [this](const QPoint &pos){ onEquipmentHistoryCustomContextMenu(pos, 2); });
+
+    // --- Creative Suite Initialization ---
+    m_radialMenu = new RadialCommandMenu(this);
+    connect(m_radialMenu, &RadialCommandMenu::actionSelected, this, &MainWindow::onRadialAction);
+
+    m_identityCard = new IdentityCard(ui_equipment->tab_view);
+    m_identityCard->hide();
 }
+
+
+
 
 void MainWindow::onEquipmentRefreshView()
 {
@@ -1475,6 +1450,9 @@ void MainWindow::onEquipmentRefreshView()
     ui_equipment->table_equipments->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui_equipment->table_equipments->setEditTriggers(QAbstractItemView::NoEditTriggers);
 }
+
+
+
 
 void MainWindow::onEquipmentAdd()
 {
@@ -1551,6 +1529,28 @@ void MainWindow::onEquipmentAdd()
     updateEquipProgress();
     // Refresh NEXUS analysis
     if (m_nexusWidget) m_nexusWidget->initialize();
+}
+
+void MainWindow::onRadialAction(const QString &action, int id) {
+    // Find row index for this ID
+    QSqlQueryModel *m = qobject_cast<QSqlQueryModel*>(ui_equipment->table_equipments->model());
+    int row = -1;
+    for (int i = 0; i < m->rowCount(); ++i) {
+        if (m->data(m->index(i, 2)).toInt() == id) {
+            row = i;
+            break;
+        }
+    }
+    if (row == -1) return;
+
+    if (action == "EDIT") {
+        ui_equipment->table_equipments->clicked(m->index(row, 0));
+    } else if (action == "DELETE") {
+        ui_equipment->table_equipments->setCurrentIndex(m->index(row, 1));
+        onEquipmentDelete();
+    } else if (action == "STATS") {
+        ui_equipment->tabWidget->setCurrentWidget(ui_equipment->tab_stats);
+    }
 }
 
 void MainWindow::onEquipmentModify()
@@ -2113,7 +2113,7 @@ void MainWindow::onEquipmentCustomContextMenu(const QPoint &pos)
     int equipId = ui_equipment->table_equipments->model()->data(ui_equipment->table_equipments->model()->index(index.row(), 2)).toInt();
 
     QMenu menu(this);
-    QAction *analyzeAct = menu.addAction("ðŸ” Analyze in Nexus");
+        QAction *analyzeAct = menu.addAction("Analyze in Nexus");
     
     QAction *selected = menu.exec(ui_equipment->table_equipments->viewport()->mapToGlobal(pos));
     if (selected == analyzeAct) {
@@ -2149,7 +2149,7 @@ void MainWindow::onEquipmentHistoryCustomContextMenu(const QPoint &pos, int tabl
     if (!date.isValid()) date = QDate::currentDate();
 
     QMenu menu(this);
-    QAction *nexusViewAct = menu.addAction("â³ Nexus View (Time Machine)");
+    QAction *nexusViewAct = menu.addAction("ÃƒÂ¢Ã‚ÂÃ‚Â³ Nexus View (Time Machine)");
     
     QAction *selected = menu.exec(view->viewport()->mapToGlobal(pos));
     if (selected == nexusViewAct) {
@@ -2192,18 +2192,18 @@ void MainWindow::updateEquipProgress() {
     auto updateInd = [](QLabel* l, bool ok, const QString& prefix) {
         if (!l) return;
         if (ok) {
-            l->setText(prefix + " âœ…]");
+            l->setText(prefix + " \u2705]");
             l->setStyleSheet("color: #4CAF50; font-size: 11px; font-weight: bold;");
         } else {
-            l->setText(prefix + " â¬œ]");
+            l->setText(prefix + " \u2B1C]");
             l->setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px; font-weight: bold;");
         }
     };
     
-    updateInd(m_eqTypeInd, typeOk, "[ðŸ”¨ Type");
-    updateInd(m_eqDateInd, dateOk, "[ðŸ“… Date");
-    updateInd(m_eqPriceInd, priceOk, "[ðŸ’° Price");
-    updateInd(m_eqDescInd, descOk, "[ðŸ“ Desc");
+    updateInd(m_eqTypeInd, typeOk, "[\U0001F528 Type");
+    updateInd(m_eqDateInd, dateOk, "[\U0001F4C5 Date");
+    updateInd(m_eqPriceInd, priceOk, "[\U0001F4B0 Price");
+    updateInd(m_eqDescInd, descOk, "[\U0001F4DD Desc");
 
     // Pulsing animation for Add button at 100%
     if (progress == 100) {
@@ -2253,7 +2253,7 @@ void MainWindow::playEquipSuccessAnimation(const QString &equipName) {
 
     // 2. Flying Card
     QLabel *flyer = new QLabel(this);
-    flyer->setText("ðŸ› ï¸ " + equipName);
+    flyer->setText("ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â " + equipName);
     flyer->setFixedSize(160, 45);
     flyer->setAlignment(Qt::AlignCenter);
     flyer->setStyleSheet("background: #8B6F47; color: white; border: 2px solid #D4AF37; border-radius: 12px; font-weight: bold; font-family: 'Segoe UI';");
@@ -2319,7 +2319,7 @@ void MainWindow::playEquipSuccessAnimation(const QString &equipName) {
     group->start(QAbstractAnimation::DeleteWhenStopped);
 
     // 5. Toast notification
-    QLabel *toast = new QLabel("âœ… " + equipName + " added to workshop!", this);
+    QLabel *toast = new QLabel("ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ " + equipName + " added to workshop!", this);
     toast->setFixedSize(320, 55);
     toast->setAlignment(Qt::AlignCenter);
     toast->setStyleSheet(
@@ -2783,7 +2783,7 @@ void MainWindow::onEquipmentShareToChat()
 }
 
 // =============================================================================
-// UNREAD MESSAGES SPLASH â€” after login
+// UNREAD MESSAGES SPLASH ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â after login
 // =============================================================================
 
 void MainWindow::ensureEquipmentHistoryDatabaseObjects()
@@ -2923,6 +2923,7 @@ void MainWindow::setupEquipmentConnections()
     // --- Equipment CRUD Connections ---
     connect(ui_equipment->btn_clear,  &QPushButton::clicked, this, &MainWindow::onEquipmentClearFields);
     connect(ui_equipment->btn_add,    &QPushButton::clicked, this, &MainWindow::onEquipmentAdd);
+
     connect(ui_equipment->btn_modify, &QPushButton::clicked, this, &MainWindow::onEquipmentModify);
     connect(ui_equipment->btn_delete, &QPushButton::clicked, this, &MainWindow::onEquipmentDelete);
     connect(ui_equipment->btn_delete_confirm, &QPushButton::clicked, this, &MainWindow::onEquipmentDelete);
@@ -2930,18 +2931,26 @@ void MainWindow::setupEquipmentConnections()
     connect(ui_equipment->btn_search, &QPushButton::clicked, this, &MainWindow::onEquipmentSearch);
     connect(ui_equipment->le_recherche, &QLineEdit::returnPressed, this, &MainWindow::onEquipmentSearch);
 
-    // Load row into form when row is clicked in view tab
+    // Load row into form and show Identity Card
     connect(ui_equipment->table_equipments, &QAbstractItemView::clicked, this, [this](const QModelIndex &idx){
-        if (idx.column() == 0) { // Edit
-            QSqlQueryModel *m = qobject_cast<QSqlQueryModel*>(ui_equipment->table_equipments->model());
-            if (!m) return;
-            QString id      = m->data(m->index(idx.row(), 2)).toString();
-            QString type    = m->data(m->index(idx.row(), 3)).toString();
-            int     qty     = m->data(m->index(idx.row(), 4)).toInt();
-            double  price   = m->data(m->index(idx.row(), 5)).toDouble();
-            QString cond    = m->data(m->index(idx.row(), 6)).toString();
+        QSqlQueryModel *m = qobject_cast<QSqlQueryModel*>(ui_equipment->table_equipments->model());
+        if (!m) return;
+
+        QString id      = m->data(m->index(idx.row(), 2)).toString();
+        QString type    = m->data(m->index(idx.row(), 3)).toString();
+        QString cond    = m->data(m->index(idx.row(), 6)).toString();
+        double  price   = m->data(m->index(idx.row(), 5)).toDouble();
+        QString desc    = m->data(m->index(idx.row(), 8)).toString();
+
+        // Show Identity Card
+        if (m_identityCard) {
+            m_identityCard->setup(desc, type, cond, price, id.toInt());
+            m_identityCard->animateOpen();
+        }
+
+        if (idx.column() == 0) { // Edit Action
             QString dateStr = m->data(m->index(idx.row(), 7)).toString();
-            QString desc    = m->data(m->index(idx.row(), 8)).toString();
+            int     qty     = m->data(m->index(idx.row(), 4)).toInt();
 
             ui_equipment->le_id->setText(id);
             ui_equipment->le_type->setText(type);
@@ -2960,9 +2969,20 @@ void MainWindow::setupEquipmentConnections()
             if (QRadioButton *rbMod = ui_equipment->tab_gestion->findChild<QRadioButton*>("rb_equipment_mod_mode")) {
                 rbMod->setChecked(true);
             }
-        } else if (idx.column() == 1) { // Delete
+        } else if (idx.column() == 1) { // Delete Action
             ui_equipment->table_equipments->setCurrentIndex(idx);
             onEquipmentDelete();
+        }
+    });
+
+    // Radial Menu Activation
+    ui_equipment->table_equipments->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui_equipment->table_equipments, &QTableView::customContextMenuRequested, this, [this](const QPoint &pos){
+        QModelIndex idx = ui_equipment->table_equipments->indexAt(pos);
+        if (idx.isValid()) {
+            QSqlQueryModel *m = qobject_cast<QSqlQueryModel*>(ui_equipment->table_equipments->model());
+            int id = m->data(m->index(idx.row(), 2)).toInt();
+            m_radialMenu->showMenu(ui_equipment->table_equipments->viewport()->mapToGlobal(pos), id);
         }
     });
 
@@ -3497,7 +3517,7 @@ void MainWindow::onChatRefresh()
 
         // --- Delete Button (Trash Icon) ---
         if (isMe) {
-            QPushButton *delBtn = new QPushButton("ðŸ—‘"); 
+            QPushButton *delBtn = new QPushButton("ÃƒÂ°Ã…Â¸Ã¢â‚¬â€Ã¢â‚¬Ëœ"); 
             delBtn->setFixedSize(24, 24);
             delBtn->setCursor(Qt::PointingHandCursor);
             delBtn->setStyleSheet(m_isChatModernTheme ?
@@ -3635,7 +3655,7 @@ void MainWindow::onChatAttachImage()
     // Show preview label
     QFileInfo fi(filePath);
     if (auto *lbl = equipmentPage->findChild<QLabel*>("lbl_img_preview")) {
-        lbl->setText("Image attached: " + fi.fileName() + " â€” press Send to include it");
+        lbl->setText("Image attached: " + fi.fileName() + " ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â press Send to include it");
         lbl->setVisible(true);
     }
 }
@@ -3867,7 +3887,7 @@ void MainWindow::onChatGifClicked()
     mainLay->setSpacing(8);
 
     // Header
-    QLabel *title = new QLabel("GIF Search â€” Powered by GIPHY", card);
+    QLabel *title = new QLabel("GIF Search ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Powered by GIPHY", card);
     title->setStyleSheet("color: #D4AF37; font-size: 13px; font-weight: bold; background: transparent;");
     title->setAlignment(Qt::AlignCenter);
     mainLay->addWidget(title);
@@ -4118,7 +4138,7 @@ void MainWindow::onChatSettingsClicked()
     // (Modern theme is hidden, Classic is active)
 
     // --- Clear Chat ---
-    QPushButton *btnClear = new QPushButton("ðŸ—‘ Clear Conversation", card);
+    QPushButton *btnClear = new QPushButton("ÃƒÂ°Ã…Â¸Ã¢â‚¬â€Ã¢â‚¬Ëœ Clear Conversation", card);
     btnClear->setStyleSheet(
         "QPushButton { background: rgba(200,50,50,0.15); border: 2px solid #662222; border-radius: 14px; height: 40px; color: #FF9999; font-weight: bold; }"
         "QPushButton:hover { background: #882222; color: white; }"
@@ -4153,7 +4173,7 @@ void MainWindow::onChatSettingsClicked()
     });
 
     // --- Restore Deleted Messages ---
-    QPushButton *btnRestore = new QPushButton("â™» Restore Deleted Messages", card);
+    QPushButton *btnRestore = new QPushButton("ÃƒÂ¢Ã¢â€žÂ¢Ã‚Â» Restore Deleted Messages", card);
     btnRestore->setStyleSheet(
         "QPushButton { background: rgba(50,200,50,0.15); border: 2px solid #226622; border-radius: 14px; height: 40px; color: #99FF99; font-weight: bold; }"
         "QPushButton:hover { background: #228822; color: white; }"
@@ -4849,4 +4869,8 @@ void MainWindow::onChatStopRecord() {
         onChatSendMessage();
     });
 }
+
+
+
+
 

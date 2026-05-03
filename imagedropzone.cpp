@@ -6,7 +6,7 @@ ImageDropZone::ImageDropZone(QWidget *parent) : QLabel(parent)
     setAttribute(Qt::WA_AcceptDrops, true);
     setAlignment(Qt::AlignCenter);
     resetStyle();
-    setText("Drag & Drop\nImage Here");
+    setText(tr("Drag & Drop\nImage Here"));
 }
 
 void ImageDropZone::resetStyle()
@@ -39,7 +39,7 @@ void ImageDropZone::dragEnterEvent(QDragEnterEvent *event)
             "  font-weight: bold;"
             "}"
         );
-        setText("\u2705 Drop to analyze!");
+        setText(tr("\u2705 Drop to analyze!"));
     } else {
         event->ignore();
     }
@@ -56,7 +56,7 @@ void ImageDropZone::dragMoveEvent(QDragMoveEvent *event)
 void ImageDropZone::dragLeaveEvent(QDragLeaveEvent *)
 {
     resetStyle();
-    setText("Drag & Drop\nImage Here");
+    setText(tr("Drag & Drop\nImage Here"));
 }
 
 void ImageDropZone::dropEvent(QDropEvent *event)

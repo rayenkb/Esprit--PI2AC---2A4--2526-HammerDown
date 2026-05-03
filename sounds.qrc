@@ -10,5 +10,6 @@
         <file>assets/chat_ambient.mp3</file>
         <file>assets/botawk.mp3</file>
         <file>assets/ger.mp3</file>
+        <file>assets/crost.mp3</file>
     </qresource>
 </RCC>

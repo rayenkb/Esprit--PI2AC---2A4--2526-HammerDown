@@ -61,7 +61,9 @@ SOURCES += \
     costswidget_subtabs.cpp \
     equipment.cpp \
     supplier.cpp \
-    order.cpp
+    order.cpp \
+    employee.cpp \
+    creative_components.cpp
 
 # Header files
 HEADERS += \
@@ -83,7 +85,9 @@ HEADERS += \
     costswidget.h \
     equipment.h \
     supplier.h \
-    order.h
+    order.h \
+    employee.h \
+    creative_components.h
 
 # UI files
 FORMS += \
@@ -103,9 +107,9 @@ RESOURCES += \
 
 # Translation files
 TRANSLATIONS += \
-    translations/app_fr.ts
+    HammerDown_en.ts \
+    HammerDown_fr.ts
 
-# Default rules for deployment.
-qnx: target.path = /tmp/$${TARGET}/bin
-else: unix:!android: target.path = /opt/$${TARGET}/bin
-!isEmpty(target.path): INSTALLS += target
+# Deployment
+target.path = $$[QT_INSTALL_BINS]
+INSTALLS += target

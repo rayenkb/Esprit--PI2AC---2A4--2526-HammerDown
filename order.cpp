@@ -15,6 +15,67 @@ void setTrKey(QWidget *widget, const QString &key)
         widget->setProperty("trKey", key);
     }
 }
+
+QString routeHostForProvider(const QString &provider)
+{
+    return (provider == "osrm_de")
+        ? QString("https://routing.openstreetmap.de/routed-car")
+        : QString("https://router.project-osrm.org");
+}
+
+QString routeFallbackProvider(const QString &provider)
+{
+    if (provider == "osrm") return QString("osrm_de");
+    return QString();
+}
+
+QString orsApiKey()
+{
+    return qEnvironmentVariable("ORS_API_KEY").trimmed();
+}
+
+QVector<QPointF> decodePolyline(const QString &encoded, int precision)
+{
+    QVector<QPointF> points;
+    if (encoded.isEmpty()) return points;
+
+    int index = 0;
+    int lat = 0;
+    int lon = 0;
+    const int len = encoded.size();
+    const double factor = qPow(10.0, precision);
+
+    while (index < len) {
+        int shift = 0;
+        int result = 0;
+        int b = 0;
+        do {
+            if (index >= len) return points;
+            b = encoded.at(index++).unicode() - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        const int dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+        lat += dlat;
+
+        shift = 0;
+        result = 0;
+        do {
+            if (index >= len) return points;
+            b = encoded.at(index++).unicode() - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        const int dlon = (result & 1) ? ~(result >> 1) : (result >> 1);
+        lon += dlon;
+
+        const double latVal = lat / factor;
+        const double lonVal = lon / factor;
+        points.push_back(QPointF(lonVal, latVal));
+    }
+
+    return points;
+}
 }
 
 static QPixmap generateQrPixmap(const QString &text, int pixelSize = 8, int border = 4)
@@ -510,7 +571,7 @@ void MainWindow::configureOrderCatalogTable(QTableWidget *table)
         return;
 
     table->setColumnCount(8);
-    table->setHorizontalHeaderLabels({"Order ID", "Type", "Quantity", "Unit Price", "Total Price", "Buyer ID", "Payment", "Action"});
+    table->setHorizontalHeaderLabels({"Order ID", "Type", "Quantity", "Unit Price", "Total Price", "Buyer ID", "Status", "Action"});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setAlternatingRowColors(false);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -2628,6 +2689,105 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
     const QString type = reply->property("mapType").toString();
     const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
+    bool orsKeyMissing = false;
+
+    auto applyDirectFallback = [this](double fromLat, double fromLon, double toLat, double toLon, const QString &statusText) {
+        auto coordOk = [](double lat, double lon) {
+            return lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0;
+        };
+        if (!coordOk(fromLat, fromLon) || !coordOk(toLat, toLon)) return false;
+        if (qAbs(fromLat - toLat) < 0.000001 && qAbs(fromLon - toLon) < 0.000001) return false;
+
+        const double dLat = qDegreesToRadians(toLat - fromLat);
+        const double dLon = qDegreesToRadians(toLon - fromLon);
+        const double a = qSin(dLat / 2.0) * qSin(dLat / 2.0)
+            + qCos(qDegreesToRadians(fromLat)) * qCos(qDegreesToRadians(toLat))
+              * qSin(dLon / 2.0) * qSin(dLon / 2.0);
+        const double c = 2.0 * qAtan2(qSqrt(a), qSqrt(1.0 - a));
+        const double distanceKm = 6371.0 * c;
+        const double speedKmh = 50.0;
+        const int etaMinutes = qMax(1, qRound((distanceKm / speedKmh) * 60.0));
+
+        m_mapRouteGeoPoints.clear();
+        m_mapRouteGeoPoints.push_back(QPointF(fromLon, fromLat));
+        m_mapRouteGeoPoints.push_back(QPointF(toLon, toLat));
+        renderOrderMap();
+
+        if (m_mapDeliveryInfoLabel) {
+            m_mapDeliveryInfoLabel->setText(
+                QString("Direct Distance: %1 km | ETA (est): %2 min")
+                    .arg(distanceKm, 0, 'f', 1)
+                    .arg(etaMinutes));
+        }
+        if (m_mapStatusLabel) {
+            m_mapStatusLabel->setText(statusText);
+        }
+        return true;
+    };
+
+    auto requestOrsRoute = [this, &orsKeyMissing](double fromLat, double fromLon, double toLat, double toLon) {
+        if (!m_mapNet) return false;
+        const QString key = orsApiKey();
+        if (key.isEmpty()) {
+            orsKeyMissing = true;
+            return false;
+        }
+
+        QUrl url("https://api.openrouteservice.org/v2/directions/driving-car/geojson");
+        QNetworkRequest req(url);
+        req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+        req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        req.setRawHeader("Authorization", key.toUtf8());
+
+        QJsonArray coords;
+        coords.append(QJsonArray{fromLon, fromLat});
+        coords.append(QJsonArray{toLon, toLat});
+        QJsonObject body;
+        body.insert("coordinates", coords);
+        QJsonDocument doc(body);
+
+        QNetworkReply *routeReply = m_mapNet->post(req, doc.toJson(QJsonDocument::Compact));
+        routeReply->setProperty("mapType", "route_ors");
+        routeReply->setProperty("fromLat", fromLat);
+        routeReply->setProperty("fromLon", fromLon);
+        routeReply->setProperty("toLat", toLat);
+        routeReply->setProperty("toLon", toLon);
+        m_mapStatusLabel->setText("Routing via OpenRouteService...");
+        return true;
+    };
+
+    auto requestValhallaRoute = [this](double fromLat, double fromLon, double toLat, double toLon) {
+        if (!m_mapNet) return false;
+
+        QUrl url("https://valhalla1.openstreetmap.de/route");
+        QNetworkRequest req(url);
+        req.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+        req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+        QJsonArray locations;
+        locations.append(QJsonObject{{"lat", fromLat}, {"lon", fromLon}});
+        locations.append(QJsonObject{{"lat", toLat}, {"lon", toLon}});
+
+        QJsonObject directions;
+        directions.insert("units", "kilometers");
+
+        QJsonObject body;
+        body.insert("locations", locations);
+        body.insert("costing", "auto");
+        body.insert("shape_format", "polyline6");
+        body.insert("directions_options", directions);
+
+        QJsonDocument doc(body);
+        QNetworkReply *routeReply = m_mapNet->post(req, doc.toJson(QJsonDocument::Compact));
+        routeReply->setProperty("mapType", "route_valhalla");
+        routeReply->setProperty("fromLat", fromLat);
+        routeReply->setProperty("fromLon", fromLon);
+        routeReply->setProperty("toLat", toLat);
+        routeReply->setProperty("toLon", toLon);
+        m_mapStatusLabel->setText("Routing via Valhalla...");
+        return true;
+    };
+
     if (type == "geocode" || type == "geocode_employee") {
         const bool isEmployeeGeocode = (type == "geocode_employee");
         const QString stage = reply->property("geocodeStage").toString();
@@ -2763,7 +2923,9 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
                 requestMapTiles(m_mapCenterLat, m_mapCenterLon);
 
                 // Snap employee point to nearest drivable road first.
-                QUrl nearestUrl(QString("http://router.project-osrm.org/nearest/v1/driving/%1,%2")
+                const QString provider = "osrm";
+                QUrl nearestUrl(QString("%1/nearest/v1/driving/%2,%3")
+                                    .arg(routeHostForProvider(provider))
                                     .arg(m_mapEmployeePinLon, 0, 'f', 6)
                                     .arg(m_mapEmployeePinLat, 0, 'f', 6));
                 QUrlQuery nearestParams;
@@ -2775,6 +2937,7 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
                 nearestReq.setRawHeader("Accept", "application/json");
                 QNetworkReply *nearestReply = m_mapNet->get(nearestReq);
                 nearestReply->setProperty("mapType", "route_nearest_employee");
+                nearestReply->setProperty("routeProvider", provider);
                 nearestReply->setProperty("employeeLat", m_mapEmployeePinLat);
                 nearestReply->setProperty("employeeLon", m_mapEmployeePinLon);
                 nearestReply->setProperty("clientLat", m_mapClientPinLat);
@@ -2842,6 +3005,8 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
 
     if (type == "route_nearest_employee") {
         const QByteArray nearestData = reply->readAll();
+        const QString provider = reply->property("routeProvider").toString();
+        const QString fallbackProvider = routeFallbackProvider(provider);
         const double employeeLat = reply->property("employeeLat").toDouble();
         const double employeeLon = reply->property("employeeLon").toDouble();
         const double clientLat = reply->property("clientLat").toDouble();
@@ -2850,7 +3015,8 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
         double fromLat = employeeLat;
         double fromLon = employeeLon;
 
-        if (reply->error() == QNetworkReply::NoError) {
+        bool snappedOk = false;
+        if (reply->error() == QNetworkReply::NoError && httpStatus < 400) {
             QJsonDocument nDoc = QJsonDocument::fromJson(nearestData);
             QJsonObject nRoot = nDoc.object();
             if (nRoot.value("code").toString() == "Ok") {
@@ -2860,12 +3026,38 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
                     if (loc.size() >= 2) {
                         fromLon = loc.at(0).toDouble();
                         fromLat = loc.at(1).toDouble();
+                        snappedOk = true;
                     }
                 }
             }
         }
 
-        QUrl nearestClientUrl(QString("http://router.project-osrm.org/nearest/v1/driving/%1,%2")
+        if (!snappedOk && !fallbackProvider.isEmpty()) {
+            QUrl retryUrl(QString("%1/nearest/v1/driving/%2,%3")
+                              .arg(routeHostForProvider(fallbackProvider))
+                              .arg(employeeLon, 0, 'f', 6)
+                              .arg(employeeLat, 0, 'f', 6));
+            QUrlQuery retryParams;
+            retryParams.addQueryItem("number", "1");
+            retryUrl.setQuery(retryParams);
+
+            QNetworkRequest retryReq(retryUrl);
+            retryReq.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+            retryReq.setRawHeader("Accept", "application/json");
+            QNetworkReply *retryReply = m_mapNet->get(retryReq);
+            retryReply->setProperty("mapType", "route_nearest_employee");
+            retryReply->setProperty("routeProvider", fallbackProvider);
+            retryReply->setProperty("employeeLat", employeeLat);
+            retryReply->setProperty("employeeLon", employeeLon);
+            retryReply->setProperty("clientLat", clientLat);
+            retryReply->setProperty("clientLon", clientLon);
+            m_mapStatusLabel->setText("Routing retry (fallback provider)...");
+            reply->deleteLater();
+            return;
+        }
+
+        QUrl nearestClientUrl(QString("%1/nearest/v1/driving/%2,%3")
+                      .arg(routeHostForProvider(provider))
                                   .arg(clientLon, 0, 'f', 6)
                                   .arg(clientLat, 0, 'f', 6));
         QUrlQuery nearestClientParams;
@@ -2877,6 +3069,7 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
         nearestClientReq.setRawHeader("Accept", "application/json");
         QNetworkReply *nearestClientReply = m_mapNet->get(nearestClientReq);
         nearestClientReply->setProperty("mapType", "route_nearest_client");
+        nearestClientReply->setProperty("routeProvider", provider);
         nearestClientReply->setProperty("fromLat", fromLat);
         nearestClientReply->setProperty("fromLon", fromLon);
         nearestClientReply->setProperty("clientLat", clientLat);
@@ -2890,6 +3083,9 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
     if (type == "route_nearest_client") {
         const QByteArray nearestData = reply->readAll();
 
+        const QString provider = reply->property("routeProvider").toString();
+        const QString fallbackProvider = routeFallbackProvider(provider);
+
         const double fromLat = reply->property("fromLat").toDouble();
         const double fromLon = reply->property("fromLon").toDouble();
         const double clientLat = reply->property("clientLat").toDouble();
@@ -2898,7 +3094,8 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
         double toLat = clientLat;
         double toLon = clientLon;
 
-        if (reply->error() == QNetworkReply::NoError) {
+        bool snappedOk = false;
+        if (reply->error() == QNetworkReply::NoError && httpStatus < 400) {
             QJsonDocument nDoc = QJsonDocument::fromJson(nearestData);
             QJsonObject nRoot = nDoc.object();
             if (nRoot.value("code").toString() == "Ok") {
@@ -2908,12 +3105,38 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
                     if (loc.size() >= 2) {
                         toLon = loc.at(0).toDouble();
                         toLat = loc.at(1).toDouble();
+                        snappedOk = true;
                     }
                 }
             }
         }
 
-        QUrl routeUrl(QString("http://router.project-osrm.org/route/v1/driving/%1,%2;%3,%4")
+        if (!snappedOk && !fallbackProvider.isEmpty()) {
+            QUrl retryUrl(QString("%1/nearest/v1/driving/%2,%3")
+                              .arg(routeHostForProvider(fallbackProvider))
+                              .arg(clientLon, 0, 'f', 6)
+                              .arg(clientLat, 0, 'f', 6));
+            QUrlQuery retryParams;
+            retryParams.addQueryItem("number", "1");
+            retryUrl.setQuery(retryParams);
+
+            QNetworkRequest retryReq(retryUrl);
+            retryReq.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+            retryReq.setRawHeader("Accept", "application/json");
+            QNetworkReply *retryReply = m_mapNet->get(retryReq);
+            retryReply->setProperty("mapType", "route_nearest_client");
+            retryReply->setProperty("routeProvider", fallbackProvider);
+            retryReply->setProperty("fromLat", fromLat);
+            retryReply->setProperty("fromLon", fromLon);
+            retryReply->setProperty("clientLat", clientLat);
+            retryReply->setProperty("clientLon", clientLon);
+            m_mapStatusLabel->setText("Routing retry (fallback provider)...");
+            reply->deleteLater();
+            return;
+        }
+
+        QUrl routeUrl(QString("%1/route/v1/driving/%2,%3;%4,%5")
+                  .arg(routeHostForProvider(provider))
                           .arg(fromLon, 0, 'f', 6)
                           .arg(fromLat, 0, 'f', 6)
                           .arg(toLon, 0, 'f', 6)
@@ -2931,6 +3154,11 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
         routeReq.setRawHeader("Accept", "application/json");
         QNetworkReply *routeReply = m_mapNet->get(routeReq);
         routeReply->setProperty("mapType", "route");
+        routeReply->setProperty("routeProvider", provider);
+        routeReply->setProperty("fromLat", fromLat);
+        routeReply->setProperty("fromLon", fromLon);
+        routeReply->setProperty("toLat", toLat);
+        routeReply->setProperty("toLon", toLon);
 
         m_mapStatusLabel->setText("Calculating drivable route...");
         reply->deleteLater();
@@ -2940,13 +3168,63 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
     if (type == "route") {
         const QByteArray routeData = reply->readAll();
 
-        if (reply->error() != QNetworkReply::NoError) {
-            m_mapRouteGeoPoints.clear();
-            renderOrderMap();
-            if (m_mapDeliveryInfoLabel) {
-                m_mapDeliveryInfoLabel->setText("Road route unavailable for car travel.");
+        const QString provider = reply->property("routeProvider").toString();
+        const QString fallbackProvider = routeFallbackProvider(provider);
+        const double fromLat = reply->property("fromLat").toDouble();
+        const double fromLon = reply->property("fromLon").toDouble();
+        const double toLat = reply->property("toLat").toDouble();
+        const double toLon = reply->property("toLon").toDouble();
+
+        if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
+            if (!fallbackProvider.isEmpty()) {
+                QUrl retryUrl(QString("%1/route/v1/driving/%2,%3;%4,%5")
+                                  .arg(routeHostForProvider(fallbackProvider))
+                                  .arg(fromLon, 0, 'f', 6)
+                                  .arg(fromLat, 0, 'f', 6)
+                                  .arg(toLon, 0, 'f', 6)
+                                  .arg(toLat, 0, 'f', 6));
+                QUrlQuery retryParams;
+                retryParams.addQueryItem("overview", "full");
+                retryParams.addQueryItem("geometries", "geojson");
+                retryParams.addQueryItem("alternatives", "false");
+                retryParams.addQueryItem("steps", "false");
+                retryParams.addQueryItem("annotations", "false");
+                retryUrl.setQuery(retryParams);
+
+                QNetworkRequest retryReq(retryUrl);
+                retryReq.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+                retryReq.setRawHeader("Accept", "application/json");
+                QNetworkReply *retryReply = m_mapNet->get(retryReq);
+                retryReply->setProperty("mapType", "route");
+                retryReply->setProperty("routeProvider", fallbackProvider);
+                retryReply->setProperty("fromLat", fromLat);
+                retryReply->setProperty("fromLon", fromLon);
+                retryReply->setProperty("toLat", toLat);
+                retryReply->setProperty("toLon", toLon);
+                m_mapStatusLabel->setText("Routing retry (fallback provider)...");
+                reply->deleteLater();
+                return;
             }
-            m_mapStatusLabel->setText("Routing service error. Please verify addresses.");
+            if (requestValhallaRoute(fromLat, fromLon, toLat, toLon)) {
+                reply->deleteLater();
+                return;
+            }
+            if (requestOrsRoute(fromLat, fromLon, toLat, toLon)) {
+                reply->deleteLater();
+                return;
+            }
+            const QString fallbackText = orsKeyMissing
+                ? "Routing requires ORS_API_KEY. Showing direct distance."
+                : "Routing unavailable. Showing direct distance.";
+            const bool usedFallback = applyDirectFallback(fromLat, fromLon, toLat, toLon, fallbackText);
+            if (!usedFallback) {
+                m_mapRouteGeoPoints.clear();
+                renderOrderMap();
+                if (m_mapDeliveryInfoLabel) {
+                    m_mapDeliveryInfoLabel->setText("Road route unavailable for car travel.");
+                }
+                m_mapStatusLabel->setText("Routing service error. Please verify addresses.");
+            }
             reply->deleteLater();
             return;
         }
@@ -2981,12 +3259,191 @@ void MainWindow::onMapNetworkFinished(QNetworkReply *reply)
             }
             m_mapStatusLabel->setText("Drivable route calculated successfully.");
         } else {
+            if (!fallbackProvider.isEmpty()) {
+                QUrl retryUrl(QString("%1/route/v1/driving/%2,%3;%4,%5")
+                                  .arg(routeHostForProvider(fallbackProvider))
+                                  .arg(fromLon, 0, 'f', 6)
+                                  .arg(fromLat, 0, 'f', 6)
+                                  .arg(toLon, 0, 'f', 6)
+                                  .arg(toLat, 0, 'f', 6));
+                QUrlQuery retryParams;
+                retryParams.addQueryItem("overview", "full");
+                retryParams.addQueryItem("geometries", "geojson");
+                retryParams.addQueryItem("alternatives", "false");
+                retryParams.addQueryItem("steps", "false");
+                retryParams.addQueryItem("annotations", "false");
+                retryUrl.setQuery(retryParams);
+
+                QNetworkRequest retryReq(retryUrl);
+                retryReq.setHeader(QNetworkRequest::UserAgentHeader, "HammerDownApp/1.0");
+                retryReq.setRawHeader("Accept", "application/json");
+                QNetworkReply *retryReply = m_mapNet->get(retryReq);
+                retryReply->setProperty("mapType", "route");
+                retryReply->setProperty("routeProvider", fallbackProvider);
+                retryReply->setProperty("fromLat", fromLat);
+                retryReply->setProperty("fromLon", fromLon);
+                retryReply->setProperty("toLat", toLat);
+                retryReply->setProperty("toLon", toLon);
+                m_mapStatusLabel->setText("Routing retry (fallback provider)...");
+                reply->deleteLater();
+                return;
+            }
+            if (requestValhallaRoute(fromLat, fromLon, toLat, toLon)) {
+                reply->deleteLater();
+                return;
+            }
+            if (requestOrsRoute(fromLat, fromLon, toLat, toLon)) {
+                reply->deleteLater();
+                return;
+            }
+            const QString fallbackText = orsKeyMissing
+                ? "Routing requires ORS_API_KEY. Showing direct distance."
+                : "No car route found. Showing direct distance.";
+            const bool usedFallback = applyDirectFallback(fromLat, fromLon, toLat, toLon, fallbackText);
+            if (!usedFallback) {
+                m_mapRouteGeoPoints.clear();
+                renderOrderMap();
+                if (m_mapDeliveryInfoLabel) {
+                    m_mapDeliveryInfoLabel->setText("No drivable road route found for car travel.");
+                }
+                m_mapStatusLabel->setText("No valid car route found between employee and client.");
+            }
+        }
+
+        reply->deleteLater();
+        return;
+    }
+
+    if (type == "route_ors") {
+        const QByteArray routeData = reply->readAll();
+        const double fromLat = reply->property("fromLat").toDouble();
+        const double fromLon = reply->property("fromLon").toDouble();
+        const double toLat = reply->property("toLat").toDouble();
+        const double toLon = reply->property("toLon").toDouble();
+
+        if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
+            const bool usedFallback = applyDirectFallback(fromLat, fromLon, toLat, toLon,
+                                                         "Routing unavailable. Showing direct distance.");
+            if (!usedFallback) {
+                m_mapRouteGeoPoints.clear();
+                renderOrderMap();
+                if (m_mapDeliveryInfoLabel) {
+                    m_mapDeliveryInfoLabel->setText("Road route unavailable for car travel.");
+                }
+                m_mapStatusLabel->setText("Routing service error. Please verify addresses.");
+            }
+            reply->deleteLater();
+            return;
+        }
+
+        QJsonDocument doc = QJsonDocument::fromJson(routeData);
+        QJsonObject root = doc.object();
+        const QJsonArray features = root.value("features").toArray();
+
+        if (!features.isEmpty()) {
+            const QJsonObject feat = features.first().toObject();
+            const QJsonObject geometry = feat.value("geometry").toObject();
+            const QJsonArray coords = geometry.value("coordinates").toArray();
+            const QJsonObject props = feat.value("properties").toObject();
+            const QJsonObject summary = props.value("summary").toObject();
+
             m_mapRouteGeoPoints.clear();
+            for (const QJsonValue &coordVal : coords) {
+                const QJsonArray coord = coordVal.toArray();
+                if (coord.size() < 2) continue;
+                const double lon = coord.at(0).toDouble();
+                const double lat = coord.at(1).toDouble();
+                m_mapRouteGeoPoints.push_back(QPointF(lon, lat));
+            }
+
+            const double distanceKm = summary.value("distance").toDouble() / 1000.0;
+            const int etaMinutes = qMax(1, qRound(summary.value("duration").toDouble() / 60.0));
+
             renderOrderMap();
             if (m_mapDeliveryInfoLabel) {
-                m_mapDeliveryInfoLabel->setText("No drivable road route found for car travel.");
+                m_mapDeliveryInfoLabel->setText(
+                    QString("Road Distance: %1 km | ETA (car): %2 min")
+                        .arg(distanceKm, 0, 'f', 1)
+                        .arg(etaMinutes));
             }
-            m_mapStatusLabel->setText("No valid car route found between employee and client.");
+            m_mapStatusLabel->setText("Drivable route calculated successfully.");
+        } else {
+            const bool usedFallback = applyDirectFallback(fromLat, fromLon, toLat, toLon,
+                                                         "No car route found. Showing direct distance.");
+            if (!usedFallback) {
+                m_mapRouteGeoPoints.clear();
+                renderOrderMap();
+                if (m_mapDeliveryInfoLabel) {
+                    m_mapDeliveryInfoLabel->setText("No drivable road route found for car travel.");
+                }
+                m_mapStatusLabel->setText("No valid car route found between employee and client.");
+            }
+        }
+
+        reply->deleteLater();
+        return;
+    }
+
+    if (type == "route_valhalla") {
+        const QByteArray routeData = reply->readAll();
+        const double fromLat = reply->property("fromLat").toDouble();
+        const double fromLon = reply->property("fromLon").toDouble();
+        const double toLat = reply->property("toLat").toDouble();
+        const double toLon = reply->property("toLon").toDouble();
+
+        if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
+            const bool usedFallback = applyDirectFallback(fromLat, fromLon, toLat, toLon,
+                                                         "Routing unavailable. Showing direct distance.");
+            if (!usedFallback) {
+                m_mapRouteGeoPoints.clear();
+                renderOrderMap();
+                if (m_mapDeliveryInfoLabel) {
+                    m_mapDeliveryInfoLabel->setText("Road route unavailable for car travel.");
+                }
+                m_mapStatusLabel->setText("Routing service error. Please verify addresses.");
+            }
+            reply->deleteLater();
+            return;
+        }
+
+        QJsonDocument doc = QJsonDocument::fromJson(routeData);
+        QJsonObject root = doc.object();
+        QJsonObject trip = root.value("trip").toObject();
+        QJsonObject summary = trip.value("summary").toObject();
+        const QJsonArray legs = trip.value("legs").toArray();
+
+        QString shape;
+        if (!legs.isEmpty()) {
+            shape = legs.first().toObject().value("shape").toString();
+            if (summary.isEmpty()) {
+                summary = legs.first().toObject().value("summary").toObject();
+            }
+        }
+
+        const double distanceKm = summary.value("length").toDouble();
+        const int etaMinutes = qMax(1, qRound(summary.value("time").toDouble() / 60.0));
+
+        m_mapRouteGeoPoints = decodePolyline(shape, 6);
+        if (m_mapRouteGeoPoints.size() > 1) {
+            renderOrderMap();
+            if (m_mapDeliveryInfoLabel) {
+                m_mapDeliveryInfoLabel->setText(
+                    QString("Road Distance: %1 km | ETA (car): %2 min")
+                        .arg(distanceKm, 0, 'f', 1)
+                        .arg(etaMinutes));
+            }
+            m_mapStatusLabel->setText("Drivable route calculated successfully.");
+        } else {
+            const bool usedFallback = applyDirectFallback(fromLat, fromLon, toLat, toLon,
+                                                         "No car route found. Showing direct distance.");
+            if (!usedFallback) {
+                m_mapRouteGeoPoints.clear();
+                renderOrderMap();
+                if (m_mapDeliveryInfoLabel) {
+                    m_mapDeliveryInfoLabel->setText("No drivable road route found for car travel.");
+                }
+                m_mapStatusLabel->setText("No valid car route found between employee and client.");
+            }
         }
 
         reply->deleteLater();

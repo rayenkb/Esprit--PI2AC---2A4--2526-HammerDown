@@ -848,9 +848,9 @@ QPushButton:hover { background-color: #3E7A37; border: 2px solid #FFF; }</string
      <property name="geometry">
       <rect>
        <x>20</x>
-       <y>150</y>
+       <y>140</y>
        <width>1011</width>
-       <height>501</height>
+       <height>530</height>
       </rect>
      </property>
      <layout class="QGridLayout" name="gridLayout_stats"/>
@@ -860,35 +860,38 @@ QPushButton:hover { background-color: #3E7A37; border: 2px solid #FFF; }</string
       <rect>
        <x>20</x>
        <y>70</y>
-       <width>220</width>
-       <height>50</height>
+       <width>240</width>
+       <height>55</height>
       </rect>
      </property>
      <property name="styleSheet">
       <string notr="true">QPushButton {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6A1B9A, stop:1 #4A148C);
-    border-radius: 25px;
-    color: white;
-    font-weight: 800;
-    font-size: 15px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #D4AF37, stop:0.5 #B8941D, stop:1 #8B6F47);
+    border-radius: 28px;
+    color: #1a1510;
+    font-weight: 900;
+    font-size: 14px;
     font-family: 'Segoe UI';
     border: 2px solid #D4AF37;
-    border-bottom: 5px solid #8B6F47;
+    border-bottom: 6px solid #6B5B3E;
+    padding-left: 15px;
+    padding-right: 15px;
 }
 QPushButton:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #8E24AA, stop:1 #6A1B9A);
-    border-bottom: 5px solid #D4AF37;
-    color: #FDEBD0;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #E4C347, stop:0.5 #C8A42D, stop:1 #9B7F57);
+    border-bottom: 6px solid #8B6F47;
+    color: #0f0a05;
 }
 QPushButton:pressed {
-    background: #4A148C;
-    border-top: 3px solid #8B6F47;
-    border-bottom: 2px solid #8B6F47;
-    padding-top: 3px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #8B6F47, stop:1 #6B5B3E);
+    border-top: 4px solid #6B5B3E;
+    border-bottom: 2px solid #D4AF37;
+    padding-top: 4px;
+    color: #D4AF37;
 }</string>
      </property>
      <property name="text">
-      <string>🚀 GENERATE 3D AI INSIGHTS</string>
+      <string>🤖 GENERATE AI INSIGHTS</string>
      </property>
     </widget>
    </widget>
