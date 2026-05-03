@@ -1294,6 +1294,33 @@ void MainWindow::resumeHomeAudioAfterTutorial()
     m_homeAudioPausedByTutorial = false;
 }
 
+void MainWindow::pauseHomeAudioForWeather()
+{
+    if (!homeAudioPlayer) return;
+    if (m_audioSuspendedForOstp) return;
+    if (homeAudioPlayer->playbackState() != QMediaPlayer::PlayingState) return;
+
+    m_homeAudioWeatherResumePos = homeAudioPlayer->position();
+    m_homeAudioPausedByWeather = true;
+    homeAudioPlayer->pause();
+}
+
+void MainWindow::resumeHomeAudioAfterWeather()
+{
+    if (!m_homeAudioPausedByWeather || !homeAudioPlayer) {
+        m_homeAudioPausedByWeather = false;
+        return;
+    }
+    if (m_audioSuspendedForOstp) {
+        return;
+    }
+
+    if (homeAudioOutput) homeAudioOutput->setVolume(homeOstmVolume(currentVolume));
+    homeAudioPlayer->setPosition(m_homeAudioWeatherResumePos);
+    homeAudioPlayer->play();
+    m_homeAudioPausedByWeather = false;
+}
+
 void MainWindow::suspendAudioForOstp()
 {
     if (m_audioSuspendedForOstp) return;
