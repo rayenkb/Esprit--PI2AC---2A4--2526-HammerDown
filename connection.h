@@ -13,8 +13,8 @@ static bool createConnection()
     db.setHostName("localhost");
     db.setPort(1521);
     db.setDatabaseName("Source_Projet2A");
-    db.setUserName("bawe");
-    db.setPassword("bawe");
+    db.setUserName("RAMII");
+    db.setPassword("rami123");
 
     if (!db.open()) {
         qDebug() << "QOCI driver failed, trying ODBC...";
@@ -35,8 +35,8 @@ static bool createConnection()
         );
         */
 
-        db.setUserName("bawe");
-        db.setPassword("bawe");
+        db.setUserName("RAMII");
+        db.setPassword("rami123");
         
         if (!db.open()) {
             qDebug() << "Database connection failed!";

@@ -238,9 +238,6 @@ void RadialCommandMenu::mouseMoveEvent(QMouseEvent *e) {
 void RadialCommandMenu::mousePressEvent(QMouseEvent *e) {
     if (m_hoverIdx != -1 && e->button() == Qt::LeftButton) {
         emit actionSelected(m_actions[m_hoverIdx].name, m_activeId);
-        animateClose();
-    } else if (e->button() == Qt::LeftButton) {
-        animateClose();
     }
 }
 

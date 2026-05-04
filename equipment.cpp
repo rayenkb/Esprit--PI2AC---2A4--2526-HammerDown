@@ -1383,8 +1383,25 @@ void MainWindow::onEquipmentAdd()
 }
 
 void MainWindow::onRadialAction(const QString &action, int id) {
+    if (!ui_equipment || !ui_equipment->tabWidget) return;
+
+    if (action == "STATS") {
+        ui_equipment->tabWidget->setCurrentWidget(ui_equipment->tab_stats);
+        setupEquipmentStats();
+        return;
+    }
+
+    if (action == "NEXUS") {
+        if (m_nexusWidget) {
+            ui_equipment->tabWidget->setCurrentWidget(m_nexusWidget);
+            m_nexusWidget->highlightEquipmentInGraph(id);
+        }
+        return;
+    }
+
     // Find row index for this ID
     QSqlQueryModel *m = qobject_cast<QSqlQueryModel*>(ui_equipment->table_equipments->model());
+    if (!m) return;
     int row = -1;
     for (int i = 0; i < m->rowCount(); ++i) {
         if (m->data(m->index(i, 2)).toInt() == id) {
@@ -1399,8 +1416,6 @@ void MainWindow::onRadialAction(const QString &action, int id) {
     } else if (action == "DELETE") {
         ui_equipment->table_equipments->setCurrentIndex(m->index(row, 1));
         onEquipmentDelete();
-    } else if (action == "STATS") {
-        ui_equipment->tabWidget->setCurrentWidget(ui_equipment->tab_stats);
     }
 }
 
