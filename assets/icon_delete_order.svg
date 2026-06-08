@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <g fill="none" stroke="#8B6F47" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Trash Can Lidar -->
+    <path d="M16 18 h32" stroke-width="6"/>
+    <path d="M24 18 v-4 a4 4 0 0 1 4 -4 h8 a4 4 0 0 1 4 4 v4" />
+    
+    <!-- Trash Can Body -->
+    <path d="M20 18 v32 a4 4 0 0 0 4 4 h16 a4 4 0 0 0 4 -4 v-32" />
+    
+    <!-- Document representing order with X inside it to clarify "Delete Order" -->
+    <!-- Just using typical trash grooves for now, maybe add a small X -->
+    <path d="M28 28 v16 M36 28 v16" stroke-width="4" stroke-opacity="0.8"/>
+  </g>
+</svg>

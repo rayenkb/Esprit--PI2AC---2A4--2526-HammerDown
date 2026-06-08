@@ -1,0 +1,58 @@
+<RCC>
+    <qresource prefix="/">
+        <file>assets/logo.png</file>
+        <file>assets/background.png</file>
+        <file>assets/button_bg.png</file>
+        <file>assets/bg2.PNG</file>
+        <file>assets/icon_add.png</file>
+        <file>assets/icon_modify.png</file>
+        <file>assets/icon_delete.png</file>
+        <file>assets/icon_cancel.png</file>
+        <file>assets/icon_search.png</file>
+        <file>assets/icon_sms.png</file>
+        <file>assets/login.png</file>
+        <file>assets/home.png</file>
+        <file>assets/return.png</file>
+        <file>assets/gear.png</file>
+        <file>assets/disconnect.png</file>
+        <file>assets/pdf_export.png</file>
+        <file>assets/printer.png</file>
+        <file>assets/refresh.png</file>
+        <file>assets/save.png</file>
+        <file>assets/chat_bot.svg</file>
+        <file>assets/help_icon.svg</file>
+        <file>assets/icon_qr.svg</file>
+        <file>assets/icon_clear_fields.svg</file>
+        <file>assets/icon_import_orders.svg</file>
+        <file>assets/icon_delete_order.svg</file>
+        <file>assets/add.png</file>
+        <file>assets/modify.png</file>
+        <file>assets/meteorology.png</file>
+        <file>assets/graph.png</file>
+        <file>assets/report.png</file>
+        <file>assets/time.png</file>
+        <file>assets/id.png</file>
+        <file>assets/predict.png</file>
+        <file>assets/maintenance.png</file>
+        <file>assets/aiforge.png</file>
+        <file>assets/welcome.gif</file>
+        <file>assets/K.png</file>
+        <file>assets/Y.png</file>
+        <file>assets/R.png</file>
+        <file>assets/G.png</file>
+        <file>assets/C.png</file>
+
+        <file>assets/guide_normal.svg</file>
+        <file>assets/guide_excited.svg</file>
+        <file>assets/guide_confused.svg</file>
+        <file>assets/weather/sun.png</file>
+        <file>assets/weather/rain.png</file>
+        <file>assets/weather/cloud.png</file>
+        <file>assets/weather/humidity.png</file>
+        <file>assets/weather/temperature.png</file>
+        <file>assets/backgrounds/wood.jpg</file>
+    </qresource>
+    <qresource prefix="/translations">
+        <file alias="app_fr.qm">translations/app_fr.qm</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <g fill="none" stroke="#8B6F47" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Outer boxes -->
+    <rect x="12" y="12" width="16" height="16" rx="2"/>
+    <rect x="36" y="12" width="16" height="16" rx="2"/>
+    <rect x="12" y="36" width="16" height="16" rx="2"/>
+    <!-- Inner dots -->
+    <rect x="16" y="16" width="8" height="8" rx="1" fill="#8B6F47"/>
+    <rect x="40" y="16" width="8" height="8" rx="1" fill="#8B6F47"/>
+    <rect x="16" y="40" width="8" height="8" rx="1" fill="#8B6F47"/>
+    <!-- Bottom right corner geometric pattern -->
+    <rect x="36" y="36" width="8" height="8" rx="1" fill="#8B6F47"/>
+    <path d="M48 36 l0 16 M36 48 l16 0" />
+    <!-- Small connection point -->
+    <circle cx="48" cy="48" r="2" fill="#8B6F47" stroke="none"/>
+  </g>
+</svg>

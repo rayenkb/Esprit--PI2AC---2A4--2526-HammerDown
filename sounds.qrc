@@ -1,0 +1,15 @@
+<RCC>
+    <qresource prefix="/">
+        <file>assets/forge.mp3</file>
+        <file>assets/ost1.mp3</file>
+        <file>assets/ost2.mp3</file>
+        <file>assets/ostm.mp3</file>
+        <file>assets/ost3.mp3</file>
+        <file>assets/ost4.mp3</file>
+        <file>assets/ostp.mp3</file>
+        <file>assets/chat_ambient.mp3</file>
+        <file>assets/botawk.mp3</file>
+        <file>assets/ger.mp3</file>
+        <file>assets/crost.mp3</file>
+    </qresource>
+</RCC>

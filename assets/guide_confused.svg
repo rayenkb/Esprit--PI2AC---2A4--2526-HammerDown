@@ -1,0 +1,111 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 200" width="160" height="200">
+  <defs>
+    <radialGradient id="eyeGlowC" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#d4a96a"/>
+      <stop offset="50%" stop-color="#8B5E2A"/>
+      <stop offset="100%" stop-color="#3d1f00"/>
+    </radialGradient>
+    <radialGradient id="orbGlowC" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#d4a96a"/>
+      <stop offset="60%" stop-color="#8B6F47"/>
+      <stop offset="100%" stop-color="#5c3a1e"/>
+    </radialGradient>
+    <linearGradient id="robeGradC" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4a2e12"/>
+      <stop offset="40%" stop-color="#3d2510"/>
+      <stop offset="100%" stop-color="#1a0f05"/>
+    </linearGradient>
+    <linearGradient id="skinGradC" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6a4020"/>
+      <stop offset="50%" stop-color="#4a2e12"/>
+      <stop offset="100%" stop-color="#3d2510"/>
+    </linearGradient>
+  </defs>
+  <!-- Floating question marks -->
+  <text x="125" y="25" font-size="18" fill="#d4a96a" opacity="0.8" font-family="serif" font-weight="bold">?</text>
+  <text x="10" y="30" font-size="14" fill="#8B6F47" opacity="0.7" font-family="serif" font-weight="bold">?</text>
+  <text x="135" y="65" font-size="11" fill="#d4a96a" opacity="0.6" font-family="serif" font-weight="bold">?</text>
+  <ellipse cx="80" cy="197" rx="38" ry="5" fill="#0a0500" opacity="0.5"/>
+  <rect x="55" y="158" width="20" height="18" rx="6" fill="#3d2510" stroke="#4a2e12" stroke-width="1.5"/>
+  <rect x="82" y="158" width="20" height="18" rx="6" fill="#3d2510" stroke="#4a2e12" stroke-width="1.5"/>
+  <line x1="58" y1="162" x2="72" y2="170" stroke="#2a1a08" stroke-width="0.8" opacity="0.6"/>
+  <line x1="85" y1="162" x2="99" y2="170" stroke="#2a1a08" stroke-width="0.8" opacity="0.6"/>
+  <path d="M35 80 Q30 130 28 175 L132 175 Q130 130 125 82 Q110 74 80 72 Q50 74 35 80Z" fill="url(#robeGradC)" stroke="#4a2e12" stroke-width="1.5"/>
+  <line x1="50" y1="85" x2="42" y2="170" stroke="#2a1a08" stroke-width="1" opacity="0.5"/>
+  <line x1="65" y1="82" x2="60" y2="172" stroke="#2a1a08" stroke-width="0.8" opacity="0.4"/>
+  <line x1="80" y1="80" x2="80" y2="174" stroke="#2a1a08" stroke-width="0.8" opacity="0.3"/>
+  <line x1="95" y1="82" x2="100" y2="172" stroke="#2a1a08" stroke-width="0.8" opacity="0.4"/>
+  <line x1="110" y1="85" x2="118" y2="170" stroke="#2a1a08" stroke-width="1" opacity="0.5"/>
+  <rect x="38" y="118" width="84" height="10" rx="4" fill="#4a2e12" stroke="#8B6F47" stroke-width="1"/>
+  <ellipse cx="80" cy="123" rx="10" ry="7" fill="#1a0f05" stroke="#8B6F47" stroke-width="1"/>
+  <ellipse cx="80" cy="123" rx="6" ry="4" fill="#8B6F47" opacity="0.6"/>
+  <ellipse cx="80" cy="123" rx="3" ry="2" fill="#d4a96a" opacity="0.7"/>
+  <ellipse cx="37" cy="82" rx="16" ry="11" fill="#4a2e12" stroke="#8B6F47" stroke-width="1"/>
+  <ellipse cx="123" cy="82" rx="16" ry="11" fill="#4a2e12" stroke="#8B6F47" stroke-width="1"/>
+  <circle cx="37" cy="82" r="5" fill="#1a0f05" stroke="#8B6F47" stroke-width="1"/>
+  <circle cx="37" cy="82" r="2.5" fill="#8B6F47" opacity="0.7"/>
+  <circle cx="123" cy="82" r="5" fill="#1a0f05" stroke="#8B6F47" stroke-width="1"/>
+  <circle cx="123" cy="82" r="2.5" fill="#8B6F47" opacity="0.7"/>
+  <!-- Left arm tilted/confused posture -->
+  <path d="M37 90 Q18 115 15 143" stroke="#4a2e12" stroke-width="14" stroke-linecap="round" fill="none"/>
+  <path d="M37 90 Q18 115 15 143" stroke="#3d2510" stroke-width="10" stroke-linecap="round" fill="none"/>
+  <ellipse cx="14" cy="146" rx="9" ry="8" fill="#4a2e12" stroke="#4a2e12" stroke-width="1"/>
+  <line x1="6" y1="142" x2="3" y2="132" stroke="#4a2e12" stroke-width="3" stroke-linecap="round"/>
+  <line x1="9" y1="140" x2="7" y2="130" stroke="#4a2e12" stroke-width="3" stroke-linecap="round"/>
+  <line x1="14" y1="138" x2="13" y2="128" stroke="#4a2e12" stroke-width="3" stroke-linecap="round"/>
+  <line x1="19" y1="139" x2="20" y2="130" stroke="#4a2e12" stroke-width="3" stroke-linecap="round"/>
+  <rect x="4" y="50" width="8" height="100" rx="3" fill="#3d2510" stroke="#4a2e12" stroke-width="1"/>
+  <path d="M2 54 Q9 40 16 54" stroke="#8B6F47" stroke-width="2" fill="none"/>
+  <circle cx="8" cy="46" r="12" fill="#2a1a08" stroke="#8B6F47" stroke-width="1.5"/>
+  <circle cx="8" cy="46" r="8" fill="url(#orbGlowC)"/>
+  <circle cx="8" cy="46" r="5" fill="#d4a96a" opacity="0.7"/>
+  <circle cx="6" cy="43" r="1.5" fill="#ffd700" opacity="0.5"/>
+  <line x1="8" y1="33" x2="8" y2="28" stroke="#d4a96a" stroke-width="1.2" opacity="0.6"/>
+  <line x1="17" y1="38" x2="20" y2="34" stroke="#d4a96a" stroke-width="1.2" opacity="0.5"/>
+  <line x1="-1" y1="38" x2="-4" y2="34" stroke="#d4a96a" stroke-width="1.2" opacity="0.5"/>
+  <!-- Right arm raised to head in confusion -->
+  <path d="M123 88 Q142 80 148 65" stroke="#4a2e12" stroke-width="14" stroke-linecap="round" fill="none"/>
+  <path d="M123 88 Q142 80 148 65" stroke="#3d2510" stroke-width="10" stroke-linecap="round" fill="none"/>
+  <ellipse cx="150" cy="62" rx="9" ry="8" fill="#4a2e12" stroke="#4a2e12" stroke-width="1"/>
+  <line x1="145" y1="56" x2="143" y2="46" stroke="#4a2e12" stroke-width="3" stroke-linecap="round"/>
+  <line x1="150" y1="55" x2="150" y2="45" stroke="#4a2e12" stroke-width="3" stroke-linecap="round"/>
+  <line x1="155" y1="57" x2="157" y2="47" stroke="#4a2e12" stroke-width="3" stroke-linecap="round"/>
+  <rect x="68" y="62" width="24" height="16" rx="6" fill="#3d2510" stroke="#4a2e12" stroke-width="1"/>
+  <ellipse cx="80" cy="44" rx="32" ry="30" fill="url(#skinGradC)" stroke="#4a2e12" stroke-width="2"/>
+  <path d="M55 38 Q60 44 55 50" stroke="#2a1a08" stroke-width="0.8" fill="none" opacity="0.5"/>
+  <path d="M60 34 Q64 44 60 54" stroke="#2a1a08" stroke-width="0.8" fill="none" opacity="0.4"/>
+  <path d="M100 38 Q96 44 100 50" stroke="#2a1a08" stroke-width="0.8" fill="none" opacity="0.5"/>
+  <path d="M95 34 Q92 44 95 54" stroke="#2a1a08" stroke-width="0.8" fill="none" opacity="0.4"/>
+  <path d="M58 52 Q62 72 65 76 Q72 80 80 78 Q88 80 95 76 Q98 72 102 52" fill="#3d2510" stroke="#4a2e12" stroke-width="1"/>
+  <line x1="65" y1="58" x2="67" y2="76" stroke="#2a1a08" stroke-width="0.8"/>
+  <line x1="72" y1="60" x2="73" y2="78" stroke="#2a1a08" stroke-width="0.8"/>
+  <line x1="80" y1="62" x2="80" y2="78" stroke="#2a1a08" stroke-width="0.8"/>
+  <line x1="88" y1="60" x2="87" y2="78" stroke="#2a1a08" stroke-width="0.8"/>
+  <line x1="95" y1="58" x2="93" y2="76" stroke="#2a1a08" stroke-width="0.8"/>
+  <!-- Asymmetric confused eyes - left wide, right squinting -->
+  <ellipse cx="65" cy="40" rx="12" ry="11" fill="#1a0f05"/>
+  <ellipse cx="65" cy="40" rx="8" ry="8" fill="url(#eyeGlowC)"/>
+  <circle cx="65" cy="40" r="4" fill="#d4a96a" opacity="0.7"/>
+  <circle cx="63" cy="38" r="1.2" fill="#fffbe0" opacity="0.5"/>
+  <ellipse cx="65" cy="40" rx="11" ry="11" fill="none" stroke="#8B6F47" stroke-width="1" opacity="0.3"/>
+  <!-- Right eye squinting -->
+  <ellipse cx="95" cy="42" rx="11" ry="5" fill="#1a0f05"/>
+  <ellipse cx="95" cy="42" rx="7" ry="3.5" fill="#8B5E2A" opacity="0.7"/>
+  <circle cx="95" cy="42" r="2" fill="#d4a96a" opacity="0.6"/>
+  <!-- Raised eyebrow on narrow eye -->
+  <path d="M88 32 Q95 28 102 33" stroke="#5c3a1e" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- Normal eyebrow on wide eye -->
+  <path d="M58 28 Q65 26 72 29" stroke="#5c3a1e" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M77 46 Q79 51 80 53 Q81 51 83 46" stroke="#2a1a08" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- Wavy confused mouth -->
+  <path d="M68 60 Q72 56 76 60 Q80 64 84 60 Q88 56 92 60" stroke="#2a1a08" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <path d="M48 40 Q44 5 80 2 Q116 5 112 40 Q108 15 80 12 Q52 15 48 40Z" fill="#2a1a08" stroke="#4a2e12" stroke-width="2"/>
+  <path d="M50 40 Q48 10 80 7 Q112 10 110 40" stroke="#8B6F47" stroke-width="1" fill="none" opacity="0.5"/>
+  <line x1="60" y1="35" x2="58" y2="8" stroke="#2a1a08" stroke-width="0.8" opacity="0.5"/>
+  <line x1="80" y1="34" x2="80" y2="7" stroke="#2a1a08" stroke-width="0.8" opacity="0.4"/>
+  <line x1="100" y1="35" x2="102" y2="8" stroke="#2a1a08" stroke-width="0.8" opacity="0.5"/>
+  <circle cx="80" cy="96" r="9" fill="#1a0f05" stroke="#8B6F47" stroke-width="1.5"/>
+  <circle cx="80" cy="96" r="5.5" fill="#8B6F47" opacity="0.7"/>
+  <circle cx="80" cy="96" r="3" fill="#d4a96a" opacity="0.7"/>
+  <circle cx="78" cy="94" r="1" fill="#fffbe0" opacity="0.4"/>
+</svg>
