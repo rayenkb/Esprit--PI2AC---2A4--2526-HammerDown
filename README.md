@@ -101,4 +101,4 @@ Voir [`.env.example`](.env.example) pour le modèle complet des clés de configu
 
 | Nom | Classe | Année | Tuteur |
 |-----|--------|-------|--------|
-| Hammer Down | PI — 2A4 | 2025–2026 | Soumaya Agroubi |
+| Hammer Down | PI — 2A4 | 2025–2026 | Saoussen Lakhdher |
