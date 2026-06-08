@@ -45,10 +45,10 @@ Avant de lancer l'application, vous devez initialiser le schéma de base de donn
     DB_USER=SYSTEM
     DB_PASS=esprit1
 
-    AI_API_KEY=votre_cle_groq
-    GIPHY_API_KEY=votre_cle_giphy
-    OPENWEATHER_API_KEY=votre_cle_openweathermap
-    GROQ_API_KEY=votre_cle_groq
+    AI_API_KEY=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
+    GIPHY_API_KEY=Rb870UMsk9bec2cUYjWBzwbFsCaUOJN6
+    OPENWEATHER_API_KEY=3f674291abc67961141f0d7be861b6a0
+    GROQ_API_KEY=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
     ```
 
 ### 4. Compilation et Exécution (via Qt Creator)
@@ -96,7 +96,7 @@ cmake --build build --config Release
 
 ## Demo
 
-*   **Vidéo de démonstration** : https://youtu.be/
+*   **Vidéo de démonstration** : https://www.youtube.com/watch?v=wF4bGg_VJuU&t=13s
 *   **Déploiement / Release** : https://github.com/SkrrtTn/projectc-/releases
 
 > Les captures d'écran et GIF de démonstration se trouvent dans le dossier [`demo/`](demo/).
@@ -113,4 +113,4 @@ Voir [`.env.example`](.env.example) — copier ce fichier en `.env` et remplir l
 
 | Nom | Classe | Année | Tuteur |
 |-----|--------|-------|--------|
-| Rayen | PI — 4A | 2025–2026 | — |
+| Hammer Down | PI — 2A4 | 2025–2026 | Soumaya Agroubi |
