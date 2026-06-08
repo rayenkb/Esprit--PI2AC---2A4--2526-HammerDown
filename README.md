@@ -91,3 +91,26 @@ cmake --build build --config Release
 *   **Intelligence Météo & Conseils** : Assistant connecté récupérant les conditions en temps réel pour suggérer des recommandations adaptées au traitement du bois (humidité, séchage, OpenWeather + Llama 3).
 *   **Service Mail (SMTP) & QR Codes** : Génération de fiches d'identité matérielles, impression de rapports PDF stylisés, envoi de mails automatiques et scans par QR Codes.
 *   **Internationalisation dynamique** : Permet de basculer instantanément l'ensemble de l'interface du Français vers l'Anglais.
+
+---
+
+## Demo
+
+*   **Vidéo de démonstration** : https://youtu.be/
+*   **Déploiement / Release** : https://github.com/SkrrtTn/projectc-/releases
+
+> Les captures d'écran et GIF de démonstration se trouvent dans le dossier [`demo/`](demo/).
+
+---
+
+## Variables d'environnement
+
+Voir [`.env.example`](.env.example) — copier ce fichier en `.env` et remplir les valeurs réelles avant de lancer le projet.
+
+---
+
+## Auteurs
+
+| Nom | Classe | Année | Tuteur |
+|-----|--------|-------|--------|
+| Rayen | PI — 4A | 2025–2026 | — |

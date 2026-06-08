@@ -13,3 +13,14 @@ moc_*.cpp
 ui_*.h
 qrc_*.cpp
 Makefile*
+
+# Environment & secrets — NEVER commit real credentials
+.env
+*.env
+
+# Local database & chat storage
+*.db
+hammerdown_chat.json
+
+# Logs & temp
+*.log
