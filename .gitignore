@@ -24,3 +24,6 @@ hammerdown_chat.json
 
 # Logs & temp
 *.log
+*.docx
+*.pdf
+*.pptx

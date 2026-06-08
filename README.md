@@ -22,90 +22,78 @@ Pour exécuter le projet, les fichiers suivants doivent être présents à la ra
 
 ---
 
-## Installation et Lancement du Projet
+## Prérequis
 
-### 1. Prérequis Système
-1.  **Système d'exploitation** : Windows (requis pour charger la bibliothèque `libvosk.dll`).
-2.  **Compilateur C++** : MSVC (2019/2022) ou MinGW compatible C++17.
-3.  **Qt SDK** : Qt 5.15.x ou Qt 6.x.
-4.  **Base de données** : Oracle Database configurée et accessible (Port 1521).
+### Système & Environnement C++
+*   **OS cible** : Windows 10/11 (requis pour le chargement dynamique de `libvosk.dll`)
+*   **Compilateur** : MSVC (2019/2022) ou MinGW (compatible C++17)
+*   **Standard C++** : C++17
+*   **Version Qt** : Qt 5.15.x ou Qt 6.x
+*   **Base de données** : Oracle Database (Port 1521)
+*   **Dépendances système** :
+    *   Pilotes de base de données Oracle (`QOCI` ou `QODBC`)
+    *   Réseau requis pour les APIs externes (Groq, OpenWeatherMap, Giphy)
 
-### 2. Initialisation de la Base de Données
-Avant de lancer l'application, vous devez initialiser le schéma de base de données Oracle.
-1.  Connectez-vous à votre instance de base de données Oracle.
-2.  Exécutez l'intégralité du script SQL [schema.sql](file:///h:/7aw/docs/schema.sql) situé dans le répertoire `docs/`. Ce script va créer les tables (`CLIENTS`, `EMPLOYEES`, `SUPPLIERS`, `EQUIPMENT`, `ORDERS`, `EQUIPMENT_HISTORY`), configurer les index, séquences et déclencheurs d'audit automatiques, puis charger les données de test.
+---
 
-### 3. Configuration de l'environnement
-1.  Dupliquez le fichier de template [.env.example](file:///h:/7aw/.env.example) et renommez la copie en `.env`.
-2.  Renseignez vos coordonnées de connexion Oracle ainsi que vos clés d'API (OpenWeatherMap pour les données météo de Tunis et Groq/Giphy pour les assistants interactifs) :
-    ```ini
-    DB_HOST=localhost
-    DB_PORT=1521
-    DB_NAME=source_2a4
-    DB_USER=SYSTEM
-    DB_PASS=esprit1
+## Installation
 
-    AI_API_KEY=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
-    GIPHY_API_KEY=Rb870UMsk9bec2cUYjWBzwbFsCaUOJN6
-    OPENWEATHER_API_KEY=3f674291abc67961141f0d7be861b6a0
-    GROQ_API_KEY=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
-    ```
+### 1. Fichiers requis à la racine
+Assurez-vous que les fichiers suivants sont présents dans le répertoire racine :
+*   `libvosk.dll` (Bibliothèque acoustique Vosk pour l'assistant vocal)
+*   `hammerdown_chat.json` (Base locale pour la messagerie interne de l'atelier)
 
-### 4. Compilation et Exécution (via Qt Creator)
-1.  Lancez **Qt Creator**.
-2.  Ouvrez le projet en sélectionnant le fichier `HammerDown.pro` (ou `CMakeLists.txt`).
-3.  Configurez le projet avec votre Kit de compilation (ex: `Desktop Qt 5.15.2 MSVC2019 64bit`).
-4.  Cliquez sur le bouton **Exécuter** (icône verte ou `Ctrl + R`).
+### 2. Initialisation de la Base de Données Oracle
+Avant de lancer l'application, vous devez initialiser le schéma :
+1.  Connectez-vous à votre instance locale/distante Oracle Database.
+2.  Exécutez l'intégralité du script SQL [`docs/schema.sql`](docs/schema.sql) pour créer automatiquement les tables (`CLIENTS`, `EMPLOYEES`, `SUPPLIERS`, `EQUIPMENT`, `ORDERS`, `EQUIPMENT_HISTORY`), index, séquences, déclencheurs d'audit automatiques, et insérer le jeu de données fictives.
 
-### 5. Compilation en Ligne de Commande (QMake)
+### 3. Variables d'environnement
+1.  Copiez le fichier de template [`.env.example`](.env.example) et renommez-le en `.env`.
+2.  Renseignez vos identifiants Oracle et vos clés API (Groq, OpenWeatherMap, Giphy).
+
+---
+
+## Lancement
+
+### Option A. Lancement via Qt Creator (Recommandé)
+1.  Ouvrez **Qt Creator**.
+2.  Importez le projet en sélectionnant le fichier `HammerDown.pro`.
+3.  Configurez le projet avec votre Kit de compilation (ex: `Desktop Qt 6.7.3 MinGW 64-bit`).
+4.  Cliquez sur **Exécuter** (ou `Ctrl + R`).
+
+### Option B. Compilation et Lancement en Ligne de Commande (QMake)
 ```bash
-# Nettoyer et générer les Makefiles
+# Générer le Makefile
 qmake -makefile HammerDown.pro
 
-# Compiler le projet en mode Release
+# Compiler le projet
 mingw32-make.exe -f Makefile.Release
 
-# Exécuter l'application
+# Lancer l'exécutable
 release\HammerDown.exe
 ```
 
-### 6. Compilation en Ligne de Commande (CMake)
-```bash
-# Configurer le projet
-cmake -B build -S .
-
-# Compiler le projet
-cmake --build build --config Release
-
-# Exécuter l'application
-.\build\Release\HammerDown.exe
+### Option C. Lancement automatisé via Script
+Vous pouvez également exécuter le script de build fourni à la racine :
+```cmd
+build.bat
 ```
-
----
-
-## Fonctionnalités Clés
-*   **Gestion Complète (CRUD & Filtres)** : Modules dédiés à la gestion des Clients, Employés, Fournisseurs, Équipements et Commandes.
-*   **Triggers d'Audit Oracle** : Suivi en temps réel des actions sur l'inventaire matériel dans une table d'audit dédiée, synchronisée par déclencheur de base de données.
-*   **Assistant Vocal Hors Ligne** : Permet aux artisans d'utiliser des commandes vocales simples pour interroger la base ou naviguer dans l'application les mains libres.
-*   **Module Nexus & Coûts** : Outils de modélisation prédictive de pannes de machines et calculs financiers de TCO (Coût Total de Possession) avec graphiques Qt interactifs.
-*   **Intelligence Météo & Conseils** : Assistant connecté récupérant les conditions en temps réel pour suggérer des recommandations adaptées au traitement du bois (humidité, séchage, OpenWeather + Llama 3).
-*   **Service Mail (SMTP) & QR Codes** : Génération de fiches d'identité matérielles, impression de rapports PDF stylisés, envoi de mails automatiques et scans par QR Codes.
-*   **Internationalisation dynamique** : Permet de basculer instantanément l'ensemble de l'interface du Français vers l'Anglais.
-
----
-
-## Demo
-
-*   **Vidéo de démonstration** : https://www.youtube.com/watch?v=wF4bGg_VJuU&t=13s
-*   **Déploiement / Release** : https://github.com/SkrrtTn/projectc-/releases
-
-> Les captures d'écran et GIF de démonstration se trouvent dans le dossier [`demo/`](demo/).
 
 ---
 
 ## Variables d'environnement
 
-Voir [`.env.example`](.env.example) — copier ce fichier en `.env` et remplir les valeurs réelles avant de lancer le projet.
+Voir [`.env.example`](.env.example) pour le modèle complet des clés de configuration.
+
+---
+
+## Démo
+
+*   **Vidéo de démonstration** : https://www.youtube.com/watch?v=wF4bGg_VJuU&t=13s
+*   **Déploiement / Release** : https://github.com/SkrrtTn/projectc-/releases
+
+> Captures d'écran et animations disponibles dans le dossier [`demo/`](demo/).
 
 ---
 
