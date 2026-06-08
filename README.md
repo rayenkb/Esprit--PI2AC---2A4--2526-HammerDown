@@ -91,7 +91,7 @@ Voir [`.env.example`](.env.example) pour le modèle complet des clés de configu
 ## Démo
 
 *   **Vidéo de démonstration** : https://www.youtube.com/watch?v=wF4bGg_VJuU&t=13s
-*   **Déploiement / Release** : https://github.com/SkrrtTn/projectc-/releases
+*   **Déploiement / Release** : https://github.com/rayenkb/Esprit--PI2AC---2A4--2526-HammerDown/releases
 
 > Captures d'écran et animations disponibles dans le dossier [`demo/`](demo/).
 
