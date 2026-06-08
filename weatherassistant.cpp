@@ -16,6 +16,7 @@
 #include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSequentialAnimationGroup>
+#include <QProcessEnvironment>
 #include <QWheelEvent>
 #include <QtMath>
 #include <cmath>
@@ -192,7 +193,8 @@ void WeatherAssistant::onClockTick()
 
 void WeatherAssistant::refreshWeather()
 {
-    const QString urlStr = "http://api.openweathermap.org/data/2.5/weather?q=Tunis,TN&units=metric&appid=3f674291abc67961141f0d7be861b6a0";
+    const QString appid = QProcessEnvironment::systemEnvironment().value("OPENWEATHER_API_KEY", "3f674291abc67961141f0d7be861b6a0");
+    const QString urlStr = QString("http://api.openweathermap.org/data/2.5/weather?q=Tunis,TN&units=metric&appid=%1").arg(appid);
     QNetworkRequest request{QUrl(urlStr)};
     networkManager->get(request);
 }

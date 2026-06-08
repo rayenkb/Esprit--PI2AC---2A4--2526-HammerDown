@@ -5,38 +5,47 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QDebug>
+#include <QProcessEnvironment>
 
 static bool createConnection()
 {
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    QString dbHost = env.value("DB_HOST", "localhost");
+    int dbPort = env.value("DB_PORT", "1521").toInt();
+    QString dbName = env.value("DB_NAME", "source_2a4");
+    QString dbUser = env.value("DB_USER", "SYSTEM");
+    QString dbPass = env.value("DB_PASS", "esprit1");
+
     // METHOD 1: Try Oracle native driver first (QOCI)
     QSqlDatabase db = QSqlDatabase::addDatabase("QOCI");
-    db.setHostName("localhost");
-    db.setPort(1521);
-    db.setDatabaseName("Source_Projet2A");
-    db.setUserName("RAMII");
-    db.setPassword("rami123");
+    db.setHostName(dbHost);
+    db.setPort(dbPort);
+    db.setDatabaseName(dbName);
+    db.setUserName(dbUser);
+    db.setPassword(dbPass);
 
     if (!db.open()) {
         qDebug() << "QOCI driver failed, trying ODBC...";
-
+        
         // METHOD 2: Fallback to ODBC
         QSqlDatabase::removeDatabase("qt_sql_default_connection");
         db = QSqlDatabase::addDatabase("QODBC");
-
+        
         // Option A: Use TNS name (if configured in tnsnames.ora)
-        db.setDatabaseName("Source_Projet2A");
-
+        db.setDatabaseName(dbName);
+        
         /* Option B: Full connection string (uncomment if Option A doesn't work)
         db.setDatabaseName(
-            "DRIVER={Oracle in OraClient12Home1};"
-            "DBQ=localhost:1521/Source_Projet2A;"
-            "UID=skrrt;"
-            "PWD=exprix;"
+            QString("DRIVER={Oracle in OraClient12Home1};"
+                    "DBQ=%1:%2/%3;"
+                    "UID=%4;"
+                    "PWD=%5;")
+            .arg(dbHost).arg(dbPort).arg(dbName).arg(dbUser).arg(dbPass)
         );
         */
-
-        db.setUserName("RAMII");
-        db.setPassword("rami123");
+        
+        db.setUserName(dbUser);
+        db.setPassword(dbPass);
         
         if (!db.open()) {
             qDebug() << "Database connection failed!";

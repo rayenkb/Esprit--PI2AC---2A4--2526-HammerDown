@@ -12,6 +12,7 @@
 #include <QDateTime>
 #include <QTimer>
 #include <QNetworkAccessManager>
+#include <QProcessEnvironment>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QMovie>
@@ -3124,7 +3125,7 @@ void MainWindow::setupEquipmentConnections()
     }
     
     aiNetworkManager = new QNetworkAccessManager(this);
-    aiApiKey = "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";
+    aiApiKey = QProcessEnvironment::systemEnvironment().value("AI_API_KEY", "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");
     giphyNetworkManager = new QNetworkAccessManager(this);
     chatSummaryNetManager = new QNetworkAccessManager(this);
     
@@ -3831,7 +3832,7 @@ void MainWindow::onChatGifClicked()
     mainLay->addWidget(scroll, 1);
 
     // GIPHY API key
-    QString giphyKey = "Rb870UMsk9bec2cUYjWBzwbFsCaUOJN6";
+    QString giphyKey = QProcessEnvironment::systemEnvironment().value("GIPHY_API_KEY", "Rb870UMsk9bec2cUYjWBzwbFsCaUOJN6");
 
     // Lambda to populate results
     auto populateGifs = [this, gridWidget, gridLay, gifDialog, loadingLabel](QNetworkReply *reply) {

@@ -4,7 +4,14 @@ echo.
 
 REM Set Qt paths (adjust if Qt is installed elsewhere)
 set QT_PATH=C:\Qt\6.7.3\mingw_64
-set "PATH=%QT_PATH%\bin;%PATH%"
+if not exist "%QT_PATH%" (
+    if exist "H:\qt\6.7.3\mingw_64" (
+        set QT_PATH=H:\qt\6.7.3\mingw_64
+        set "PATH=H:\qt\Tools\CMake_64\bin;H:\qt\Tools\mingw1120_64\bin;H:\qt\6.7.3\mingw_64\bin;%PATH%"
+    )
+) else (
+    set "PATH=%QT_PATH%\bin;%PATH%"
+)
 
 REM Check if Qt tools are available
 where qmake >nul 2>nul
@@ -16,7 +23,7 @@ if %ERRORLEVEL% NEQ 0 (
     if %ERRORLEVEL% NEQ 0 (
         echo ERROR: qmake still not found. Please check Qt installation.
         echo Expected Qt installation: %QT_PATH%
-        pause
+        REM pause
         exit /b 1
     )
 )
@@ -34,7 +41,7 @@ if %ERRORLEVEL% NEQ 0 (
     where cmake >nul 2>nul
     if %ERRORLEVEL% NEQ 0 (
         echo ERROR: cmake not found either. Please install Qt with CMake.
-        pause
+        REM pause
         exit /b 1
     )
     
@@ -42,7 +49,7 @@ if %ERRORLEVEL% NEQ 0 (
     cmake .. -DCMAKE_PREFIX_PATH=%QT_PATH% -DCMAKE_BUILD_TYPE=Release
     if %ERRORLEVEL% NEQ 0 (
         echo ERROR: CMake configuration failed
-        pause
+        REM pause
         exit /b 1
     )
     
@@ -50,7 +57,7 @@ if %ERRORLEVEL% NEQ 0 (
     cmake --build . --config Release
     if %ERRORLEVEL% NEQ 0 (
         echo ERROR: CMake build failed
-        pause
+        REM pause
         exit /b 1
     )
 ) else (
@@ -58,7 +65,7 @@ if %ERRORLEVEL% NEQ 0 (
     mingw32-make
     if %ERRORLEVEL% NEQ 0 (
         echo ERROR: Build failed
-        pause
+        REM pause
         exit /b 1
     )
 )
@@ -70,4 +77,4 @@ echo.
 echo If SQL errors persist, ensure Qt SQL module is installed:
 echo - Check: %QT_PATH%\plugins\sqldrivers\ folder
 echo - Should contain: qsqlodbc.dll, qsqloci.dll (for Oracle)
-pause
+REM pause
